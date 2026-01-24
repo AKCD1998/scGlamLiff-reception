@@ -1,0 +1,148 @@
+:root {
+  --bg: #f3ebe2;
+  --bg-grad: radial-gradient(circle at top, #f9f1e6 0%, #e6d2bf 60%, #d8b99c 100%);
+  --panel: #fff7f0;
+  --border: #2a1206;
+  --text-strong: #2a1206;
+  --text-soft: #5a2a12;
+  --text-muted: #7a5a43;
+  --tab-bg: #efe1d2;
+  --tab-active: linear-gradient(135deg, #b3733b 0%, #7f350e 100%);
+  --tab-hover: #e0cbb7;
+  --button-bg: linear-gradient(135deg, #c0904c 0%, #8b5320 100%);
+  --table-border: #2a1206;
+  --toggle-track: #dfc4a6;
+  --toggle-thumb: #6b3b19;
+}
+
+body[data-theme="dark"] {
+  --bg: #0b0b0f;
+  --bg-grad: radial-gradient(circle at top, #1b1712 0%, #0b0b0f 70%, #050507 100%);
+  --panel: #141318;
+  --border: #8e6b3b;
+  --text-strong: #f2e6d2;
+  --text-soft: #d6c1a1;
+  --text-muted: #b39b78;
+  --tab-bg: #1a1713;
+  --tab-active: linear-gradient(135deg, #b08a4a 0%, #6d4c1a 100%);
+  --tab-hover: #221d17;
+  --button-bg: linear-gradient(135deg, #b08a4a 0%, #6d4c1a 100%);
+  --table-border: #8e6b3b;
+  --toggle-track: #2b231a;
+  --toggle-thumb: #d1b07a;
+}
+
+.workbench-page {
+  min-height: 100vh;
+  padding: 36px 56px 48px;
+  background: var(--bg-grad);
+  color: var(--text-strong);
+  font-family: "Montserrat", "Segoe UI", sans-serif;
+}
+
+.workbench-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  gap: 24px;
+}
+
+.header-left h1 {
+  margin: 0;
+  font-size: 2rem;
+  letter-spacing: 0.8px;
+}
+
+.header-left p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+}
+
+.workbench-body {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 24px;
+  margin-top: 24px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 12px 28px rgba(20, 12, 6, 0.2);
+}
+
+.panel-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 18px;
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
+.panel-title strong {
+  color: var(--text-strong);
+}
+
+.week-header {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 10px;
+}
+
+.day-cell {
+  padding: 12px 0;
+  border: 2px solid var(--table-border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-strong);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.day-cell.selected,
+.day-cell:hover {
+  background: var(--tab-active);
+  color: #f4eee9;
+}
+
+.table-wrap {
+  width: 100%;
+  overflow: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+th,
+td {
+  border: 2px solid var(--table-border);
+  padding: 10px 12px;
+}
+
+th {
+  background: var(--tab-bg);
+  color: var(--text-strong);
+  font-weight: 700;
+}
+
+tbody tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.02);
+}

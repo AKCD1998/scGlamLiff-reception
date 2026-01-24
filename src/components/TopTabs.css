@@ -1,0 +1,30 @@
+.top-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--tab-bg);
+}
+
+.top-tab {
+  padding: 18px 16px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--text-soft);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.top-tab.active {
+  background: var(--tab-active);
+  color: var(--text-strong);
+}
+
+.top-tab:not(.active):hover {
+  background: var(--tab-hover);
+}
