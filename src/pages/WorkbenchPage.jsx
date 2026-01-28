@@ -7,39 +7,6 @@ import "./WorkbenchPage.css";
 
 const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-const mockRows = [
-  {
-    datetime: "08/01/2026 10:00",
-    service: "Deep Clean",
-    lineId: "line_001",
-    scrub: "Yes",
-    facialMask: "Yes",
-    misting: "No",
-    extra: "150",
-    note: "Follow up in 2 weeks",
-  },
-  {
-    datetime: "09/01/2026 13:30",
-    service: "Brightening",
-    lineId: "line_014",
-    scrub: "No",
-    facialMask: "Yes",
-    misting: "Yes",
-    extra: "0",
-    note: "Sensitive skin",
-  },
-  {
-    datetime: "10/01/2026 09:15",
-    service: "Hydration",
-    lineId: "line_027",
-    scrub: "Yes",
-    facialMask: "No",
-    misting: "Yes",
-    extra: "300",
-    note: "-",
-  },
-];
-
 function startOfWeek(date) {
   const base = new Date(date);
   const day = base.getDay();
@@ -49,9 +16,60 @@ function startOfWeek(date) {
   return base;
 }
 
+function normalizeRow(row = {}) {
+  return {
+    date: row.date ?? "",
+    bookingTime: row.bookingTime ?? "",
+    customerName: row.customerName ?? "",
+    phone: row.phone ?? "",
+    lineId: row.lineId ?? "",
+    treatmentItem: row.treatmentItem ?? "",
+    staffName: row.staffName ?? "",
+    datetime: row.datetime ?? "", // backward compatibility for sorting fallback
+  };
+}
+
+function getRowTimestamp(row) {
+  const combined = row.date && row.bookingTime ? `${row.date} ${row.bookingTime}` : row.datetime;
+  const ts = Date.parse(combined);
+  return Number.isNaN(ts) ? 0 : ts;
+}
+
+function TabPlaceholder({ title }) {
+  return (
+    <section className="workbench-body">
+      <div className="panel" style={{ gridColumn: "1 / -1" }}>
+        <div className="panel-title">
+          <span>{title}</span>
+          <strong>กำลังพัฒนา</strong>
+        </div>
+        <h2 style={{ margin: "0 0 8px" }}>{title}</h2>
+        <p style={{ margin: 0, color: "var(--text-muted)" }}>
+          เนื้อหาจะถูกแสดงที่นี่
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function BookingPage() {
+  return <TabPlaceholder title="ระบบการจองคิว" />;
+}
+
+function StockPage() {
+  return <TabPlaceholder title="เกี่ยวกับสต๊อก" />;
+}
+
+function ProductGuidePage() {
+  return <TabPlaceholder title="คู่มือผลิตภัณฑ์" />;
+}
+
 export default function WorkbenchPage() {
   const [activeTab, setActiveTab] = useState("home");
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [userLabel, setUserLabel] = useState("");
   const [loadingUser, setLoadingUser] = useState(true);
   const [theme, setTheme] = useState("light");
@@ -62,6 +80,42 @@ export default function WorkbenchPage() {
     const nextTheme = stored === "dark" ? "dark" : "light";
     setTheme(nextTheme);
     document.body.dataset.theme = nextTheme;
+  }, []);
+
+  useEffect(() => {
+    const baseUrl = import.meta.env.VITE_API_BASE;
+    if (!baseUrl) {
+      setError("Missing VITE_API_BASE");
+      setLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const fetchRows = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`${baseUrl}/api/appointments?limit=50`, {
+          signal: controller.signal,
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          throw new Error(data.error || "Failed to load appointments");
+        }
+        const normalized = (data.rows || []).map(normalizeRow);
+        const sorted = normalized.sort((a, b) => getRowTimestamp(b) - getRowTimestamp(a));
+        setRows(sorted);
+      } catch (err) {
+        if (err.name === "AbortError") return;
+        setError(err.message || "Error loading appointments");
+        setRows([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRows();
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
@@ -107,6 +161,101 @@ export default function WorkbenchPage() {
     navigate("/login");
   };
 
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case "booking":
+        return <BookingPage />;
+      case "stock":
+        return <StockPage />;
+      case "productGuide":
+        return <ProductGuidePage />;
+      case "home":
+      default:
+        return (
+          <section className="workbench-body">
+            <div className="panel date-panel">
+              <div className="panel-title">
+                <span>Schedule</span>
+                <strong>{monthLabel}</strong>
+              </div>
+              <div className="week-header">
+                {weekDays.map((day) => (
+                  <span key={day}>{day}</span>
+                ))}
+              </div>
+              <div className="week-grid">
+                {weekDates.map((date) => {
+                  const isSelected =
+                    date.toDateString() === selectedDate.toDateString();
+                  return (
+                    <button
+                      type="button"
+                      key={date.toISOString()}
+                      className={`day-cell ${isSelected ? "selected" : ""}`}
+                      onClick={() => setSelectedDate(date)}
+                    >
+                      {date.getDate()}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="panel table-panel">
+              <div className="panel-title">
+                <span>Appointments</span>
+                <strong>ล่าสุด</strong>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>วันที่</th>
+                      <th>เวลาจอง</th>
+                      <th>ชื่อ-นามสกุล ลูกค้า</th>
+                      <th>โทรศัพท์</th>
+                      <th>อีเมล / line ID</th>
+                      <th>Treatment item</th>
+                      <th>Staff Name</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr>
+                        <td colSpan="7">กำลังโหลด...</td>
+                      </tr>
+                    ) : error ? (
+                      <tr>
+                        <td colSpan="7" style={{ color: "var(--text-muted)" }}>
+                          เกิดข้อผิดพลาด: {error}
+                        </td>
+                      </tr>
+                    ) : rows.length === 0 ? (
+                      <tr>
+                        <td colSpan="7">ไม่มีข้อมูล</td>
+                      </tr>
+                    ) : (
+                      rows.map((row, idx) => (
+                        <tr key={`${row.date}-${row.bookingTime}-${row.lineId || "row"}-${idx}`}>
+                          <td>{row.date}</td>
+                          <td>{row.bookingTime}</td>
+                          <td>{row.customerName}</td>
+                          <td>{row.phone}</td>
+                          <td>{row.lineId}</td>
+                          <td>{row.treatmentItem}</td>
+                          <td>{row.staffName}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        );
+    }
+  };
+
   return (
     <div className="workbench-page">
       <header className="workbench-header">
@@ -125,72 +274,7 @@ export default function WorkbenchPage() {
 
       <TopTabs activeTab={activeTab} onChange={setActiveTab} />
 
-      <section className="workbench-body">
-        <div className="panel date-panel">
-          <div className="panel-title">
-            <span>Schedule</span>
-            <strong>{monthLabel}</strong>
-          </div>
-          <div className="week-header">
-            {weekDays.map((day) => (
-              <span key={day}>{day}</span>
-            ))}
-          </div>
-          <div className="week-grid">
-            {weekDates.map((date) => {
-              const isSelected =
-                date.toDateString() === selectedDate.toDateString();
-              return (
-                <button
-                  type="button"
-                  key={date.toISOString()}
-                  className={`day-cell ${isSelected ? "selected" : ""}`}
-                  onClick={() => setSelectedDate(date)}
-                >
-                  {date.getDate()}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="panel table-panel">
-          <div className="panel-title">
-            <span>Appointments</span>
-            <strong>ล่าสุด</strong>
-          </div>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>วันที่ เวลา นัดหมาย</th>
-                  <th>ชื่อบริการ</th>
-                  <th>LineID</th>
-                  <th>scrub</th>
-                  <th>Facial mask</th>
-                  <th>misting</th>
-                  <th>ราคาเพิ่มเติม</th>
-                  <th>หมายเหตุ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {mockRows.map((row) => (
-                  <tr key={`${row.datetime}-${row.lineId}`}>
-                    <td>{row.datetime}</td>
-                    <td>{row.service}</td>
-                    <td>{row.lineId}</td>
-                    <td>{row.scrub}</td>
-                    <td>{row.facialMask}</td>
-                    <td>{row.misting}</td>
-                    <td>{row.extra}</td>
-                    <td>{row.note}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+      {renderTabContent()}
     </div>
   );
 }

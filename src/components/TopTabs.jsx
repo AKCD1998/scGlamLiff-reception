@@ -2,7 +2,9 @@ import "./TopTabs.css";
 
 const tabs = [
   { id: "home", label: "หน้าหลัก" },
-  { id: "staff", label: "บริการโดยพนักงาน" },
+  { id: "booking", label: "ระบบการจองคิว" },
+  { id: "stock", label: "เกี่ยวกับสต๊อก" },
+  { id: "productGuide", label: "คู่มือผลิตภัณฑ์" },
 ];
 
 export default function TopTabs({ activeTab, onChange }) {
