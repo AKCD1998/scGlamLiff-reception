@@ -31,3 +31,18 @@ export async function getAppointments(limit = 200, signal) {
   }
   return data;
 }
+
+export async function deleteAppointmentHard(id) {
+  ensureConfig();
+  const url = `${base}/api/appointments/delete-hard`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
+  const data = await res.json();
+  if (!data.ok) {
+    throw new Error(data.error || "GAS returned error");
+  }
+  return data;
+}

@@ -1,14 +1,16 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import TopTabs from "../components/TopTabs";
 import ProfileBar from "../components/ProfileBar";
 import { getMe, logout } from "../utils/authClient";
+import { deleteAppointmentHard, getAppointments } from "../utils/appointmentsApi";
 import Homepage from "./Homepage";
 import Bookingpage from "./Bookingpage";
 import "./WorkbenchPage.css";
 
 function normalizeRow(row = {}) {
   return {
+    id: row.id ?? "",
     date: row.date ?? "",
     bookingTime: row.bookingTime ?? "",
     customerName: row.customerName ?? "",
@@ -69,6 +71,23 @@ export default function WorkbenchPage() {
   const [theme, setTheme] = useState("light");
   const navigate = useNavigate();
 
+  const loadAppointments = useCallback(async (signal) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getAppointments(50, signal);
+      const normalized = (data.rows || []).map(normalizeRow);
+      const sorted = normalized.sort((a, b) => getRowTimestamp(b) - getRowTimestamp(a));
+      setRows(sorted);
+    } catch (err) {
+      if (err?.name === "AbortError") return;
+      setError(err?.message || "Error loading appointments");
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const stored = localStorage.getItem("theme");
     const nextTheme = stored === "dark" ? "dark" : "light";
@@ -77,40 +96,10 @@ export default function WorkbenchPage() {
   }, []);
 
   useEffect(() => {
-    const baseUrl = import.meta.env.VITE_API_BASE;
-    if (!baseUrl) {
-      setError("Missing VITE_API_BASE");
-      setLoading(false);
-      return;
-    }
-
     const controller = new AbortController();
-    const fetchRows = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(`${baseUrl}/api/appointments?limit=50`, {
-          signal: controller.signal,
-        });
-        const data = await res.json();
-        if (!data.ok) {
-          throw new Error(data.error || "Failed to load appointments");
-        }
-        const normalized = (data.rows || []).map(normalizeRow);
-        const sorted = normalized.sort((a, b) => getRowTimestamp(b) - getRowTimestamp(a));
-        setRows(sorted);
-      } catch (err) {
-        if (err.name === "AbortError") return;
-        setError(err.message || "Error loading appointments");
-        setRows([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchRows();
+    loadAppointments(controller.signal);
     return () => controller.abort();
-  }, []);
+  }, [loadAppointments]);
 
   useEffect(() => {
     let alive = true;
@@ -142,6 +131,11 @@ export default function WorkbenchPage() {
     navigate("/login");
   };
 
+  const handleDeleteAppointment = async (id) => {
+    await deleteAppointmentHard(id);
+    await loadAppointments();
+  };
+
   const renderTabContent = () => {
     switch (activeTab) {
       case "booking":
@@ -168,6 +162,7 @@ export default function WorkbenchPage() {
             loading={loading}
             error={error}
             onAddAppointment={() => setActiveTab("booking")}
+            onDeleteAppointment={handleDeleteAppointment}
           />
         );
     }

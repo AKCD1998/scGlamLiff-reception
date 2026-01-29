@@ -1,5 +1,5 @@
 // npm install react-day-picker
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DayPicker } from "react-day-picker";
 import "react-day-picker/dist/style.css";
 
@@ -90,7 +90,13 @@ export default function Homepage({
   loading,
   error,
   onAddAppointment,
+  onDeleteAppointment,
 }) {
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [toast, setToast] = useState(null);
   const monthLabel = useMemo(() => formatThaiMonthYear(displayMonth), [displayMonth]);
   const yearRange = useMemo(() => {
     const baseYear = new Date().getFullYear();
@@ -149,6 +155,53 @@ export default function Homepage({
     }
     alert("TODO: เพิ่มรายการจองคิว");
   };
+
+  const handleOpenDelete = (row) => {
+    if (!row?.id) {
+      setToast({ type: "error", message: "ไม่พบรหัสรายการสำหรับลบ" });
+      return;
+    }
+    setDeleteTarget(row);
+    setDeletePassword("");
+    setDeleteError("");
+  };
+
+  const handleCloseDelete = () => {
+    if (deleteBusy) return;
+    setDeleteTarget(null);
+    setDeletePassword("");
+    setDeleteError("");
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget?.id) return;
+    if (deletePassword !== "123123") {
+      setDeleteError("รหัสยืนยันไม่ถูกต้อง");
+      return;
+    }
+    if (typeof onDeleteAppointment !== "function") {
+      setDeleteError("ระบบลบยังไม่พร้อมใช้งาน");
+      return;
+    }
+    try {
+      setDeleteBusy(true);
+      setDeleteError("");
+      await onDeleteAppointment(deleteTarget.id);
+      setToast({ type: "success", message: "ลบรายการเรียบร้อยแล้ว" });
+      setDeleteTarget(null);
+      setDeletePassword("");
+    } catch (err) {
+      setDeleteError(err?.message || "ลบรายการไม่สำเร็จ");
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 2500);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   return (
     <section className="workbench-body">
@@ -282,26 +335,28 @@ export default function Homepage({
                 <th>อีเมล / line ID</th>
                 <th>Treatment item</th>
                 <th>Staff Name</th>
+                <th>ID</th>
+                <th>ลบ</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="7">กำลังโหลด...</td>
+                  <td colSpan="9">กำลังโหลด...</td>
                 </tr>
               ) : error ? (
                 <tr>
-                  <td colSpan="7" style={{ color: "var(--text-muted)" }}>
+                  <td colSpan="9" style={{ color: "var(--text-muted)" }}>
                     เกิดข้อผิดพลาด: {error}
                   </td>
                 </tr>
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan="7">ไม่มีข้อมูล</td>
+                  <td colSpan="9">ไม่มีข้อมูล</td>
                 </tr>
               ) : (
                 filteredRows.map((row, idx) => (
-                  <tr key={`${row.date}-${row.bookingTime}-${row.lineId || "row"}-${idx}`}>
+                  <tr key={`${row.id || row.date}-${row.bookingTime}-${row.lineId || "row"}-${idx}`}>
                     <td>{row.date}</td>
                     <td>{row.bookingTime}</td>
                     <td>{row.customerName}</td>
@@ -309,6 +364,16 @@ export default function Homepage({
                     <td>{row.lineId}</td>
                     <td>{row.treatmentItem}</td>
                     <td>{row.staffName}</td>
+                    <td className="row-id-cell">{row.id || "-"}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="row-delete-btn"
+                        onClick={() => handleOpenDelete(row)}
+                      >
+                        ลบ
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -316,6 +381,40 @@ export default function Homepage({
           </table>
         </div>
       </div>
+
+      {deleteTarget && (
+        <div className="delete-modal-backdrop" onClick={handleCloseDelete}>
+          <div className="delete-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>ยืนยันการลบรายการ</h3>
+            <p>
+              รายการ: {deleteTarget.customerName || "-"} ({deleteTarget.bookingTime || "-"})
+            </p>
+            <label htmlFor="delete-password">รหัสยืนยัน (123123)</label>
+            <input
+              id="delete-password"
+              type="password"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              placeholder="กรอกรหัสยืนยัน"
+            />
+            {deleteError && <div className="delete-error">{deleteError}</div>}
+            <div className="delete-modal-actions">
+              <button type="button" onClick={handleCloseDelete} disabled={deleteBusy}>
+                ยกเลิก
+              </button>
+              <button type="button" onClick={handleConfirmDelete} disabled={deleteBusy}>
+                {deleteBusy ? "กำลังลบ..." : "ยืนยันลบ"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className={`table-toast ${toast.type === "error" ? "is-error" : ""}`}>
+          {toast.message}
+        </div>
+      )}
     </section>
   );
 }

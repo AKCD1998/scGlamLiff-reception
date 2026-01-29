@@ -2,6 +2,7 @@ import {
   ensureGasConfig,
   fetchAppointments,
   createAppointmentRecord,
+  deleteAppointmentHard,
 } from '../services/gasService.js';
 
 function validatePayload(body) {
@@ -52,6 +53,25 @@ export async function createAppointment(req, res) {
 
   try {
     const data = await createAppointmentRecord(payload);
+    return res.json(data);
+  } catch (err) {
+    const status = err.name === 'AbortError' ? 504 : err.status || 500;
+    return res.status(status).json({ ok: false, error: err.message || 'Upstream error' });
+  }
+}
+
+export async function hardDeleteAppointment(req, res) {
+  if (!ensureGasConfig()) {
+    return res.status(500).json({ ok: false, error: 'Server missing GAS config' });
+  }
+
+  const id = typeof req.body?.id === 'string' ? req.body.id.trim() : '';
+  if (!id) {
+    return res.status(400).json({ ok: false, error: 'Missing required field: id' });
+  }
+
+  try {
+    const data = await deleteAppointmentHard(id);
     return res.json(data);
   } catch (err) {
     const status = err.name === 'AbortError' ? 504 : err.status || 500;

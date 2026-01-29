@@ -60,3 +60,29 @@ export async function createAppointmentRecord(payload) {
 
   return data;
 }
+
+export async function deleteAppointmentHard(id) {
+  if (!ensureGasConfig()) {
+    const err = new Error('Server missing GAS config');
+    err.status = 500;
+    throw err;
+  }
+
+  const target = `${GAS_URL}?action=appointments_delete_hard&key=${encodeURIComponent(GAS_SECRET)}`;
+
+  const resp = await fetchWithTimeout(target, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
+
+  const data = await resp.json();
+
+  if (!data.ok) {
+    const err = new Error(data.error || 'GAS returned error');
+    err.status = 502;
+    throw err;
+  }
+
+  return data;
+}
