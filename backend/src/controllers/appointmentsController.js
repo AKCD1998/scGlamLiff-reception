@@ -5,7 +5,7 @@ import {
 } from '../services/gasService.js';
 
 function validatePayload(body) {
-  const required = ['datetime', 'service', 'lineId'];
+  const required = ['date', 'bookingTime', 'customerName'];
   for (const field of required) {
     if (!body || typeof body[field] !== 'string' || !body[field].trim()) {
       return field;
@@ -41,14 +41,13 @@ export async function createAppointment(req, res) {
   }
 
   const payload = {
-    datetime: req.body.datetime,
-    service: req.body.service,
-    lineId: req.body.lineId,
-    scrub: req.body.scrub ?? '',
-    facialMask: req.body.facialMask ?? '',
-    misting: req.body.misting ?? '',
-    extra: req.body.extra ?? '',
-    note: req.body.note ?? '',
+    date: req.body.date?.trim(),
+    bookingTime: req.body.bookingTime?.trim(),
+    customerName: req.body.customerName?.trim(),
+    phone: req.body.phone?.trim() ?? '',
+    lineId: req.body.lineId?.trim() ?? '',
+    treatmentItem: req.body.treatmentItem?.trim() ?? '',
+    staffName: req.body.staffName?.trim() ?? '',
   };
 
   try {

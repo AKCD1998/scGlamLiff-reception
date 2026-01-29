@@ -321,6 +321,10 @@ body[data-theme="dark"] {
   display: none;
 }
 
+.calendar-picker .rdp-month_caption {
+  display: none;
+}
+
 .calendar-picker .rdp-months {
   justify-content: center;
   width: 100%;
@@ -349,6 +353,12 @@ body[data-theme="dark"] {
   border: 2px solid transparent;
   width: 100%;
   height: 100%;
+  padding: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
   position: relative;
   z-index: 1;
 }
