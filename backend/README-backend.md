@@ -33,6 +33,15 @@ Optional:
 - `PORT` (defaults to 3001)
 - `NODE_ENV=production` on Render
 - `PGSSLMODE=disable` only if your DB does not require SSL
+- `FRONTEND_ORIGIN` / `FRONTEND_ORIGINS` (comma-separated) for allowed CORS origins
+- `COOKIE_SAMESITE` (`lax`, `strict`, or `none`) and `COOKIE_SECURE=true` for cross-site cookies
+
+### Cross-site auth (GitHub Pages / Render)
+If your frontend is hosted on a different origin (e.g. GitHub Pages) and the API is on Render, set:
+- `NODE_ENV=production`
+- `FRONTEND_ORIGINS=https://akcd1998.github.io` (use your exact origin)
+- `COOKIE_SAMESITE=none`
+- `COOKIE_SECURE=true`
 
 ## Run (dev)
 ```powershell

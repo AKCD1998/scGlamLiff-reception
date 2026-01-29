@@ -2,10 +2,22 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { query } from '../db.js';
 
+const isProduction = process.env.NODE_ENV === 'production';
+const requestedSameSite = (process.env.COOKIE_SAMESITE || '').toLowerCase();
+const cookieSameSite = ['lax', 'strict', 'none'].includes(requestedSameSite)
+  ? requestedSameSite
+  : isProduction
+    ? 'none'
+    : 'lax';
+const cookieSecure =
+  process.env.COOKIE_SECURE === 'true' ||
+  cookieSameSite === 'none' ||
+  isProduction;
+
 const cookieOptions = {
   httpOnly: true,
-  sameSite: 'lax',
-  secure: process.env.NODE_ENV === 'production',
+  sameSite: cookieSameSite,
+  secure: cookieSecure,
 };
 
 export async function login(req, res) {
