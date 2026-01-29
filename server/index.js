@@ -6,8 +6,8 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5050;
-const GAS_URL = process.env.GAS_APPOINTMENTS_URL || '';
-const GAS_SECRET = process.env.GAS_SECRET || '';
+const GAS_URL = process.env.GAS_APPOINTMENTS_URL || "";
+const GAS_SECRET = process.env.GAS_SECRET || "";
 
 app.use(cors({
   origin: 'http://localhost:5173',
@@ -34,7 +34,7 @@ function ensureConfig(res) {
 app.get('/api/appointments', async (req, res) => {
   if (!ensureConfig(res)) return;
   const limit = Math.min(parseInt(req.query.limit || '50', 10) || 50, 500);
-  const target = ${GAS_URL}?action=appointments_get&limit=&key=;
+  const target = `${GAS_URL}?action=appointments_get&limit=${encodeURIComponent(limit)}&key=${encodeURIComponent(GAS_SECRET)}`;
 
   try {
     const resp = await fetchWithTimeout(target, { method: 'GET' });
@@ -54,7 +54,7 @@ app.post('/api/appointments', async (req, res) => {
   const required = ['datetime', 'service', 'lineId'];
   for (const field of required) {
     if (!req.body || typeof req.body[field] !== 'string' || !req.body[field].trim()) {
-      return res.status(400).json({ ok: false, error: Missing required field:  });
+      return res.status(400).json({ ok: false, error: `Missing required field: ${field}` });
     }
   }
 
@@ -69,7 +69,7 @@ app.post('/api/appointments', async (req, res) => {
     note: req.body.note ?? '',
   };
 
-  const target = ${GAS_URL}?action=appointments_append&key=;
+  const target = `${GAS_URL}?action=appointments_append&key=${encodeURIComponent(GAS_SECRET)}`;
 
   try {
     const resp = await fetchWithTimeout(target, {
@@ -89,5 +89,5 @@ app.post('/api/appointments', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(Proxy API listening on http://localhost:);
+  console.log(`Proxy API listening on http://localhost:${PORT}`);
 });

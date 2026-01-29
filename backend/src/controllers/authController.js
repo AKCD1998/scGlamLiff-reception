@@ -1,23 +1,19 @@
-﻿const express = require("express");
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const { query } = require("../db");
-const { requireAuth } = require("../middleware/requireAuth");
-
-const router = express.Router();
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { query } from '../db.js';
 
 const cookieOptions = {
   httpOnly: true,
-  sameSite: "lax",
-  secure: process.env.NODE_ENV === "production",
+  sameSite: 'lax',
+  secure: process.env.NODE_ENV === 'production',
 };
 
-router.post("/login", async (req, res) => {
+export async function login(req, res) {
   try {
     const { username, password } = req.body || {};
 
     if (!username || !password) {
-      return res.status(400).json({ ok: false, error: "Missing credentials" });
+      return res.status(400).json({ ok: false, error: 'Missing credentials' });
     }
 
     const { rows } = await query(
@@ -46,7 +42,7 @@ router.post("/login", async (req, res) => {
         );
       }
 
-      return res.status(401).json({ ok: false, error: "Invalid credentials" });
+      return res.status(401).json({ ok: false, error: 'Invalid credentials' });
     }
 
     await query(
@@ -61,10 +57,10 @@ router.post("/login", async (req, res) => {
     );
 
     const token = jwt.sign({ sub: user.id }, process.env.JWT_SECRET, {
-      expiresIn: "7d",
+      expiresIn: '7d',
     });
 
-    res.cookie("token", token, cookieOptions);
+    res.cookie('token', token, cookieOptions);
     return res.json({
       ok: true,
       data: {
@@ -74,17 +70,15 @@ router.post("/login", async (req, res) => {
       },
     });
   } catch (error) {
-    return res.status(500).json({ ok: false, error: "Server error" });
+    return res.status(500).json({ ok: false, error: 'Server error' });
   }
-});
+}
 
-router.get("/me", requireAuth, async (req, res) => {
+export function me(req, res) {
   return res.json({ ok: true, data: req.user });
-});
+}
 
-router.post("/logout", (req, res) => {
-  res.clearCookie("token", cookieOptions);
-  return res.json({ ok: true, data: { message: "Logged out" } });
-});
-
-module.exports = router;
+export function logout(req, res) {
+  res.clearCookie('token', cookieOptions);
+  return res.json({ ok: true, data: { message: 'Logged out' } });
+}

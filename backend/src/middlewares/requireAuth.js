@@ -1,11 +1,11 @@
-﻿const jwt = require("jsonwebtoken");
-const { query } = require("../db");
+import jwt from 'jsonwebtoken';
+import { query } from '../db.js';
 
-async function requireAuth(req, res, next) {
+export default async function requireAuth(req, res, next) {
   try {
     const token = req.cookies?.token;
     if (!token) {
-      return res.status(401).json({ ok: false, error: "Unauthorized" });
+      return res.status(401).json({ ok: false, error: 'Unauthorized' });
     }
 
     const payload = jwt.verify(token, process.env.JWT_SECRET);
@@ -21,14 +21,12 @@ async function requireAuth(req, res, next) {
     );
 
     if (rows.length === 0) {
-      return res.status(401).json({ ok: false, error: "Unauthorized" });
+      return res.status(401).json({ ok: false, error: 'Unauthorized' });
     }
 
     req.user = rows[0];
     return next();
   } catch (error) {
-    return res.status(401).json({ ok: false, error: "Unauthorized" });
+    return res.status(401).json({ ok: false, error: 'Unauthorized' });
   }
 }
-
-module.exports = { requireAuth };

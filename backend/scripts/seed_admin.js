@@ -1,43 +1,31 @@
-﻿const dotenv = require("dotenv");
-dotenv.config();
-
-const bcrypt = require("bcryptjs");
-const { query, pool } = require("../db");
+import 'dotenv/config';
+import bcrypt from 'bcryptjs';
+import { query, pool } from '../src/db.js';
 
 async function ensureAdminRole() {
-  const { rows } = await query(
-    "SELECT id FROM roles WHERE name = $1",
-    ["admin"]
-  );
+  const { rows } = await query('SELECT id FROM roles WHERE name = $1', ['admin']);
 
   if (rows.length > 0) {
     return rows[0].id;
   }
 
-  const insert = await query(
-    "INSERT INTO roles (name) VALUES ($1) RETURNING id",
-    ["admin"]
-  );
-
+  const insert = await query('INSERT INTO roles (name) VALUES ($1) RETURNING id', ['admin']);
   return insert.rows[0].id;
 }
 
 async function ensureAdminUser(roleId) {
   const username = process.env.ADMIN_USERNAME;
   const password = process.env.ADMIN_PASSWORD;
-  const displayName = process.env.ADMIN_DISPLAY_NAME || "Admin";
+  const displayName = process.env.ADMIN_DISPLAY_NAME || 'Admin';
 
   if (!username || !password) {
-    throw new Error("ADMIN_USERNAME and ADMIN_PASSWORD are required");
+    throw new Error('ADMIN_USERNAME and ADMIN_PASSWORD are required');
   }
 
-  const { rows } = await query(
-    "SELECT id FROM staff_users WHERE username = $1",
-    [username]
-  );
+  const { rows } = await query('SELECT id FROM staff_users WHERE username = $1', [username]);
 
   if (rows.length > 0) {
-    console.log("Admin user already exists.");
+    console.log('Admin user already exists.');
     return;
   }
 
@@ -51,7 +39,7 @@ async function ensureAdminUser(roleId) {
     [username, displayName, passwordHash, roleId]
   );
 
-  console.log("Admin user created.");
+  console.log('Admin user created.');
 }
 
 async function run() {
