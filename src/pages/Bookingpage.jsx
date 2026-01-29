@@ -401,8 +401,8 @@ export default function Bookingpage() {
                       onChange={(event) => setTreatmentItem(event.target.value)}
                     >
                       <option>Smooth 399 thb</option>
-                      <option>Deep Clean 599 thb</option>
-                      <option>Acne Care 499 thb</option>
+                      <option>Renew 599 thb</option>
+                      <option>Acne Care 899 thb</option>
                     </select>
                   </div>
                   <div className="booking-field">
@@ -415,8 +415,9 @@ export default function Bookingpage() {
                       onChange={(event) => setStaffName(event.target.value)}
                     >
                       <option>ส้ม</option>
-                      <option>เมย์</option>
-                      <option>ปุ้ย</option>
+                      <option>โบว์</option>
+                      <option>เบนซ์</option>
+                      <option>แพร</option>
                     </select>
                   </div>
                 </div>
