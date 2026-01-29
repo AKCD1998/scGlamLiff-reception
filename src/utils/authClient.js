@@ -1,5 +1,7 @@
+const apiBase = (import.meta.env.VITE_API_BASE || "").replace(/\/+$/, "");
+
 export async function getMe() {
-  const res = await fetch("/api/auth/me", {
+  const res = await fetch(`${apiBase}/api/auth/me`, {
     method: "GET",
     credentials: "include",
   });
@@ -12,7 +14,7 @@ export async function getMe() {
 }
 
 export async function logout() {
-  const res = await fetch("/api/auth/logout", {
+  const res = await fetch(`${apiBase}/api/auth/logout`, {
     method: "POST",
     credentials: "include",
   });

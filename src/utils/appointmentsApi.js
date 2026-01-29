@@ -1,4 +1,4 @@
-const base = import.meta.env.VITE_API_BASE;
+const base = (import.meta.env.VITE_API_BASE || "").replace(/\/+$/, "");
 
 function ensureConfig() {
   if (!base) {
