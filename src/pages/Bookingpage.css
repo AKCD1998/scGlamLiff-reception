@@ -62,6 +62,16 @@
   font-weight: 700;
 }
 
+body[data-theme="dark"] .booking-table thead {
+  background: #f3e9dc;
+}
+
+body[data-theme="dark"] .booking-table th {
+  background: #f3e9dc;
+  color: #111;
+  border-color: rgba(0, 0, 0, 0.35);
+}
+
 .booking-table tbody tr:nth-child(even) {
   background: rgba(0, 0, 0, 0.02);
 }

@@ -86,8 +86,35 @@ function buildTreatmentOptions() {
 
 const SELECT_STYLES = {
   container: (base) => ({ ...base, width: "100%" }),
+  control: (base) => ({
+    ...base,
+    backgroundColor: "#fffaf6",
+    borderColor: "var(--booking-border)",
+    boxShadow: "none",
+    minHeight: "42px",
+    "&:hover": {
+      borderColor: "var(--booking-border)",
+    },
+  }),
+  singleValue: (base) => ({ ...base, color: "#000" }),
+  input: (base) => ({ ...base, color: "#000" }),
+  placeholder: (base) => ({ ...base, color: "#000" }),
+  option: (base, state) => ({
+    ...base,
+    color: "#000",
+    backgroundColor: state.isSelected
+      ? "#f0e4d6"
+      : state.isFocused
+        ? "#f7efe6"
+        : "#fff",
+    ":active": {
+      ...base[":active"],
+      backgroundColor: "#f0e4d6",
+    },
+  }),
   menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-  menu: (base) => ({ ...base, zIndex: 9999 }),
+  menu: (base) => ({ ...base, zIndex: 9999, backgroundColor: "#fff" }),
+  menuList: (base) => ({ ...base, backgroundColor: "#fff" }),
 };
 
 export default function Bookingpage() {
