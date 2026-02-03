@@ -58,6 +58,8 @@ UNIQUE (provider, provider_user_id)
 staffs (
   id uuid PK,
   display_name text UNIQUE,
+  pin_hash text,              -- bcrypt/argon2 hash (nullable)
+  pin_fingerprint text UNIQUE,-- HMAC fingerprint for uniqueness (nullable)
   is_active boolean,
   created_at timestamptz
 )
@@ -272,6 +274,9 @@ sheet_visits_raw (
   email_or_lineid text,
   treatment_item_text text,
   staff_name text,
+  deleted_at timestamptz,
+  deleted_by_staff_id uuid,
+  delete_note text,
   imported_at timestamptz
 )
 ```
@@ -294,6 +299,51 @@ v_sheet_visits (
   "Staff Name",
   "id"
 )
+```
+
+---
+
+### 🧾 sheet_visits_deletions (Audit Log)
+
+> เก็บประวัติการลบจากชีต (soft delete)
+
+```sql
+sheet_visits_deletions (
+  id uuid PK DEFAULT gen_random_uuid(),
+  sheet_uuid uuid NOT NULL,
+  deleted_at timestamptz NOT NULL DEFAULT now(),
+  staff_id uuid NOT NULL,
+  reason text,
+  meta jsonb
+)
+```
+
+INDEX (sheet_uuid)
+
+---
+
+### 🛠️ DDL Update (Soft Delete + PIN + Audit)
+
+```sql
+ALTER TABLE public.sheet_visits_raw
+  ADD COLUMN deleted_at timestamptz,
+  ADD COLUMN deleted_by_staff_id uuid,
+  ADD COLUMN delete_note text;
+
+CREATE TABLE public.sheet_visits_deletions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  sheet_uuid uuid NOT NULL,
+  deleted_at timestamptz NOT NULL DEFAULT now(),
+  staff_id uuid NOT NULL,
+  reason text,
+  meta jsonb
+);
+
+CREATE INDEX ON public.sheet_visits_deletions (sheet_uuid);
+
+ALTER TABLE public.staffs
+  ADD COLUMN pin_hash text,
+  ADD COLUMN pin_fingerprint text UNIQUE;
 ```
 
 ---

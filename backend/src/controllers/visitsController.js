@@ -4,6 +4,22 @@ const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 200;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const SOURCES = new Set(['sheet', 'appointments']);
+const TIME_PATTERN = /^\d{2}:\d{2}$/;
+
+function normalizeText(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
+function requireField(value, fieldName) {
+  const trimmed = normalizeText(value);
+  if (!trimmed) {
+    const err = new Error(`Missing required field: ${fieldName}`);
+    err.status = 400;
+    throw err;
+  }
+  return trimmed;
+}
 
 function parseLimit(value) {
   const parsed = Number.parseInt(value, 10);
@@ -22,21 +38,23 @@ export async function listVisits(req, res) {
   }
 
   try {
-    const params = [];
+  const params = [];
 
-    if (source === 'sheet') {
-      if (date) {
-        params.push(date);
-      }
-      params.push(limit);
+  if (source === 'sheet') {
+    const whereParts = ['deleted_at IS NULL'];
+    if (date) {
+      params.push(date);
+      whereParts.push(`visit_date = $${params.length}`);
+    }
+    params.push(limit);
 
-      const whereSql = date ? `WHERE visit_date = $1` : '';
-      const limitParam = `$${params.length}`;
+    const whereSql = `WHERE ${whereParts.join(' AND ')}`;
+    const limitParam = `$${params.length}`;
 
-      const { rows } = await query(
-        `
-          SELECT
-            COALESCE(TO_CHAR(visit_date, 'YYYY-MM-DD'), '') AS date,
+    const { rows } = await query(
+      `
+        SELECT
+          COALESCE(TO_CHAR(visit_date, 'YYYY-MM-DD'), '') AS date,
             COALESCE(visit_time_text, '') AS "bookingTime",
             COALESCE(customer_full_name, '') AS "customerName",
             COALESCE(phone_raw, '') AS phone,
@@ -44,12 +62,12 @@ export async function listVisits(req, res) {
             COALESCE(treatment_item_text, '') AS "treatmentItem",
             COALESCE(NULLIF(staff_name, ''), '-') AS "staffName",
             sheet_uuid::text AS id
-          FROM public.sheet_visits_raw
-          ${whereSql}
-          ORDER BY visit_date DESC, visit_time_text DESC, imported_at DESC
-          LIMIT ${limitParam}
-        `,
-        params
+        FROM public.sheet_visits_raw
+        ${whereSql}
+        ORDER BY visit_date DESC, visit_time_text DESC, imported_at DESC
+        LIMIT ${limitParam}
+      `,
+      params
       );
 
       return res.json({ ok: true, rows });
@@ -111,6 +129,63 @@ export async function listVisits(req, res) {
 
     return res.json({ ok: true, rows });
   } catch (error) {
+    console.error(error);
+    return res.status(500).json({ ok: false, error: 'Server error' });
+  }
+}
+
+export async function createVisit(req, res) {
+  try {
+    const visitDate = requireField(req.body?.visit_date, 'visit_date');
+    const visitTime = requireField(req.body?.visit_time_text, 'visit_time_text');
+    const customerName = requireField(req.body?.customer_full_name, 'customer_full_name');
+    const phoneRaw = requireField(req.body?.phone_raw, 'phone_raw');
+    const treatmentItem = requireField(req.body?.treatment_item_text, 'treatment_item_text');
+    const staffName = requireField(req.body?.staff_name, 'staff_name');
+
+    if (!DATE_PATTERN.test(visitDate)) {
+      return res.status(400).json({ ok: false, error: 'Invalid visit_date format. Use YYYY-MM-DD' });
+    }
+    if (!TIME_PATTERN.test(visitTime)) {
+      return res.status(400).json({ ok: false, error: 'Invalid visit_time_text format. Use HH:MM' });
+    }
+
+    const lineId = normalizeText(req.body?.email_or_lineid);
+
+    const { rows } = await query(
+      `
+        INSERT INTO public.sheet_visits_raw (
+          sheet_uuid,
+          visit_date,
+          visit_time_text,
+          customer_full_name,
+          phone_raw,
+          email_or_lineid,
+          treatment_item_text,
+          staff_name,
+          imported_at
+        )
+        VALUES (
+          gen_random_uuid(),
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          $7,
+          now()
+        )
+        RETURNING sheet_uuid
+      `,
+      [visitDate, visitTime, customerName, phoneRaw, lineId, treatmentItem, staffName]
+    );
+
+    return res.json({ ok: true, id: rows[0]?.sheet_uuid });
+  } catch (error) {
+    if (error?.status) {
+      return res.status(error.status).json({ ok: false, error: error.message });
+    }
     console.error(error);
     return res.status(500).json({ ok: false, error: 'Server error' });
   }

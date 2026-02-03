@@ -93,7 +93,8 @@ export default function Homepage({
   onDeleteAppointment,
 }) {
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [deletePassword, setDeletePassword] = useState("");
+  const [deletePin, setDeletePin] = useState("");
+  const [deleteReason, setDeleteReason] = useState("");
   const [deleteError, setDeleteError] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [toast, setToast] = useState(null);
@@ -162,21 +163,23 @@ export default function Homepage({
       return;
     }
     setDeleteTarget(row);
-    setDeletePassword("");
+    setDeletePin("");
+    setDeleteReason("");
     setDeleteError("");
   };
 
   const handleCloseDelete = () => {
     if (deleteBusy) return;
     setDeleteTarget(null);
-    setDeletePassword("");
+    setDeletePin("");
+    setDeleteReason("");
     setDeleteError("");
   };
 
   const handleConfirmDelete = async () => {
     if (!deleteTarget?.id) return;
-    if (deletePassword !== "123123") {
-      setDeleteError("รหัสยืนยันไม่ถูกต้อง");
+    if (!deletePin.trim()) {
+      setDeleteError("กรุณากรอกรหัส PIN");
       return;
     }
     if (typeof onDeleteAppointment !== "function") {
@@ -186,10 +189,11 @@ export default function Homepage({
     try {
       setDeleteBusy(true);
       setDeleteError("");
-      await onDeleteAppointment(deleteTarget.id);
+      await onDeleteAppointment(deleteTarget.id, deletePin.trim(), deleteReason.trim());
       setToast({ type: "success", message: "ลบรายการเรียบร้อยแล้ว" });
       setDeleteTarget(null);
-      setDeletePassword("");
+      setDeletePin("");
+      setDeleteReason("");
     } catch (err) {
       setDeleteError(err?.message || "ลบรายการไม่สำเร็จ");
     } finally {
@@ -389,13 +393,21 @@ export default function Homepage({
             <p>
               รายการ: {deleteTarget.customerName || "-"} ({deleteTarget.bookingTime || "-"})
             </p>
-            <label htmlFor="delete-password">รหัสยืนยัน (123123)</label>
+            <label htmlFor="delete-pin">รหัส PIN ของพนักงาน</label>
             <input
-              id="delete-password"
+              id="delete-pin"
               type="password"
-              value={deletePassword}
-              onChange={(e) => setDeletePassword(e.target.value)}
-              placeholder="กรอกรหัสยืนยัน"
+              value={deletePin}
+              onChange={(e) => setDeletePin(e.target.value)}
+              placeholder="กรอกรหัส PIN"
+            />
+            <label htmlFor="delete-reason">เหตุผล (ไม่บังคับ)</label>
+            <input
+              id="delete-reason"
+              type="text"
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              placeholder="ใส่เหตุผลการลบ (ถ้ามี)"
             />
             {deleteError && <div className="delete-error">{deleteError}</div>}
             <div className="delete-modal-actions">

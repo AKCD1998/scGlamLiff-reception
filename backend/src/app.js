@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser';
 import authRoutes from './routes/auth.js';
 import appointmentRoutes from './routes/appointments.js';
 import visitsRoutes from './routes/visits.js';
+import sheetVisitsRoutes from './routes/sheetVisits.js';
 import { notFoundHandler, errorHandler } from './middlewares/errorHandlers.js';
 
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
@@ -44,6 +45,7 @@ export function createApp() {
   app.use('/api/auth', authRoutes);
   app.use('/api/appointments', appointmentRoutes);
   app.use('/api/visits', visitsRoutes);
+  app.use('/api/sheet-visits', sheetVisitsRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

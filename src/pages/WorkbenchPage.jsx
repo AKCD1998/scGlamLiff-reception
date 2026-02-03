@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import TopTabs from "../components/TopTabs";
 import ProfileBar from "../components/ProfileBar";
 import { getMe, logout } from "../utils/authClient";
-import { deleteAppointmentHard, getAppointments } from "../utils/appointmentsApi";
+import { deleteSheetVisit, getAppointments } from "../utils/appointmentsApi";
 import Homepage from "./Homepage";
 import Bookingpage from "./Bookingpage";
 import "./WorkbenchPage.css";
@@ -131,8 +131,8 @@ export default function WorkbenchPage() {
     navigate("/login");
   };
 
-  const handleDeleteAppointment = async (id) => {
-    await deleteAppointmentHard(id);
+  const handleDeleteAppointment = async (id, pin, reason) => {
+    await deleteSheetVisit(id, pin, reason);
     await loadAppointments();
   };
 

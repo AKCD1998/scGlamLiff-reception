@@ -317,13 +317,13 @@ export default function Bookingpage() {
     }
 
     const payload = {
-      date: toDmyDate(dateKey),
-      bookingTime: timeKey,
-      customerName: cleanName,
-      phone: cleanPhone,
-      lineId: cleanLine,
-      treatmentItem: cleanTreatment,
-      staffName: cleanStaff,
+      visit_date: dateKey,
+      visit_time_text: timeKey,
+      customer_full_name: cleanName,
+      phone_raw: cleanPhone,
+      email_or_lineid: cleanLine,
+      treatment_item_text: cleanTreatment,
+      staff_name: cleanStaff,
     };
 
     setSaving(true);

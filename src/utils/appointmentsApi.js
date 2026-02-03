@@ -8,15 +8,16 @@ function ensureConfig() {
 
 export async function appendAppointment(payload) {
   ensureConfig();
-  const url = `${base}/api/appointments`;
+  const url = `${base}/api/visits`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(payload),
   });
   const data = await res.json();
   if (!data.ok) {
-    throw new Error(data.error || "GAS returned error");
+    throw new Error(data.error || "Server returned error");
   }
   return data;
 }
@@ -33,11 +34,14 @@ export async function getAppointments(limit = 200, signal) {
   return data;
 }
 
-export async function deleteAppointmentHard(id) {
+export async function deleteSheetVisit(id, pin, reason = "") {
   ensureConfig();
-  const url = `${base}/api/appointments/${encodeURIComponent(id)}`;
+  const url = `${base}/api/sheet-visits/${encodeURIComponent(id)}/delete`;
   const res = await fetch(url, {
-    method: "DELETE",
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ pin, reason }),
   });
   const data = await res.json();
   if (!data.ok) {
