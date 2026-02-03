@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Select from "react-select";
+import { useNavigate } from "react-router-dom";
 import {
   buildOccupiedRanges,
   formatDateKey,
@@ -90,6 +91,7 @@ const SELECT_STYLES = {
 };
 
 export default function Bookingpage() {
+  const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -104,7 +106,39 @@ export default function Bookingpage() {
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
   const [saving, setSaving] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [statusMode, setStatusMode] = useState("idle");
   const treatmentOptions = useMemo(() => buildTreatmentOptions(), []);
+
+  const resetStatus = useCallback(() => {
+    setStatusOpen(false);
+    setStatusMode("idle");
+  }, []);
+
+  const goToWorkbench = useCallback(() => {
+    try {
+      navigate("/workbench");
+    } catch (err) {
+      window.location.hash = "#/workbench";
+    }
+  }, [navigate]);
+
+  const handleCloseStatus = useCallback(() => {
+    setStatusOpen(false);
+    if (statusMode === "success") {
+      goToWorkbench();
+    }
+  }, [goToWorkbench, statusMode]);
+
+  useEffect(() => {
+    if (statusOpen && statusMode === "success") {
+      const timer = setTimeout(() => {
+        handleCloseStatus();
+      }, 1200);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [handleCloseStatus, statusOpen, statusMode]);
 
   const loadAppointments = useCallback(async (signal) => {
     setLoading(true);
@@ -206,6 +240,8 @@ export default function Bookingpage() {
     if (saving) return;
     setSubmitError("");
     setSubmitSuccess("");
+    setStatusOpen(true);
+    setStatusMode("loading");
 
     const dateKey = toIsoDateFromDDMMYYYY(filterDate);
     const timeKey = normalizeBookingTime(bookingTime);
@@ -217,27 +253,32 @@ export default function Bookingpage() {
 
     if (!dateKey || !timeKey || !cleanName || !cleanPhone || !cleanTreatment || !cleanStaff) {
       setSubmitError("กรุณากรอกข้อมูลที่จำเป็นให้ครบ");
+      resetStatus();
       return;
     }
 
     if (isPastBooking) {
       setSubmitError("ไม่สามารถจองย้อนหลังได้");
+      resetStatus();
       return;
     }
 
     if (timeError) {
       setSubmitError(timeError);
+      resetStatus();
       return;
     }
 
     const candidateMin = parseTimeToMinutes(timeKey);
     if (!Number.isFinite(candidateMin)) {
       setSubmitError("รูปแบบเวลาไม่ถูกต้อง");
+      resetStatus();
       return;
     }
     const lastBookingMin = parseTimeToMinutes(TIME_CFG.lastBooking);
     if (Number.isFinite(lastBookingMin) && candidateMin > lastBookingMin) {
       setSubmitError("เวลาสุดท้ายในการจองคือ 19:00");
+      resetStatus();
       return;
     }
 
@@ -246,6 +287,7 @@ export default function Bookingpage() {
     const occupied = buildOccupiedRanges(rowsForDay, TIME_CFG);
     if (!isTimeAvailable(candidateMin, occupied, TIME_CFG)) {
       setSubmitError("ช่วงเวลานี้ชนกับคิวที่มีอยู่แล้ว กรุณาเลือกเวลาอื่น");
+      resetStatus();
       return;
     }
 
@@ -267,9 +309,11 @@ export default function Bookingpage() {
       setCustomerName("");
       setPhone("");
       setLineId("");
+      setStatusMode("success");
       await loadAppointments();
     } catch (err) {
       setSubmitError(err?.message || "บันทึกไม่สำเร็จ");
+      setStatusMode("error");
     } finally {
       setSaving(false);
     }
@@ -484,6 +528,56 @@ export default function Bookingpage() {
           </div>
         </section>
       </div>
+      {statusOpen && (
+        <div className="status-overlay" role="dialog" aria-modal="true">
+          <div className="status-card">
+            {statusMode === "loading" ? (
+              <>
+                <div className="status-spinner" aria-hidden="true" />
+                <div className="status-message">กำลังส่งข้อมูล...</div>
+              </>
+            ) : (
+              <>
+                <div className={`status-icon ${statusMode === "success" ? "success" : "error"}`}>
+                  {statusMode === "success" ? (
+                    <svg className="status-svg" viewBox="0 0 52 52" aria-hidden="true">
+                      <circle className="status-circle" cx="26" cy="26" r="24" fill="none" />
+                      <path
+                        className="status-check"
+                        fill="none"
+                        d="M14 27l7 7 17-17"
+                      />
+                    </svg>
+                  ) : (
+                    <svg className="status-svg" viewBox="0 0 52 52" aria-hidden="true">
+                      <circle className="status-circle" cx="26" cy="26" r="24" fill="none" />
+                      <path
+                        className="status-cross"
+                        fill="none"
+                        d="M17 17l18 18M35 17L17 35"
+                      />
+                    </svg>
+                  )}
+                </div>
+                <div className="status-message">
+                  {statusMode === "success" ? (
+                    <>
+                      บันทึกการจองเรียบร้อย
+                      <br />
+                      ระบบกำลังพากลับไปหน้า Workbench
+                    </>
+                  ) : (
+                    <>บันทึกไม่สำเร็จ กรุณาลองใหม่</>
+                  )}
+                </div>
+                <button className="status-button" type="button" onClick={handleCloseStatus}>
+                  ปิด
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
