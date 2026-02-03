@@ -85,6 +85,8 @@ function buildTreatmentOptions() {
 
 const SELECT_STYLES = {
   container: (base) => ({ ...base, width: "100%" }),
+  menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+  menu: (base) => ({ ...base, zIndex: 9999 }),
 };
 
 export default function Bookingpage() {
@@ -439,6 +441,8 @@ export default function Bookingpage() {
                       }
                       onChange={(option) => setTreatmentItem(option?.value || "")}
                       placeholder="พิมพ์เพื่อค้นหา..."
+                      menuPortalTarget={document.body}
+                      menuPosition="fixed"
                       styles={SELECT_STYLES}
                     />
                   </div>
