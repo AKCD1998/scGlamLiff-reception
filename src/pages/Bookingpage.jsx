@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Select from "react-select";
 import {
   buildOccupiedRanges,
   formatDateKey,
@@ -56,6 +57,36 @@ const TIME_CFG = {
   maxRecommend: 6,
 };
 
+function buildTreatmentOptions() {
+  const options = [
+    { value: "smooth 399 free", label: "Smooth 399 thb" },
+    { value: "renew 599", label: "Renew 599 thb" },
+    { value: "acne care 899", label: "Acne Care 899 thb" },
+  ];
+
+  for (let progress = 1; progress <= 3; progress += 1) {
+    options.push({
+      value: `${progress}/3 smooth 999 1 mask`,
+      label: `${progress}/3 Smooth 999 thb 1 mask`,
+    });
+  }
+
+  for (let session = 1; session <= 10; session += 1) {
+    for (let mask = 1; mask <= 3; mask += 1) {
+      options.push({
+        value: `${session}/10 smooth 2999 ${mask}/3 mask`,
+        label: `${session}/10 Smooth 2999 thb ${mask}/3 mask`,
+      });
+    }
+  }
+
+  return options;
+}
+
+const SELECT_STYLES = {
+  container: (base) => ({ ...base, width: "100%" }),
+};
+
 export default function Bookingpage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -65,12 +96,13 @@ export default function Bookingpage() {
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [lineId, setLineId] = useState("");
-  const [treatmentItem, setTreatmentItem] = useState("Smooth 399 thb");
+  const [treatmentItem, setTreatmentItem] = useState("smooth 399 free");
   const [staffName, setStaffName] = useState("ส้ม");
   const [timeError, setTimeError] = useState("");
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
   const [saving, setSaving] = useState(false);
+  const treatmentOptions = useMemo(() => buildTreatmentOptions(), []);
 
   const loadAppointments = useCallback(async (signal) => {
     setLoading(true);
@@ -395,15 +427,20 @@ export default function Bookingpage() {
                     <label htmlFor="booking-service">
                       บริการที่เลือกใช้ <span className="booking-required">*</span>
                     </label>
-                    <select
-                      id="booking-service"
-                      value={treatmentItem}
-                      onChange={(event) => setTreatmentItem(event.target.value)}
-                    >
-                      <option>Smooth 399 thb</option>
-                      <option>Renew 599 thb</option>
-                      <option>Acne Care 899 thb</option>
-                    </select>
+                    <Select
+                      inputId="booking-service"
+                      instanceId="booking-service"
+                      isSearchable={true}
+                      options={treatmentOptions}
+                      value={
+                        treatmentOptions.find(
+                          (option) => option.value === treatmentItem
+                        ) || null
+                      }
+                      onChange={(option) => setTreatmentItem(option?.value || "")}
+                      placeholder="พิมพ์เพื่อค้นหา..."
+                      styles={SELECT_STYLES}
+                    />
                   </div>
                   <div className="booking-field">
                     <label htmlFor="booking-provider">
