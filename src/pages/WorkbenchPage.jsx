@@ -187,6 +187,15 @@ export default function WorkbenchPage() {
       <TopTabs activeTab={activeTab} onChange={setActiveTab} />
 
       {renderTabContent()}
+
+      {activeTab === "home" && loading && (
+        <div className="workbench-loading-overlay" role="status" aria-live="polite">
+          <div className="workbench-loading-card">
+            <div className="workbench-loading-spinner" aria-hidden="true" />
+            <div className="workbench-loading-text">กำลังโหลดข้อมูล...</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

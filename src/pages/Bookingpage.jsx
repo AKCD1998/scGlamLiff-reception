@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Select from "react-select";
-import { useNavigate } from "react-router-dom";
 import {
   buildOccupiedRanges,
   formatDateKey,
@@ -118,7 +117,6 @@ const SELECT_STYLES = {
 };
 
 export default function Bookingpage() {
-  const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -142,30 +140,29 @@ export default function Bookingpage() {
     setStatusMode("idle");
   }, []);
 
-  const goToWorkbench = useCallback(() => {
-    try {
-      navigate("/workbench");
-    } catch (err) {
-      window.location.hash = "#/workbench";
-    }
-  }, [navigate]);
+  const hardReloadToWorkbench = useCallback(() => {
+    const target = "https://akcd1998.github.io/scGlamLiff-reception/#/workbench";
+    window.location.replace(target);
+    window.location.reload();
+  }, []);
 
   const handleCloseStatus = useCallback(() => {
-    setStatusOpen(false);
     if (statusMode === "success") {
-      goToWorkbench();
+      hardReloadToWorkbench();
+      return;
     }
-  }, [goToWorkbench, statusMode]);
+    resetStatus();
+  }, [hardReloadToWorkbench, resetStatus, statusMode]);
 
   useEffect(() => {
     if (statusOpen && statusMode === "success") {
       const timer = setTimeout(() => {
-        handleCloseStatus();
+        hardReloadToWorkbench();
       }, 1200);
       return () => clearTimeout(timer);
     }
     return undefined;
-  }, [handleCloseStatus, statusOpen, statusMode]);
+  }, [hardReloadToWorkbench, statusOpen, statusMode]);
 
   const loadAppointments = useCallback(async (signal) => {
     setLoading(true);

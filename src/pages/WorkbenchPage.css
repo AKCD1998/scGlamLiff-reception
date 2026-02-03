@@ -654,3 +654,49 @@ body[data-theme="dark"] {
 .table-toast.is-error {
   background: #9c2d18;
 }
+
+.workbench-loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 80;
+}
+
+.workbench-loading-card {
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 16px;
+  padding: 20px 24px;
+  width: min(320px, 90vw);
+  text-align: center;
+  box-shadow: 0 16px 30px rgba(20, 12, 6, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.workbench-loading-spinner {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 4px solid rgba(138, 63, 22, 0.2);
+  border-top-color: var(--border);
+  animation: workbench-spin 0.9s linear infinite;
+  margin: 0 auto;
+}
+
+.workbench-loading-text {
+  color: var(--text-soft);
+}
+
+@keyframes workbench-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
