@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 
 import authRoutes from './routes/auth.js';
 import appointmentRoutes from './routes/appointments.js';
+import visitsRoutes from './routes/visits.js';
 import { notFoundHandler, errorHandler } from './middlewares/errorHandlers.js';
 
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
@@ -28,7 +29,7 @@ export function createApp() {
         return callback(new Error('Not allowed by CORS'));
       },
       credentials: true,
-      methods: ['GET', 'POST', 'OPTIONS'],
+      methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization'],
     })
   );
@@ -42,6 +43,7 @@ export function createApp() {
 
   app.use('/api/auth', authRoutes);
   app.use('/api/appointments', appointmentRoutes);
+  app.use('/api/visits', visitsRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

@@ -4,6 +4,7 @@ import {
   createAppointmentRecord,
   deleteAppointmentHard,
 } from '../services/gasService.js';
+import { query } from '../db.js';
 
 function validatePayload(body) {
   const required = ['date', 'bookingTime', 'customerName'];
@@ -76,5 +77,35 @@ export async function hardDeleteAppointment(req, res) {
   } catch (err) {
     const status = err.name === 'AbortError' ? 504 : err.status || 500;
     return res.status(status).json({ ok: false, error: err.message || 'Upstream error' });
+  }
+}
+
+export async function softDeleteAppointment(req, res) {
+  const id = typeof req.params?.id === 'string' ? req.params.id.trim() : '';
+  if (!id) {
+    return res.status(400).json({ ok: false, error: 'Missing required parameter: id' });
+  }
+
+  try {
+    const result = await query(
+      `
+        UPDATE appointments
+        SET status = 'cancelled',
+            updated_at = now()
+        WHERE id = $1
+          AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'canceled')
+        RETURNING id
+      `,
+      [id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ ok: false, error: 'Appointment not found' });
+    }
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, error: 'Server error' });
   }
 }

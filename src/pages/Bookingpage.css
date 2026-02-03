@@ -39,6 +39,55 @@
   letter-spacing: 0.3px;
 }
 
+.booking-tab-header {
+  padding: 10px 12px;
+}
+
+.booking-tabs {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+  padding: 0 10px;
+  box-sizing: border-box;
+}
+
+.booking-tab {
+  border: 1px solid rgba(244, 238, 233, 0.6);
+  background: rgba(244, 238, 233, 0.18);
+  color: #f4eee9;
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, filter 0.15s ease, background 0.2s ease;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.booking-tab:hover {
+  filter: brightness(1.05);
+}
+
+.booking-tab:active {
+  transform: translateY(1px);
+}
+
+.booking-tab:focus-visible {
+  outline: 2px solid rgba(244, 238, 233, 0.9);
+  outline-offset: 2px;
+}
+
+.booking-tab.active {
+  background: #fff7f0;
+  color: var(--booking-brown-dark);
+  border-color: #fff7f0;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.15);
+}
+
 .booking-panel-body {
   padding: 16px;
 }
@@ -62,6 +111,14 @@
   font-weight: 700;
 }
 
+.booking-table-check {
+  width: 44px;
+}
+
+.booking-table-status {
+  min-width: 120px;
+}
+
 body[data-theme="dark"] .booking-table thead {
   background: #f3e9dc;
 }
@@ -74,6 +131,67 @@ body[data-theme="dark"] .booking-table th {
 
 .booking-table tbody tr:nth-child(even) {
   background: rgba(0, 0, 0, 0.02);
+}
+
+.booking-check {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.booking-check-input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+
+.booking-check-box {
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--booking-border);
+  border-radius: 4px;
+  background: #fffaf6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.booking-check-box::after {
+  content: "";
+  width: 8px;
+  height: 5px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(-45deg) scale(0);
+  transition: transform 0.15s ease;
+}
+
+.booking-check-input:checked + .booking-check-box {
+  background: var(--booking-brown);
+  border-color: var(--booking-brown);
+}
+
+.booking-check-input:checked + .booking-check-box::after {
+  transform: rotate(-45deg) scale(1);
+}
+
+.booking-check-input:focus-visible + .booking-check-box {
+  outline: 2px solid rgba(42, 18, 6, 0.35);
+  outline-offset: 2px;
+}
+
+.booking-panel-empty {
+  text-align: center;
+  color: var(--booking-muted);
+  font-weight: 600;
+  padding: 24px 12px;
 }
 
 .booking-form {

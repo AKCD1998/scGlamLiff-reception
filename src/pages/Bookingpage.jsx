@@ -133,6 +133,7 @@ export default function Bookingpage() {
   const [saving, setSaving] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [statusMode, setStatusMode] = useState("idle");
+  const [activeTab, setActiveTab] = useState("queue");
   const treatmentOptions = useMemo(() => buildTreatmentOptions(), []);
 
   const resetStatus = useCallback(() => {
@@ -347,44 +348,98 @@ export default function Bookingpage() {
     <section className="booking-page">
       <div className="booking-grid">
         <section className="booking-panel">
-          <div className="booking-panel-header">คิวให้บริการของวันนี้</div>
+          <div className="booking-panel-header booking-tab-header">
+            <div className="booking-tabs" role="tablist" aria-label="Booking tabs">
+              <button
+                type="button"
+                id="booking-tab-queue"
+                role="tab"
+                aria-selected={activeTab === "queue"}
+                aria-controls="booking-panel-queue"
+                className={`booking-tab ${activeTab === "queue" ? "active" : ""}`}
+                onClick={() => setActiveTab("queue")}
+              >
+                คิวให้บริการวันนี้
+              </button>
+              <button
+                type="button"
+                id="booking-tab-customer"
+                role="tab"
+                aria-selected={activeTab === "customer"}
+                aria-controls="booking-panel-customer"
+                className={`booking-tab ${activeTab === "customer" ? "active" : ""}`}
+                onClick={() => setActiveTab("customer")}
+              >
+                ข้อมูลลูกค้า
+              </button>
+            </div>
+          </div>
           <div className="booking-panel-body">
-            <table className="booking-table">
-              <thead>
-                <tr>
-                  <th>เวลาจอง</th>
-                  <th>ชื่อ-นามสกุล ลูกค้า</th>
-                  <th>โทรศัพท์</th>
-                  <th>Treatment item</th>
-                  <th>Staff Name</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td colSpan="5">กำลังโหลด...</td>
-                  </tr>
-                ) : error ? (
-                  <tr>
-                    <td colSpan="5">เกิดข้อผิดพลาด: {error}</td>
-                  </tr>
-                ) : filteredRows.length === 0 ? (
-                  <tr>
-                    <td colSpan="5">ไม่มีข้อมูล</td>
-                  </tr>
-                ) : (
-                  filteredRows.map((row, idx) => (
-                    <tr key={`${row.bookingTime}-${row.customerName}-${idx}`}>
-                      <td>{row.bookingTime}</td>
-                      <td>{row.customerName}</td>
-                      <td>{row.phone}</td>
-                      <td>{row.treatmentItem}</td>
-                      <td>{row.staffName}</td>
+            {activeTab === "queue" ? (
+              <div
+                id="booking-panel-queue"
+                role="tabpanel"
+                aria-labelledby="booking-tab-queue"
+              >
+                <table className="booking-table">
+                  <thead>
+                    <tr>
+                      <th className="booking-table-check" aria-label="เลือกคิว" />
+                      <th>เวลาจอง</th>
+                      <th>ชื่อ-นามสกุล ลูกค้า</th>
+                      <th>โทรศัพท์</th>
+                      <th>Treatment item</th>
+                      <th>Staff Name</th>
+                      <th>สถานะลูกค้า</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr>
+                        <td colSpan="7">กำลังโหลด...</td>
+                      </tr>
+                    ) : error ? (
+                      <tr>
+                        <td colSpan="7">เกิดข้อผิดพลาด: {error}</td>
+                      </tr>
+                    ) : filteredRows.length === 0 ? (
+                      <tr>
+                        <td colSpan="7">ไม่มีข้อมูล</td>
+                      </tr>
+                    ) : (
+                      filteredRows.map((row, idx) => (
+                        <tr key={`${row.bookingTime}-${row.customerName}-${idx}`}>
+                          <td className="booking-table-check">
+                            <label className="booking-check">
+                              <input
+                                type="checkbox"
+                                className="booking-check-input"
+                              />
+                              <span className="booking-check-box" aria-hidden="true" />
+                            </label>
+                          </td>
+                          <td>{row.bookingTime}</td>
+                          <td>{row.customerName}</td>
+                          <td>{row.phone}</td>
+                          <td>{row.treatmentItem}</td>
+                          <td>{row.staffName}</td>
+                          <td className="booking-table-status" />
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div
+                id="booking-panel-customer"
+                role="tabpanel"
+                aria-labelledby="booking-tab-customer"
+                className="booking-panel-empty"
+              >
+                เร็วๆ นี้
+              </div>
+            )}
           </div>
         </section>
 
