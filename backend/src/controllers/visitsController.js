@@ -61,8 +61,12 @@ export async function listVisits(req, res) {
             COALESCE(email_or_lineid, '') AS "lineId",
             COALESCE(treatment_item_text, '') AS "treatmentItem",
             COALESCE(NULLIF(staff_name, ''), '-') AS "staffName",
-            sheet_uuid::text AS id
+            sheet_uuid::text AS id,
+            COALESCE(a.status, 'booked') AS status,
+            a.id AS appointment_id,
+            a.customer_id AS customer_id
         FROM public.sheet_visits_raw
+        LEFT JOIN appointments a ON a.raw_sheet_uuid = sheet_uuid
         ${whereSql}
         ORDER BY visit_date DESC, visit_time_text DESC, imported_at DESC
         LIMIT ${limitParam}

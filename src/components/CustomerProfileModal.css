@@ -1,0 +1,287 @@
+.customer-profile-modal {
+  width: min(1200px, 94vw);
+  max-height: 88vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.customer-profile-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-right: 36px;
+}
+
+.customer-profile-modal__title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--booking-soft);
+}
+
+.customer-profile-modal__body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  padding-right: 4px;
+  flex: 1;
+}
+
+.cpm-section h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--booking-soft);
+}
+
+.cpm-profile,
+.cpm-courses,
+.cpm-history,
+.cpm-appointments {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.customer-profile-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.customer-profile-section__title {
+  font-weight: 700;
+  color: var(--booking-soft);
+  font-size: 0.98rem;
+}
+
+.customer-profile-info {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1.5px solid var(--booking-border);
+  background: #fffaf6;
+}
+
+.customer-profile-label {
+  font-size: 0.82rem;
+  color: var(--booking-muted);
+  margin-bottom: 4px;
+}
+
+.customer-profile-value {
+  font-weight: 700;
+  color: var(--booking-text);
+  word-break: break-word;
+}
+
+.customer-profile-state {
+  font-size: 0.9rem;
+  color: var(--booking-muted);
+}
+
+.customer-profile-state--error {
+  color: #b23b2a;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.customer-profile-state--error button {
+  border: 1px solid var(--booking-border);
+  border-radius: 10px;
+  padding: 6px 12px;
+  background: #fffaf6;
+  color: var(--booking-text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.customer-profile-table {
+  font-size: 0.88rem;
+}
+
+.customer-profile-strong {
+  font-weight: 700;
+  color: var(--booking-text);
+}
+
+.customer-profile-muted {
+  font-size: 0.8rem;
+  color: var(--booking-muted);
+}
+
+.cpm-courses-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cpm-carousel-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.cpm-carousel-btn {
+  border: 1.5px solid var(--booking-border);
+  background: #fffaf6;
+  color: var(--booking-text);
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.cpm-carousel-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cpm-carousel {
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding: 12px;
+  padding-bottom: 6px;
+}
+
+.cpm-carousel-track {
+  display: flex;
+  gap: 16px;
+}
+
+.cpm-course-card {
+  scroll-snap-align: start;
+  border: 1.5px solid var(--booking-border);
+  border-radius: 14px;
+  background: #fffaf6;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 520px;
+}
+
+.cpm-course-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.customer-profile-status {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--booking-brown-dark);
+  background: rgba(179, 115, 59, 0.12);
+  border: 1px solid rgba(179, 115, 59, 0.35);
+  padding: 4px 10px;
+  border-radius: 999px;
+  text-transform: uppercase;
+}
+
+.customer-profile-course-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+  color: var(--booking-muted);
+}
+
+.customer-profile-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.customer-profile-progress-text {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.customer-profile-mask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+  color: var(--booking-muted);
+}
+
+.customer-profile-mask-label {
+  font-weight: 700;
+  color: var(--booking-soft);
+}
+
+.cpm-history-scroll {
+  overflow: auto;
+  max-height: 34vh;
+  border-radius: 12px;
+}
+
+.cpm-history-scroll table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.cpm-col-date,
+.cpm-col-session,
+.cpm-col-mask,
+.cpm-col-staff {
+  width: 110px;
+}
+
+.cpm-col-appointment {
+  width: 160px;
+}
+
+.cpm-col-status,
+.cpm-col-branch {
+  width: 110px;
+}
+
+.cpm-col-id {
+  width: 90px;
+}
+
+.cpm-cell-wrap {
+  white-space: normal;
+  word-break: break-word;
+}
+
+@media (max-width: 720px) {
+  .customer-profile-info {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 992px) {
+  .customer-profile-modal {
+    width: 94vw;
+    max-height: 92vh;
+  }
+
+  .cpm-course-card {
+    min-width: 88vw;
+  }
+
+  .cpm-history-scroll {
+    max-height: 30vh;
+  }
+
+  .customer-profile-table {
+    font-size: 0.8rem;
+  }
+}

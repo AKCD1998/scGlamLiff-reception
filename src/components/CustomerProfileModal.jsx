@@ -1,0 +1,369 @@
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import "./CustomerProfileModal.css";
+import ProgressDots from "./ProgressDots";
+
+const SHOP_TZ = "Asia/Bangkok";
+
+function formatAppointmentStatus(status) {
+  const s = String(status || "").toLowerCase();
+  if (s === "completed") return "เรียบร้อย";
+  if (s === "cancelled" || s === "canceled") return "ยกเลิก";
+  if (s === "no_show") return "ไม่มาตามนัด";
+  if (s === "rescheduled") return "เลื่อนนัด";
+  return "จองไว้";
+}
+
+function formatDateTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("th-TH", {
+    timeZone: SHOP_TZ,
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("th-TH", {
+    timeZone: SHOP_TZ,
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
+export default function CustomerProfileModal({
+  open,
+  onClose,
+  customer,
+  profileData,
+  loading,
+  error,
+  onRetry,
+}) {
+  const closeButtonRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    closeButtonRef.current?.focus();
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        onClose?.();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, open]);
+
+  const customerInfo = profileData?.customer || {};
+  const displayName = customerInfo.full_name || customer?.fullName || "-";
+  const displayId = customerInfo.id || customer?.id || "-";
+
+  const packages = useMemo(() => profileData?.packages || [], [profileData]);
+  const usageHistory = useMemo(
+    () => profileData?.usage_history || [],
+    [profileData]
+  );
+  const appointmentHistory = useMemo(
+    () => profileData?.appointment_history || [],
+    [profileData]
+  );
+  const orderedPackages = useMemo(() => {
+    const list = [...packages];
+    list.sort((a, b) => {
+      const aTime = a?.purchased_at ? new Date(a.purchased_at).getTime() : Number.POSITIVE_INFINITY;
+      const bTime = b?.purchased_at ? new Date(b.purchased_at).getTime() : Number.POSITIVE_INFINITY;
+      return aTime - bTime;
+    });
+    return list;
+  }, [packages]);
+  const carouselRef = useRef(null);
+
+  const scrollCarousel = useCallback((direction) => {
+    const el = carouselRef.current;
+    if (!el) return;
+    const cardWidth = el.querySelector(".cpm-course-card")?.offsetWidth || 0;
+    const gap = 16;
+    const delta = direction === "next" ? cardWidth + gap : -(cardWidth + gap);
+    el.scrollBy({ left: delta, behavior: "smooth" });
+  }, []);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="booking-modal-overlay customer-profile-modal__overlay"
+      onClick={onClose}
+    >
+      <div
+        className="booking-modal-card customer-profile-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="customer-profile-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="customer-profile-modal__header">
+          <div className="customer-profile-modal__title" id="customer-profile-title">
+            Customer Profile
+          </div>
+          <button
+            type="button"
+            className="booking-modal-close"
+            aria-label="Close customer profile"
+            onClick={onClose}
+            ref={closeButtonRef}
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="customer-profile-modal__body">
+          <section className="cpm-section cpm-profile">
+            <div className="customer-profile-section__title">Customer Info</div>
+            <div className="customer-profile-info">
+              <div>
+                <div className="customer-profile-label">Full name</div>
+                <div className="customer-profile-value">{displayName}</div>
+              </div>
+              <div>
+                <div className="customer-profile-label">Customer ID</div>
+                <div className="customer-profile-value">{displayId}</div>
+              </div>
+            </div>
+          </section>
+
+          <section className="cpm-section cpm-courses">
+            <div className="cpm-courses-head">
+              <h3>Active / Owned Courses</h3>
+              <div className="cpm-carousel-controls">
+                <button
+                  type="button"
+                  className="cpm-carousel-btn"
+                  onClick={() => scrollCarousel("prev")}
+                  disabled={orderedPackages.length <= 1}
+                >
+                  ←
+                </button>
+                <button
+                  type="button"
+                  className="cpm-carousel-btn"
+                  onClick={() => scrollCarousel("next")}
+                  disabled={orderedPackages.length <= 1}
+                >
+                  →
+                </button>
+              </div>
+            </div>
+            {loading ? (
+              <div className="customer-profile-state">กำลังโหลดข้อมูลคอร์ส...</div>
+            ) : error ? (
+              <div className="customer-profile-state customer-profile-state--error">
+                โหลดข้อมูลไม่สำเร็จ: {error}
+                {onRetry ? (
+                  <button type="button" onClick={onRetry}>
+                    ลองใหม่
+                  </button>
+                ) : null}
+              </div>
+            ) : orderedPackages.length === 0 ? (
+              <div className="customer-profile-state">ยังไม่มีคอร์ส</div>
+            ) : (
+              <div
+                className="cpm-carousel"
+                role="region"
+                aria-label="Customer courses carousel"
+                ref={carouselRef}
+              >
+                <div className="cpm-carousel-track">
+                  {orderedPackages.map((pkg) => {
+                    const sessionsTotal = Number(pkg.package?.sessions_total) || 0;
+                    const sessionsUsed = Number(pkg.usage?.sessions_used) || 0;
+                    const sessionsRemaining = Number(pkg.usage?.sessions_remaining) || 0;
+                    const maskTotal = Number(pkg.package?.mask_total) || 0;
+                    const maskUsed = Number(pkg.usage?.mask_used) || 0;
+                    const maskRemaining = Number(pkg.usage?.mask_remaining) || 0;
+
+                    return (
+                      <div key={pkg.customer_package_id} className="cpm-course-card">
+                        <div className="cpm-course-header">
+                          <div>
+                            <div className="customer-profile-strong">
+                              {pkg.package?.title || pkg.package?.code || "-"}
+                            </div>
+                            <div className="customer-profile-muted">
+                              {pkg.package?.code || "-"}
+                            </div>
+                          </div>
+                          <div className="customer-profile-status">
+                            {pkg.status || "-"}
+                          </div>
+                        </div>
+                        <div className="customer-profile-course-meta">
+                          <span>ซื้อ: {formatDate(pkg.purchased_at)}</span>
+                          <span>หมดอายุ: {formatDate(pkg.expires_at)}</span>
+                        </div>
+                        <div className="customer-profile-progress">
+                          <ProgressDots
+                            total={sessionsTotal}
+                            used={sessionsUsed}
+                            size={sessionsTotal > 12 ? "sm" : "md"}
+                            ariaLabel={`Sessions used ${sessionsUsed} of ${sessionsTotal}`}
+                          />
+                          <div className="customer-profile-progress-text">
+                            <span className="customer-profile-strong">
+                              {sessionsUsed}/{sessionsTotal}
+                            </span>
+                            <span className="customer-profile-muted">
+                              เหลือ {sessionsRemaining} ครั้ง
+                            </span>
+                          </div>
+                        </div>
+                        {maskTotal > 0 ? (
+                          <div className="customer-profile-mask">
+                            <div className="customer-profile-mask-label">
+                              Mask
+                            </div>
+                            <ProgressDots
+                              total={maskTotal}
+                              used={maskUsed}
+                              size="sm"
+                              ariaLabel={`Mask used ${maskUsed} of ${maskTotal}`}
+                            />
+                            <div className="customer-profile-muted">
+                              {maskUsed}/{maskTotal} · เหลือ {maskRemaining} ครั้ง
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section className="cpm-section cpm-history">
+            <h3>ประวัติการตัดคอร์ส</h3>
+            <div className="customer-profile-muted">
+              Course Usage History (deducted sessions only)
+            </div>
+            {loading ? (
+              <div className="customer-profile-state">กำลังโหลดประวัติ...</div>
+            ) : error ? (
+              <div className="customer-profile-state customer-profile-state--error">
+                โหลดข้อมูลไม่สำเร็จ: {error}
+              </div>
+            ) : usageHistory.length === 0 ? (
+              <div className="customer-profile-state">ยังไม่มีประวัติการใช้</div>
+            ) : (
+              <div className="cpm-history-scroll">
+                <table className="booking-table customer-profile-table">
+                  <thead>
+                    <tr>
+                      <th className="cpm-col-date">Used at</th>
+                      <th className="cpm-col-course">Course</th>
+                      <th className="cpm-col-session">Session</th>
+                      <th className="cpm-col-mask">Mask</th>
+                      <th className="cpm-col-staff">Staff</th>
+                      <th className="cpm-col-appointment">Appointment</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {usageHistory.map((item, idx) => (
+                      <tr key={`${item.appointment_id || "usage"}-${idx}`}>
+                        <td>{formatDateTime(item.used_at)}</td>
+                        <td className="cpm-cell-wrap">
+                          <div className="customer-profile-strong">
+                            {item.package_title || item.package_code || "-"}
+                          </div>
+                          <div className="customer-profile-muted">
+                            {item.package_code || "-"}
+                          </div>
+                        </td>
+                        <td>{item.session_no ?? "-"}</td>
+                        <td>{item.used_mask ? "Yes" : "No"}</td>
+                        <td>{item.staff_display_name || "-"}</td>
+                        <td>
+                          <div className="customer-profile-strong">
+                            {item.appointment_id || "-"}
+                          </div>
+                          <div className="customer-profile-muted">
+                            {item.scheduled_at ? formatDateTime(item.scheduled_at) : "-"}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <section className="cpm-section cpm-appointments">
+            <h3>ประวัติการจอง/การมารับบริการ</h3>
+            <div className="customer-profile-muted">
+              Appointment History (all bookings/visits, including one-off)
+            </div>
+            {loading ? (
+              <div className="customer-profile-state">กำลังโหลดประวัติการจอง...</div>
+            ) : error ? (
+              <div className="customer-profile-state customer-profile-state--error">
+                โหลดข้อมูลไม่สำเร็จ: {error}
+              </div>
+            ) : appointmentHistory.length === 0 ? (
+              <div className="customer-profile-state">ยังไม่มีประวัติการจอง</div>
+            ) : (
+              <div className="cpm-history-scroll">
+                <table className="booking-table customer-profile-table">
+                  <thead>
+                    <tr>
+                      <th className="cpm-col-date">Scheduled</th>
+                      <th className="cpm-col-treatment">Treatment</th>
+                      <th className="cpm-col-status">Status</th>
+                      <th className="cpm-col-branch">Branch</th>
+                      <th className="cpm-col-id">ID</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {appointmentHistory.map((item, idx) => {
+                      const title =
+                        item.treatment_title_th ||
+                        item.treatment_title_en ||
+                        item.treatment_code ||
+                        "-";
+                      const idShort = item.id ? String(item.id).slice(0, 8) : "-";
+                      return (
+                        <tr key={`${item.id || "appt"}-${idx}`}>
+                          <td>{formatDateTime(item.scheduled_at)}</td>
+                          <td className="cpm-cell-wrap">
+                            <div className="customer-profile-strong">{title}</div>
+                            <div className="customer-profile-muted">{item.treatment_code || "-"}</div>
+                          </td>
+                          <td>{formatAppointmentStatus(item.status)}</td>
+                          <td>{item.branch_id || "-"}</td>
+                          <td>
+                            <span className="customer-profile-muted" title={item.id || ""}>
+                              {idShort}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}

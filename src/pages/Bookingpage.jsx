@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Select from "react-select";
 import {
   buildOccupiedRanges,
@@ -10,11 +10,20 @@ import {
   parseTimeToMinutes,
   toIsoDateFromDDMMYYYY,
 } from "../utils/bookingTimeUtils";
-import { appendAppointment, getAppointments, getCustomers } from "../utils/appointmentsApi";
+import {
+  appendAppointment,
+  getAppointmentsByDate,
+  getCustomerProfile,
+  getCustomers,
+} from "../utils/appointmentsApi";
+import { getMe } from "../utils/authClient";
+import CustomerProfileModal from "../components/CustomerProfileModal";
+import ServiceConfirmationModal from "../components/ServiceConfirmationModal";
 import "./Bookingpage.css";
 
 function normalizeRow(row = {}) {
   return {
+    id: row.id ?? "",
     date: row.date ?? "",
     bookingTime: row.bookingTime ?? "",
     customerName: row.customerName ?? "",
@@ -22,6 +31,9 @@ function normalizeRow(row = {}) {
     treatmentItem: row.treatmentItem ?? "",
     staffName: row.staffName ?? "",
     datetime: row.datetime ?? "",
+    status: row.status ?? "",
+    appointmentId: row.appointment_id ?? row.appointmentId ?? "",
+    customerId: row.customer_id ?? row.customerId ?? "",
   };
 }
 
@@ -36,6 +48,15 @@ function normalizeCustomerRow(row = {}) {
 function shortenId(value) {
   if (!value) return "";
   return String(value).slice(0, 8);
+}
+
+function formatAppointmentStatus(status) {
+  const s = String(status || "booked").toLowerCase();
+  if (s === "completed") return "ให้บริการแล้ว";
+  if (s === "cancelled" || s === "canceled") return "ยกเลิก";
+  if (s === "no_show") return "ไม่มา";
+  if (s === "rescheduled") return "เลื่อนนัด";
+  return "จองแล้ว";
 }
 
 function getRowTimestamp(row) {
@@ -138,6 +159,10 @@ export default function Bookingpage() {
   const [customersLoaded, setCustomersLoaded] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [customerProfile, setCustomerProfile] = useState(null);
+  const [customerProfileLoading, setCustomerProfileLoading] = useState(false);
+  const [customerProfileError, setCustomerProfileError] = useState(null);
+  const profileCacheRef = useRef(new Map());
   const [filterDate, setFilterDate] = useState(() => formatDateKey(new Date()));
   const [bookingTime, setBookingTime] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -153,6 +178,9 @@ export default function Bookingpage() {
   const [statusMode, setStatusMode] = useState("idle");
   const [activeTab, setActiveTab] = useState("queue");
   const treatmentOptions = useMemo(() => buildTreatmentOptions(), []);
+  const [me, setMe] = useState(null);
+  const [serviceModalOpen, setServiceModalOpen] = useState(false);
+  const [selectedBookingRow, setSelectedBookingRow] = useState(null);
 
   const resetStatus = useCallback(() => {
     setStatusOpen(false);
@@ -187,7 +215,8 @@ export default function Bookingpage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await getAppointments(200, signal);
+      const dateKey = normalizeDateString(filterDate);
+      const data = await getAppointmentsByDate(dateKey, 200, signal);
       const normalized = (data.rows || []).map(normalizeRow);
       setRows(normalized);
     } catch (err) {
@@ -197,13 +226,28 @@ export default function Bookingpage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filterDate]);
 
   useEffect(() => {
     const controller = new AbortController();
     loadAppointments(controller.signal);
     return () => controller.abort();
   }, [loadAppointments]);
+
+  useEffect(() => {
+    let alive = true;
+    const run = async () => {
+      const result = await getMe();
+      if (!alive) return;
+      if (result.ok) {
+        setMe(result.data);
+      }
+    };
+    run();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const loadCustomers = useCallback(async (signal) => {
     setCustomersLoading(true);
@@ -232,12 +276,56 @@ export default function Bookingpage() {
 
   const handleOpenEditModal = useCallback((customer) => {
     setSelectedCustomer(customer);
+    const cached = profileCacheRef.current.get(customer?.id);
+    if (cached) {
+      setCustomerProfile(cached);
+      setCustomerProfileError(null);
+      setCustomerProfileLoading(false);
+    } else {
+      setCustomerProfile(null);
+      setCustomerProfileError(null);
+    }
     setIsEditModalOpen(true);
   }, []);
 
   const handleCloseEditModal = useCallback(() => {
     setIsEditModalOpen(false);
     setSelectedCustomer(null);
+  }, []);
+
+  const handleOpenServiceModal = useCallback((row) => {
+    setSelectedBookingRow(row);
+    setServiceModalOpen(true);
+  }, []);
+
+  const handleCloseServiceModal = useCallback(() => {
+    setServiceModalOpen(false);
+    setSelectedBookingRow(null);
+  }, []);
+
+  const loadCustomerProfile = useCallback(async (customerId, signal, options = {}) => {
+    if (!customerId) return;
+    const useCache = options.useCache !== false;
+    const cached = useCache ? profileCacheRef.current.get(customerId) : null;
+    if (cached) {
+      setCustomerProfile(cached);
+      setCustomerProfileError(null);
+      setCustomerProfileLoading(false);
+      return;
+    }
+    setCustomerProfileLoading(true);
+    setCustomerProfileError(null);
+    try {
+      const data = await getCustomerProfile(customerId, signal);
+      profileCacheRef.current.set(customerId, data);
+      setCustomerProfile(data);
+    } catch (err) {
+      if (err?.name === "AbortError") return;
+      setCustomerProfileError(err?.message || "Error loading customer profile");
+      setCustomerProfile(null);
+    } finally {
+      setCustomerProfileLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -250,6 +338,13 @@ export default function Bookingpage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleCloseEditModal, isEditModalOpen]);
+
+  useEffect(() => {
+    if (!isEditModalOpen || !selectedCustomer?.id) return undefined;
+    const controller = new AbortController();
+    loadCustomerProfile(selectedCustomer.id, controller.signal, { useCache: true });
+    return () => controller.abort();
+  }, [isEditModalOpen, loadCustomerProfile, selectedCustomer?.id]);
 
   useEffect(() => {
     if (!isEditModalOpen) return undefined;
@@ -277,16 +372,22 @@ export default function Bookingpage() {
   const occupiedRanges = useMemo(() => {
     const key = normalizeDateString(filterDate);
     if (!key) return [];
-    const rowsForDay = rows.filter((row) => normalizeDateString(row.date) === key);
+    const rowsForDay = rows.filter((row) =>
+      normalizeDateString(row.date) === key &&
+      ["booked", "rescheduled"].includes(String(row.status || "booked").toLowerCase())
+    );
     return buildOccupiedRanges(rowsForDay, TIME_CFG);
   }, [rows, filterDate]);
 
   const recommendedSlots = useMemo(() => {
     if (!selectedDateObj) return [];
+    const rowsForRecommend = rows.filter((row) =>
+      ["booked", "rescheduled"].includes(String(row.status || "booked").toLowerCase())
+    );
     return getRecommendedSlotsWithAvailability({
       selectedDate: selectedDateObj,
       now: new Date(),
-      rows,
+      rows: rowsForRecommend,
       cfg: TIME_CFG,
     });
   }, [selectedDateObj, rows]);
@@ -487,6 +588,13 @@ export default function Bookingpage() {
                               <input
                                 type="checkbox"
                                 className="booking-check-input"
+                                checked={false}
+                                readOnly
+                                aria-label={`Confirm service for ${row.customerName || "customer"} ${row.bookingTime || ""}`}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  handleOpenServiceModal(row);
+                                }}
                               />
                               <span className="booking-check-box" aria-hidden="true" />
                             </label>
@@ -496,7 +604,9 @@ export default function Bookingpage() {
                           <td>{row.phone}</td>
                           <td>{row.treatmentItem}</td>
                           <td>{row.staffName}</td>
-                          <td className="booking-table-status" />
+                          <td className="booking-table-status">
+                            {formatAppointmentStatus(row.status)}
+                          </td>
                         </tr>
                       ))
                     )}
@@ -782,33 +892,25 @@ export default function Bookingpage() {
           </div>
         </div>
       )}
-      {isEditModalOpen && (
-        <div
-          className="booking-modal-overlay"
-          role="dialog"
-          aria-modal="true"
-          onClick={handleCloseEditModal}
-        >
-          <div
-            className="booking-modal-card"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              className="booking-modal-close"
-              aria-label="Close edit modal"
-              onClick={handleCloseEditModal}
-            >
-              ×
-            </button>
-            <div className="booking-modal-title">Edit modal (coming soon)</div>
-            <div className="booking-modal-meta">
-              <div>Customer: {selectedCustomer?.fullName || "-"}</div>
-              <div>ID: {selectedCustomer?.id || "-"}</div>
-            </div>
-          </div>
-        </div>
-      )}
+      <CustomerProfileModal
+        open={isEditModalOpen}
+        onClose={handleCloseEditModal}
+        customer={selectedCustomer}
+        profileData={customerProfile}
+        loading={customerProfileLoading}
+        error={customerProfileError}
+        onRetry={() =>
+          loadCustomerProfile(selectedCustomer?.id, undefined, { useCache: false })
+        }
+      />
+
+      <ServiceConfirmationModal
+        open={serviceModalOpen}
+        onClose={handleCloseServiceModal}
+        booking={selectedBookingRow}
+        currentUser={me}
+        onAfterAction={loadAppointments}
+      />
     </section>
   );
 }

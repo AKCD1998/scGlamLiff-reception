@@ -559,7 +559,8 @@ body[data-theme="dark"] .booking-table th {
   background: #fff;
   border-radius: 16px;
   padding: 20px 22px;
-  width: min(420px, 92vw);
+  width: 92vw;
+  max-width: 1100px;
   text-align: left;
   color: var(--booking-text);
   border: 2px solid var(--booking-border);
@@ -567,6 +568,12 @@ body[data-theme="dark"] .booking-table th {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+@media (max-width: 480px) {
+  .booking-modal-card {
+    width: min(420px, 92vw);
+  }
 }
 
 .booking-modal-close {

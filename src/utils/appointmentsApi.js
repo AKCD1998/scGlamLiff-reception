@@ -25,7 +25,25 @@ export async function appendAppointment(payload) {
 export async function getAppointments(limit = 200, signal) {
   ensureConfig();
   // Frontend table reads visit rows from backend /api/visits (Postgres).
-  const url = `${base}/api/visits?limit=${limit}`;
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  const url = `${base}/api/visits?${params.toString()}`;
+  const res = await fetch(url, { method: "GET", signal });
+  const data = await res.json();
+  if (!data.ok) {
+    throw new Error(data.error || "Server returned error");
+  }
+  return data;
+}
+
+export async function getAppointmentsByDate(date, limit = 200, signal) {
+  ensureConfig();
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  if (date) {
+    params.set("date", date);
+  }
+  const url = `${base}/api/visits?${params.toString()}`;
   const res = await fetch(url, { method: "GET", signal });
   const data = await res.json();
   if (!data.ok) {
@@ -43,6 +61,91 @@ export async function getCustomers(signal) {
     throw new Error(data.error || "Server returned error");
   }
   return data;
+}
+
+export async function getCustomerProfile(customerId, signal) {
+  ensureConfig();
+  if (!customerId) {
+    throw new Error("Missing customer id");
+  }
+  const url = `${base}/api/customers/${encodeURIComponent(customerId)}/profile`;
+  const res = await fetch(url, { method: "GET", signal });
+  const data = await res.json();
+  if (!data.ok) {
+    throw new Error(data.error || "Server returned error");
+  }
+  return data;
+}
+
+export async function ensureAppointmentFromSheet(sheetUuid, signal) {
+  ensureConfig();
+  if (!sheetUuid) {
+    throw new Error("Missing sheet UUID");
+  }
+  const url = `${base}/api/appointments/from-sheet/${encodeURIComponent(sheetUuid)}/ensure`;
+  const res = await fetch(url, {
+    method: "POST",
+    credentials: "include",
+    signal,
+  });
+  const data = await res.json();
+  if (!data.ok) {
+    throw new Error(data.error || "Server returned error");
+  }
+  return data;
+}
+
+async function postAppointmentAction(path, payload, signal) {
+  ensureConfig();
+  const url = `${base}${path}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    signal,
+    body: payload ? JSON.stringify(payload) : "{}",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || "Server returned error");
+  }
+  return data;
+}
+
+export async function completeService(appointmentId, payload, signal) {
+  if (!appointmentId) throw new Error("Missing appointment id");
+  return postAppointmentAction(
+    `/api/appointments/${encodeURIComponent(appointmentId)}/complete`,
+    payload,
+    signal
+  );
+}
+
+export async function cancelService(appointmentId, signal) {
+  if (!appointmentId) throw new Error("Missing appointment id");
+  return postAppointmentAction(
+    `/api/appointments/${encodeURIComponent(appointmentId)}/cancel`,
+    null,
+    signal
+  );
+}
+
+export async function noShowService(appointmentId, signal) {
+  if (!appointmentId) throw new Error("Missing appointment id");
+  return postAppointmentAction(
+    `/api/appointments/${encodeURIComponent(appointmentId)}/no-show`,
+    null,
+    signal
+  );
+}
+
+export async function revertService(appointmentId, signal) {
+  if (!appointmentId) throw new Error("Missing appointment id");
+  return postAppointmentAction(
+    `/api/appointments/${encodeURIComponent(appointmentId)}/revert`,
+    null,
+    signal
+  );
 }
 
 export async function deleteSheetVisit(id, pin, reason = "") {
