@@ -8,10 +8,9 @@ import {
   normalizeBookingTime,
   normalizeDateString,
   parseTimeToMinutes,
-  toDmyDate,
   toIsoDateFromDDMMYYYY,
 } from "../utils/bookingTimeUtils";
-import { appendAppointment, getAppointments } from "../utils/appointmentsApi";
+import { appendAppointment, getAppointments, getCustomers } from "../utils/appointmentsApi";
 import "./Bookingpage.css";
 
 function normalizeRow(row = {}) {
@@ -24,6 +23,19 @@ function normalizeRow(row = {}) {
     staffName: row.staffName ?? "",
     datetime: row.datetime ?? "",
   };
+}
+
+function normalizeCustomerRow(row = {}) {
+  return {
+    id: row.id ?? "",
+    fullName: row.full_name ?? row.fullName ?? "",
+    createdAt: row.created_at ?? row.createdAt ?? "",
+  };
+}
+
+function shortenId(value) {
+  if (!value) return "";
+  return String(value).slice(0, 8);
 }
 
 function getRowTimestamp(row) {
@@ -120,6 +132,12 @@ export default function Bookingpage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [customers, setCustomers] = useState([]);
+  const [customersLoading, setCustomersLoading] = useState(false);
+  const [customersError, setCustomersError] = useState(null);
+  const [customersLoaded, setCustomersLoaded] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [filterDate, setFilterDate] = useState(() => formatDateKey(new Date()));
   const [bookingTime, setBookingTime] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -186,6 +204,61 @@ export default function Bookingpage() {
     loadAppointments(controller.signal);
     return () => controller.abort();
   }, [loadAppointments]);
+
+  const loadCustomers = useCallback(async (signal) => {
+    setCustomersLoading(true);
+    setCustomersError(null);
+    try {
+      const data = await getCustomers(signal);
+      const normalized = (data.rows || []).map(normalizeCustomerRow);
+      setCustomers(normalized);
+      setCustomersLoaded(true);
+    } catch (err) {
+      if (err?.name === "AbortError") return;
+      setCustomersError(err?.message || "Error loading customers");
+      setCustomers([]);
+      setCustomersLoaded(true);
+    } finally {
+      setCustomersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== "customer" || customersLoaded) return;
+    const controller = new AbortController();
+    loadCustomers(controller.signal);
+    return () => controller.abort();
+  }, [activeTab, customersLoaded, loadCustomers]);
+
+  const handleOpenEditModal = useCallback((customer) => {
+    setSelectedCustomer(customer);
+    setIsEditModalOpen(true);
+  }, []);
+
+  const handleCloseEditModal = useCallback(() => {
+    setIsEditModalOpen(false);
+    setSelectedCustomer(null);
+  }, []);
+
+  useEffect(() => {
+    if (!isEditModalOpen) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        handleCloseEditModal();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleCloseEditModal, isEditModalOpen]);
+
+  useEffect(() => {
+    if (!isEditModalOpen) return undefined;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isEditModalOpen]);
 
   const filteredRows = useMemo(() => {
     const target = filterDate ? normalizeDateString(filterDate) : "";
@@ -435,9 +508,61 @@ export default function Bookingpage() {
                 id="booking-panel-customer"
                 role="tabpanel"
                 aria-labelledby="booking-tab-customer"
-                className="booking-panel-empty"
               >
-                เร็วๆ นี้
+                <table className="booking-table">
+                  <thead>
+                    <tr>
+                      <th>Customer ID</th>
+                      <th>Full name</th>
+                      <th>Edit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {customersLoading ? (
+                      <tr>
+                        <td colSpan="3">กำลังโหลด...</td>
+                      </tr>
+                    ) : customersError ? (
+                      <tr>
+                        <td colSpan="3">เกิดข้อผิดพลาด: {customersError}</td>
+                      </tr>
+                    ) : customers.length === 0 ? (
+                      <tr>
+                        <td colSpan="3">ไม่มีข้อมูล</td>
+                      </tr>
+                    ) : (
+                      customers.map((customer) => (
+                        <tr key={customer.id || customer.fullName}>
+                          <td title={customer.id}>{shortenId(customer.id)}</td>
+                          <td>{customer.fullName}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className="booking-edit-button"
+                              aria-label="Edit customer"
+                              onClick={() => handleOpenEditModal(customer)}
+                            >
+                              <svg
+                                viewBox="0 0 24 24"
+                                aria-hidden="true"
+                                className="booking-edit-icon"
+                              >
+                                <path
+                                  d="M3 17.25V21h3.75L19.81 7.94l-3.75-3.75L3 17.25z"
+                                  fill="currentColor"
+                                />
+                                <path
+                                  d="M20.71 6.04a1 1 0 0 0 0-1.41l-1.34-1.34a1 1 0 0 0-1.41 0l-1.13 1.13 3.75 3.75 1.13-1.13z"
+                                  fill="currentColor"
+                                />
+                              </svg>
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
@@ -654,6 +779,33 @@ export default function Bookingpage() {
                 </button>
               </>
             )}
+          </div>
+        </div>
+      )}
+      {isEditModalOpen && (
+        <div
+          className="booking-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          onClick={handleCloseEditModal}
+        >
+          <div
+            className="booking-modal-card"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="booking-modal-close"
+              aria-label="Close edit modal"
+              onClick={handleCloseEditModal}
+            >
+              ×
+            </button>
+            <div className="booking-modal-title">Edit modal (coming soon)</div>
+            <div className="booking-modal-meta">
+              <div>Customer: {selectedCustomer?.fullName || "-"}</div>
+              <div>ID: {selectedCustomer?.id || "-"}</div>
+            </div>
           </div>
         </div>
       )}

@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 
 import authRoutes from './routes/auth.js';
 import appointmentRoutes from './routes/appointments.js';
+import customersRoutes from './routes/customers.js';
 import visitsRoutes from './routes/visits.js';
 import sheetVisitsRoutes from './routes/sheetVisits.js';
 import { notFoundHandler, errorHandler } from './middlewares/errorHandlers.js';
@@ -44,6 +45,7 @@ export function createApp() {
 
   app.use('/api/auth', authRoutes);
   app.use('/api/appointments', appointmentRoutes);
+  app.use('/api/customers', customersRoutes);
   app.use('/api/visits', visitsRoutes);
   app.use('/api/sheet-visits', sheetVisitsRoutes);
 

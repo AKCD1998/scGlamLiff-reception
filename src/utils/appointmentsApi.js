@@ -34,6 +34,17 @@ export async function getAppointments(limit = 200, signal) {
   return data;
 }
 
+export async function getCustomers(signal) {
+  ensureConfig();
+  const url = `${base}/api/customers`;
+  const res = await fetch(url, { method: "GET", signal });
+  const data = await res.json();
+  if (!data.ok) {
+    throw new Error(data.error || "Server returned error");
+  }
+  return data;
+}
+
 export async function deleteSheetVisit(id, pin, reason = "") {
   ensureConfig();
   const url = `${base}/api/sheet-visits/${encodeURIComponent(id)}/delete`;
