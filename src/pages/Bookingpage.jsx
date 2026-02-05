@@ -95,23 +95,9 @@ function buildTreatmentOptions() {
     { value: "smooth 399 free", label: "Smooth 399 thb" },
     { value: "renew 599", label: "Renew 599 thb" },
     { value: "acne care 899", label: "Acne Care 899 thb" },
+    { value: "1/3 smooth 999 1 mask", label: "1/3 Smooth 999 thb 1 mask" },
+    { value: "1/10 smooth 2999 3 mask", label: "1/10 Smooth 2999 thb 3 mask" },
   ];
-
-  for (let progress = 1; progress <= 3; progress += 1) {
-    options.push({
-      value: `${progress}/3 smooth 999 1 mask`,
-      label: `${progress}/3 Smooth 999 thb 1 mask`,
-    });
-  }
-
-  for (let session = 1; session <= 10; session += 1) {
-    for (let mask = 1; mask <= 3; mask += 1) {
-      options.push({
-        value: `${session}/10 smooth 2999 ${mask}/3 mask`,
-        label: `${session}/10 Smooth 2999 thb ${mask}/3 mask`,
-      });
-    }
-  }
 
   return options;
 }

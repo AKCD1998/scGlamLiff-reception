@@ -312,6 +312,14 @@ export default function Homepage({
       </div>
 
       <div className="panel table-panel">
+        {loading && (
+          <div className="table-loading-overlay" role="status" aria-live="polite">
+            <div className="workbench-loading-card">
+              <div className="workbench-loading-spinner" aria-hidden="true" />
+              <div className="workbench-loading-text">กำลังโหลดข้อมูล...</div>
+            </div>
+          </div>
+        )}
         <div className="panel-title">
           <span>Appointments</span>
           <strong>ล่าสุด</strong>
