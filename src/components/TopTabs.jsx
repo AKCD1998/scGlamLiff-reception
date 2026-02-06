@@ -1,13 +1,13 @@
 import "./TopTabs.css";
 
-const tabs = [
+const DEFAULT_TABS = [
   { id: "home", label: "หน้าหลัก" },
   { id: "booking", label: "ระบบการจองคิว" },
   { id: "stock", label: "เกี่ยวกับสต๊อก" },
   { id: "productGuide", label: "คู่มือผลิตภัณฑ์" },
 ];
 
-export default function TopTabs({ activeTab, onChange }) {
+export default function TopTabs({ activeTab, onChange, tabs = DEFAULT_TABS }) {
   return (
     <div className="top-tabs" role="tablist" aria-label="Workbench tabs">
       {tabs.map((tab) => (

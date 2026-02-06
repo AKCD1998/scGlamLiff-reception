@@ -6,7 +6,8 @@ const UUID_PATTERN =
 const DEFAULT_BRANCH_ID = process.env.DEFAULT_BRANCH_ID || 'branch-003';
 
 function isAdmin(user) {
-  return String(user?.role_name || '').toLowerCase() === 'admin';
+  const role = String(user?.role_name || '').toLowerCase();
+  return role === 'admin' || role === 'owner';
 }
 
 function normalizePhone(raw) {

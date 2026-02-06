@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import TopTabs from "../components/TopTabs";
 import ProfileBar from "../components/ProfileBar";
@@ -6,6 +6,7 @@ import { getMe, logout } from "../utils/authClient";
 import { deleteSheetVisit, getAppointments } from "../utils/appointmentsApi";
 import Homepage from "./Homepage";
 import Bookingpage from "./Bookingpage";
+import AdminBackdate from "./AdminBackdate";
 import "./WorkbenchPage.css";
 
 function normalizeRow(row = {}) {
@@ -68,6 +69,7 @@ export default function WorkbenchPage() {
   const [error, setError] = useState(null);
   const [userLabel, setUserLabel] = useState("");
   const [loadingUser, setLoadingUser] = useState(true);
+  const [me, setMe] = useState(null);
   const [theme, setTheme] = useState("light");
   const navigate = useNavigate();
 
@@ -109,6 +111,7 @@ export default function WorkbenchPage() {
       if (result.ok) {
         const user = result.data;
         const label = `${user.display_name || user.username} (${user.role_name || "staff"})`;
+        setMe(user);
         setUserLabel(label);
       }
       setLoadingUser(false);
@@ -136,10 +139,32 @@ export default function WorkbenchPage() {
     await loadAppointments();
   };
 
+  const tabs = useMemo(() => {
+    const baseTabs = [
+      { id: "home", label: "หน้าหลัก" },
+      { id: "booking", label: "ระบบการจองคิว" },
+      { id: "stock", label: "เกี่ยวกับสต๊อก" },
+      { id: "productGuide", label: "คู่มือผลิตภัณฑ์" },
+    ];
+    const role = String(me?.role_name || "").toLowerCase();
+    const isAdmin = role === "admin" || role === "owner";
+    if (isAdmin) {
+      baseTabs.push({ id: "adminBackdate", label: "จองย้อนหลัง (Admin)" });
+    }
+    return baseTabs;
+  }, [me]);
+
+  const isAdminTabAvailable = useMemo(() => tabs.some((t) => t.id === "adminBackdate"), [tabs]);
+
   const renderTabContent = () => {
     switch (activeTab) {
       case "booking":
         return <Bookingpage />;
+      case "adminBackdate":
+        if (!isAdminTabAvailable) {
+          return <TabPlaceholder title="จองย้อนหลัง (Admin)" />;
+        }
+        return <AdminBackdate currentUser={me} />;
       case "stock":
         return <StockPage />;
       case "productGuide":
@@ -184,7 +209,7 @@ export default function WorkbenchPage() {
         />
       </header>
 
-      <TopTabs activeTab={activeTab} onChange={setActiveTab} />
+      <TopTabs activeTab={activeTab} onChange={setActiveTab} tabs={tabs} />
 
       {renderTabContent()}
 

@@ -163,3 +163,39 @@ export async function deleteSheetVisit(id, pin, reason = "") {
   }
   return data;
 }
+
+export async function adminBackdate(payload, signal) {
+  ensureConfig();
+  const url = `${base}/api/appointments/admin/backdate`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    signal,
+    body: JSON.stringify(payload || {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || "Server returned error");
+  }
+  return data;
+}
+
+export async function getAppointmentsQueue({ date, branchId, limit = 200 } = {}, signal) {
+  ensureConfig();
+  const params = new URLSearchParams();
+  if (date) params.set("date", date);
+  if (branchId) params.set("branch_id", branchId);
+  params.set("limit", String(limit));
+  const url = `${base}/api/appointments/queue?${params.toString()}`;
+  const res = await fetch(url, {
+    method: "GET",
+    credentials: "include",
+    signal,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || "Server returned error");
+  }
+  return data;
+}

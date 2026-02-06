@@ -69,6 +69,13 @@ Run:
 node scripts/seed_user.js
 ```
 
+## One-time migrations (optional)
+Ensure `appointments.raw_sheet_uuid` is unique when present (helps prevent duplicate linkage to legacy sheet rows):
+
+```powershell
+node scripts/migrate_appointments_raw_sheet_uuid_unique.js
+```
+
 ## API
 - `POST /api/auth/login` { username, password }
 - `GET /api/auth/me`

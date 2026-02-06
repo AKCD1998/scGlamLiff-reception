@@ -6,6 +6,7 @@ import {
   softDeleteAppointment,
 } from '../controllers/appointmentsController.js';
 import requireAuth from '../middlewares/requireAuth.js';
+import requireAdmin from '../middlewares/requireAdmin.js';
 import {
   cancelAppointment,
   completeAppointment,
@@ -13,11 +14,19 @@ import {
   noShowAppointment,
   revertAppointment,
 } from '../controllers/appointmentServiceController.js';
+import { adminBackdateAppointment } from '../controllers/adminAppointmentsController.js';
+import { listAppointmentsQueue } from '../controllers/appointmentsQueueController.js';
 
 const router = Router();
 
 // Ensure an appointments row exists for a sheet booking row (sheet_visits_raw.sheet_uuid).
 router.post('/from-sheet/:sheetUuid/ensure', requireAuth, ensureAppointmentFromSheet);
+
+// Admin-only: create a past appointment (audit logged).
+router.post('/admin/backdate', requireAuth, requireAdmin, adminBackdateAppointment);
+
+// Appointments-first queue (for replacing /api/visits?source=sheet later).
+router.get('/queue', requireAuth, listAppointmentsQueue);
 
 router.get('/', listAppointments);
 router.post('/', createAppointment);
