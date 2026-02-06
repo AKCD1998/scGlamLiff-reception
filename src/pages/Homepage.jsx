@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useAppointmentsFilter } from "../hooks/useAppointmentsFilter";
-import { useDeleteAppointment } from "../hooks/useDeleteAppointment";
+import { useAppointmentsFilter } from "../pages/Homepage/useAppointmentsFilters";
+import { useDeleteAppointment } from "../pages/Homepage/useDeleteAppointment";
 
 import ScheduleCalendarPanel from "../components/calendar/ScheduleCalendarPanel";
 import AppointmentsTablePanel from "../components/appointments/AppointmentsTablePanel";
