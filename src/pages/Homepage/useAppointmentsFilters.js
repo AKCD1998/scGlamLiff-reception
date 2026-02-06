@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { formatDateKey, normalizeDateString } from "../utils/dateFormat";
+import { formatDateKey, normalizeDateString } from "../../utils/dateFormat";
 
 export function useAppointmentsFilter(rows, selectedDate) {
   const activeFilterKey = useMemo(
