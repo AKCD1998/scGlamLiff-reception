@@ -229,3 +229,30 @@
 ### Verification
 - เพิ่ม test: `defaults to all dates (no date filter) on first load` ใน `src/pages/WorkbenchPage.test.jsx`
 - รันผ่าน: `npm run test:run -- src/pages/WorkbenchPage.test.jsx`
+
+## 2026-02-08 — Booking page queue defaults to all rows + date filter reset
+
+### Goal
+- หน้า `Booking` แท็บคิวต้องแสดงทุกแถวเป็นค่าเริ่มต้น และกรองวันที่เฉพาะตอนผู้ใช้เลือกเอง
+
+### What changed
+- แยก state เดิม `filterDate` ออกเป็น 2 ส่วน:
+  - `queueDateFilter` (ค่าเริ่มต้น `""`) สำหรับกรองตารางคิว
+  - `bookingDate` (ค่าเริ่มต้นวันนี้) สำหรับฟอร์มจอง
+- ปรับ `loadAppointments` ให้โหลดคิวทั้งหมด (`getAppointmentsQueue({ limit: 200 })`) แล้วให้ UI กรอง client-side ตาม `queueDateFilter`
+- เพิ่ม UI กรองวันที่เหนือ table คิว:
+  - date input `กรองตามวันที่`
+  - ปุ่ม `แสดงทั้งหมด` เพื่อเคลียร์ filter กลับเป็นทุกแถว
+- คง logic จองเดิมให้ใช้ `bookingDate` สำหรับ:
+  - ตรวจย้อนหลัง (`isPastBooking`)
+  - คำนวณช่วงเวลาว่าง/ชนคิว (`occupiedRanges`, `recommendedSlots`)
+
+### UX now
+- เปิดหน้า Booking ครั้งแรก: คิวแสดงทั้งหมด
+- เลือกวันที่ในตัวกรองคิว: table แสดงเฉพาะวันนั้น
+- กด `แสดงทั้งหมด`: กลับมาแสดงทั้งหมด
+- ฟอร์มจองยังต้องมีวันที่ และ default เป็นวันนี้
+
+### Verification
+- `npm run test:run -- src/pages/WorkbenchPage.test.jsx`
+- `npm run build`

@@ -230,7 +230,8 @@ export default function Bookingpage() {
   const [customerProfileLoading, setCustomerProfileLoading] = useState(false);
   const [customerProfileError, setCustomerProfileError] = useState(null);
   const profileCacheRef = useRef(new Map());
-  const [filterDate, setFilterDate] = useState(() => formatDateKey(new Date()));
+  const [queueDateFilter, setQueueDateFilter] = useState("");
+  const [bookingDate, setBookingDate] = useState(() => formatDateKey(new Date()));
   const [bookingTime, setBookingTime] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
@@ -294,8 +295,7 @@ export default function Bookingpage() {
     setLoading(true);
     setError(null);
     try {
-      const dateKey = normalizeDateString(filterDate);
-      const data = await getAppointmentsQueue({ date: dateKey, limit: 200 }, signal);
+      const data = await getAppointmentsQueue({ limit: 200 }, signal);
       const normalized = (data.rows || []).map(normalizeRow);
       setRows(normalized);
     } catch (err) {
@@ -305,7 +305,7 @@ export default function Bookingpage() {
     } finally {
       setLoading(false);
     }
-  }, [filterDate]);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -489,28 +489,28 @@ export default function Bookingpage() {
   }, [isEditModalOpen]);
 
   const filteredRows = useMemo(() => {
-    const target = filterDate ? normalizeDateString(filterDate) : "";
+    const target = queueDateFilter ? normalizeDateString(queueDateFilter) : "";
     const list = target
       ? rows.filter((row) => normalizeDateString(row.date) === target)
       : rows;
     return [...list].sort((a, b) => getRowTimestamp(b) - getRowTimestamp(a));
-  }, [rows, filterDate]);
+  }, [rows, queueDateFilter]);
 
   const selectedDateObj = useMemo(() => {
-    const key = normalizeDateString(filterDate);
+    const key = normalizeDateString(bookingDate);
     if (!key) return null;
     return new Date(`${key}T00:00:00`);
-  }, [filterDate]);
+  }, [bookingDate]);
 
   const occupiedRanges = useMemo(() => {
-    const key = normalizeDateString(filterDate);
+    const key = normalizeDateString(bookingDate);
     if (!key) return [];
     const rowsForDay = rows.filter((row) =>
       normalizeDateString(row.date) === key &&
       ["booked", "rescheduled"].includes(String(row.status || "booked").toLowerCase())
     );
     return buildOccupiedRanges(rowsForDay, TIME_CFG);
-  }, [rows, filterDate]);
+  }, [rows, bookingDate]);
 
   const recommendedSlots = useMemo(() => {
     if (!selectedDateObj) return [];
@@ -545,8 +545,8 @@ export default function Bookingpage() {
   }, [bookingTime, occupiedRanges]);
 
   const isPastDate = useMemo(() => {
-    if (!filterDate) return false;
-    const parts = normalizeDateString(filterDate).split("-");
+    if (!bookingDate) return false;
+    const parts = normalizeDateString(bookingDate).split("-");
     if (parts.length !== 3) return false;
     const [yyyy, mm, dd] = parts.map((p) => Number(p));
     if (!yyyy || !mm || !dd) return false;
@@ -555,18 +555,18 @@ export default function Bookingpage() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     return selectedDay.getTime() < today.getTime();
-  }, [filterDate]);
+  }, [bookingDate]);
 
   const isPastBooking = useMemo(() => {
     if (isPastDate) return true;
-    if (!filterDate || !bookingTime) return false;
-    const dateKey = toIsoDateFromDDMMYYYY(filterDate);
+    if (!bookingDate || !bookingTime) return false;
+    const dateKey = toIsoDateFromDDMMYYYY(bookingDate);
     const timeKey = normalizeBookingTime(bookingTime);
     if (!dateKey || !timeKey) return false;
     const dateTime = new Date(`${dateKey}T${timeKey}:00`);
     if (Number.isNaN(dateTime.getTime())) return false;
     return dateTime.getTime() < Date.now();
-  }, [filterDate, bookingTime, isPastDate]);
+  }, [bookingDate, bookingTime, isPastDate]);
 
   const handleSaveBooking = async () => {
     if (saving) return;
@@ -577,7 +577,7 @@ export default function Bookingpage() {
     setStatusOpen(true);
     setStatusMode("loading");
 
-    const dateKey = toIsoDateFromDDMMYYYY(filterDate);
+    const dateKey = toIsoDateFromDDMMYYYY(bookingDate);
     const timeKey = normalizeBookingTime(bookingTime);
     const cleanName = customerName.trim();
     const rawPhone = phone.trim();
@@ -698,7 +698,7 @@ export default function Bookingpage() {
                 className={`booking-tab ${activeTab === "queue" ? "active" : ""}`}
                 onClick={() => setActiveTab("queue")}
               >
-                คิวให้บริการวันนี้
+                คิวให้บริการ
               </button>
               <button
                 type="button"
@@ -720,6 +720,25 @@ export default function Bookingpage() {
                 role="tabpanel"
                 aria-labelledby="booking-tab-queue"
               >
+                <div className="booking-queue-filter">
+                  <div className="booking-field booking-queue-filter-field">
+                    <label htmlFor="queue-filter-date">กรองตามวันที่</label>
+                    <input
+                      id="queue-filter-date"
+                      type="date"
+                      value={queueDateFilter}
+                      onChange={(event) => setQueueDateFilter(event.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="booking-queue-filter-clear"
+                    onClick={() => setQueueDateFilter("")}
+                    disabled={!queueDateFilter}
+                  >
+                    แสดงทั้งหมด
+                  </button>
+                </div>
                 <table className="booking-table">
                   <thead>
                     <tr>
@@ -856,9 +875,9 @@ export default function Bookingpage() {
                     <input
                       id="booking-date"
                       type="date"
-                      value={filterDate}
+                      value={bookingDate}
                       onChange={(event) => {
-                        setFilterDate(event.target.value);
+                        setBookingDate(event.target.value);
                         setSubmitError("");
                         setSubmitSuccess("");
                       }}
