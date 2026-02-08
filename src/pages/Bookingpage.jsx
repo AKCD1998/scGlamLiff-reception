@@ -102,6 +102,39 @@ function buildTreatmentOptions() {
   return options;
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const LINE_ID_PATTERN = /^[a-zA-Z0-9._-]{1,50}$/;
+
+function sanitizeThaiPhone(input) {
+  const digits = String(input ?? "").replace(/\D+/g, "");
+  if (!digits) return "";
+
+  if (digits.startsWith("66") && digits.length === 11) {
+    return `0${digits.slice(-9)}`;
+  }
+
+  if (digits.length === 10 && digits.startsWith("0")) {
+    return digits;
+  }
+
+  if (digits.length === 9 && !digits.startsWith("0")) {
+    return `0${digits}`;
+  }
+
+  return "";
+}
+
+function sanitizeEmailOrLine(input) {
+  const cleaned = String(input ?? "").trim();
+  if (!cleaned) return "";
+
+  if (cleaned.includes("@")) {
+    return EMAIL_PATTERN.test(cleaned) ? cleaned : "";
+  }
+
+  return LINE_ID_PATTERN.test(cleaned) ? cleaned : "";
+}
+
 const SELECT_STYLES = {
   container: (base) => ({ ...base, width: "100%" }),
   control: (base) => ({
@@ -158,12 +191,18 @@ export default function Bookingpage() {
   const [staffName, setStaffName] = useState("ส้ม");
   const [timeError, setTimeError] = useState("");
   const [submitError, setSubmitError] = useState("");
+  const [phoneError, setPhoneError] = useState("");
+  const [lineIdError, setLineIdError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
   const [saving, setSaving] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [statusMode, setStatusMode] = useState("idle");
   const [activeTab, setActiveTab] = useState("queue");
   const treatmentOptions = useMemo(() => buildTreatmentOptions(), []);
+  const treatmentOptionValues = useMemo(
+    () => new Set(treatmentOptions.map((option) => option.value)),
+    [treatmentOptions]
+  );
   const [me, setMe] = useState(null);
   const [serviceModalOpen, setServiceModalOpen] = useState(false);
   const [selectedBookingRow, setSelectedBookingRow] = useState(null);
@@ -425,19 +464,45 @@ export default function Bookingpage() {
     if (saving) return;
     setSubmitError("");
     setSubmitSuccess("");
+    setPhoneError("");
+    setLineIdError("");
     setStatusOpen(true);
     setStatusMode("loading");
 
     const dateKey = toIsoDateFromDDMMYYYY(filterDate);
     const timeKey = normalizeBookingTime(bookingTime);
     const cleanName = customerName.trim();
-    const cleanPhone = phone.trim();
-    const cleanLine = lineId.trim();
+    const rawPhone = phone.trim();
+    const rawLine = lineId.trim();
+    const cleanPhone = sanitizeThaiPhone(rawPhone);
+    const cleanLine = sanitizeEmailOrLine(rawLine);
     const cleanTreatment = treatmentItem.trim();
     const cleanStaff = staffName.trim();
 
-    if (!dateKey || !timeKey || !cleanName || !cleanPhone || !cleanTreatment || !cleanStaff) {
+    if (!dateKey || !timeKey || !cleanName || !rawPhone || !cleanTreatment || !cleanStaff) {
       setSubmitError("กรุณากรอกข้อมูลที่จำเป็นให้ครบ");
+      resetStatus();
+      return;
+    }
+
+    if (!cleanPhone) {
+      const message = "เบอร์โทรไม่ถูกต้อง";
+      setPhoneError(message);
+      setSubmitError(message);
+      resetStatus();
+      return;
+    }
+
+    if (rawLine && !cleanLine) {
+      const message = "Line ID/Email ไม่ถูกต้อง";
+      setLineIdError(message);
+      setSubmitError(message);
+      resetStatus();
+      return;
+    }
+
+    if (!treatmentOptionValues.has(cleanTreatment)) {
+      setSubmitError("กรุณาเลือกบริการจากรายการที่กำหนด");
       resetStatus();
       return;
     }
@@ -746,9 +811,18 @@ export default function Bookingpage() {
                       id="booking-phone"
                       type="tel"
                       placeholder="08x-xxx-xxxx"
+                      inputMode="numeric"
+                      maxLength={11}
                       value={phone}
-                      onChange={(event) => setPhone(event.target.value)}
+                      onChange={(event) => {
+                        const digitsOnly = event.target.value.replace(/\D+/g, "").slice(0, 11);
+                        setPhone(digitsOnly);
+                        setPhoneError("");
+                      }}
                     />
+                    {phoneError && (
+                      <div className="booking-time-error">{phoneError}</div>
+                    )}
                   </div>
                 </div>
 
@@ -763,8 +837,14 @@ export default function Bookingpage() {
                       type="text"
                       placeholder="Line ID"
                       value={lineId}
-                      onChange={(event) => setLineId(event.target.value)}
+                      onChange={(event) => {
+                        setLineId(event.target.value);
+                        setLineIdError("");
+                      }}
                     />
+                    {lineIdError && (
+                      <div className="booking-time-error">{lineIdError}</div>
+                    )}
                   </div>
                 </div>
 

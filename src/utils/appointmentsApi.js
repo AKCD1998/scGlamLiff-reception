@@ -1,4 +1,11 @@
 const base = (import.meta.env.VITE_API_BASE || "").replace(/\/+$/, "");
+const shouldLogApiBase =
+  import.meta.env.DEV ||
+  String(import.meta.env.VITE_LOG_API_BASE || "").trim().toLowerCase() === "true";
+
+if (typeof window !== "undefined" && shouldLogApiBase) {
+  console.info(`[appointmentsApi] VITE_API_BASE=${base || "(missing)"}`);
+}
 
 function ensureConfig() {
   if (!base) {

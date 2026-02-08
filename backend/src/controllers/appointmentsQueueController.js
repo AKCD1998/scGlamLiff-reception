@@ -4,6 +4,7 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 500;
 const DEFAULT_EXCLUDED_STATUSES = new Set(['cancelled', 'canceled', 'no_show']);
+const DEBUG_PHONE_FRAGMENT = String(process.env.DEBUG_QUEUE_PHONE_FRAGMENT || '').replace(/\D+/g, '');
 
 function normalizeText(value) {
   if (value === null || value === undefined) return '';
@@ -14,6 +15,25 @@ function parseLimit(value) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_LIMIT;
   return Math.min(parsed, MAX_LIMIT);
+}
+
+function sanitizeThaiPhone(value) {
+  const digits = normalizeText(value).replace(/\D+/g, '');
+  if (!digits) return '';
+
+  if (digits.startsWith('66') && digits.length === 11) {
+    return `0${digits.slice(-9)}`;
+  }
+
+  if (digits.length === 10 && digits.startsWith('0')) {
+    return digits;
+  }
+
+  if (digits.length === 9 && !digits.startsWith('0')) {
+    return `0${digits}`;
+  }
+
+  return '';
 }
 
 export async function listAppointmentsQueue(req, res) {
@@ -123,7 +143,27 @@ export async function listAppointmentsQueue(req, res) {
       params
     );
 
-    return res.json({ ok: true, rows });
+    const normalizedRows = rows.map((row) => {
+      const rawPhone = normalizeText(row.phone);
+      const normalizedPhone = sanitizeThaiPhone(rawPhone);
+
+      if (DEBUG_PHONE_FRAGMENT) {
+        const rawDigits = rawPhone.replace(/\D+/g, '');
+        const normalizedDigits = normalizedPhone.replace(/\D+/g, '');
+        if (rawDigits.includes(DEBUG_PHONE_FRAGMENT) || normalizedDigits.includes(DEBUG_PHONE_FRAGMENT)) {
+          console.log(
+            `[appointmentsQueue] phone_trace raw_sheet_uuid=${row.raw_sheet_uuid || ''} customer="${normalizeText(row.customer_full_name || row.customerName)}" raw_phone="${rawPhone}" normalized_phone="${normalizedPhone}"`
+          );
+        }
+      }
+
+      return {
+        ...row,
+        phone: normalizedPhone,
+      };
+    });
+
+    return res.json({ ok: true, rows: normalizedRows });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ ok: false, error: 'Server error' });
