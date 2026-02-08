@@ -648,6 +648,12 @@ export async function completeAppointment(req, res) {
 
 async function setAppointmentStatus({ req, res, nextStatus, eventType }) {
   const appointmentId = String(req.params?.id || '').trim();
+  const noteRaw = typeof req.body?.note === 'string'
+    ? req.body.note.trim()
+    : typeof req.body?.reason === 'string'
+      ? req.body.reason.trim()
+      : '';
+  const note = noteRaw || null;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -679,16 +685,18 @@ async function setAppointmentStatus({ req, res, nextStatus, eventType }) {
     await client.query(
       `
         INSERT INTO appointment_events (id, appointment_id, event_type, event_at, actor, note, meta)
-        VALUES (gen_random_uuid(), $1, $2, now(), 'staff', NULL, $3::jsonb)
+        VALUES (gen_random_uuid(), $1, $2, now(), 'staff', $3, $4::jsonb)
       `,
       [
         appointment.id,
         eventType,
+        note,
         JSON.stringify({
           previous_status: currentStatus,
           next_status: nextStatus,
           staff_user_id: req.user?.id || null,
           staff_display_name: safeDisplayName(req.user),
+          note,
         }),
       ]
     );

@@ -12,7 +12,7 @@ import {
 } from "../utils/bookingTimeUtils";
 import {
   appendAppointment,
-  getAppointmentsByDate,
+  getAppointmentsQueue,
   getCustomerProfile,
   getCustomers,
 } from "../utils/appointmentsApi";
@@ -202,7 +202,7 @@ export default function Bookingpage() {
     setError(null);
     try {
       const dateKey = normalizeDateString(filterDate);
-      const data = await getAppointmentsByDate(dateKey, 200, signal);
+      const data = await getAppointmentsQueue({ date: dateKey, limit: 200 }, signal);
       const normalized = (data.rows || []).map(normalizeRow);
       setRows(normalized);
     } catch (err) {

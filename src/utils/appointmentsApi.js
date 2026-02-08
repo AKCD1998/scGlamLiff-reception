@@ -8,7 +8,7 @@ function ensureConfig() {
 
 export async function appendAppointment(payload) {
   ensureConfig();
-  const url = `${base}/api/visits`;
+  const url = `${base}/api/appointments`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -126,6 +126,16 @@ export async function cancelService(appointmentId, signal) {
   return postAppointmentAction(
     `/api/appointments/${encodeURIComponent(appointmentId)}/cancel`,
     null,
+    signal
+  );
+}
+
+export async function cancelAppointment(appointmentId, note = "", signal) {
+  if (!appointmentId) throw new Error("Missing appointment id");
+  const payload = note ? { note } : {};
+  return postAppointmentAction(
+    `/api/appointments/${encodeURIComponent(appointmentId)}/cancel`,
+    payload,
     signal
   );
 }

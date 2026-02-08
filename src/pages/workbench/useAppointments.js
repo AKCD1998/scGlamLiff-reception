@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
-import { deleteSheetVisit, getAppointments } from "../../utils/appointmentsApi";
+import { cancelAppointment, getAppointmentsQueue } from "../../utils/appointmentsApi";
 import { normalizeRow, getRowTimestamp } from "./workbenchRow";
 
-export function useAppointments(limit = 50) {
+function pad2(value) {
+  return String(value).padStart(2, "0");
+}
+
+function formatDateKey(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+export function useAppointments({ limit = 50, selectedDate = null, branchId = "" } = {}) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -12,7 +21,11 @@ export function useAppointments(limit = 50) {
       setLoading(true);
       setError(null);
       try {
-        const data = await getAppointments(limit, signal);
+        const dateKey = selectedDate ? formatDateKey(selectedDate) : "";
+        const data = await getAppointmentsQueue(
+          { date: dateKey || undefined, branchId: branchId || undefined, limit },
+          signal
+        );
         const normalized = (data.rows || []).map(normalizeRow);
         normalized.sort((a, b) => getRowTimestamp(b) - getRowTimestamp(a));
         setRows(normalized);
@@ -24,7 +37,7 @@ export function useAppointments(limit = 50) {
         setLoading(false);
       }
     },
-    [limit]
+    [branchId, limit, selectedDate]
   );
 
   useEffect(() => {
@@ -34,8 +47,8 @@ export function useAppointments(limit = 50) {
   }, [reloadAppointments]);
 
   const deleteAppointment = useCallback(
-    async (id, pin, reason) => {
-      await deleteSheetVisit(id, pin, reason);
+    async (id, reason) => {
+      await cancelAppointment(id, reason);
       await reloadAppointments();
     },
     [reloadAppointments]

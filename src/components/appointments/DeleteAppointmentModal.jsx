@@ -1,8 +1,6 @@
 export default function DeleteAppointmentModal({
   open,
   target,
-  pin,
-  onPinChange,
   reason,
   onReasonChange,
   error,
@@ -15,19 +13,10 @@ export default function DeleteAppointmentModal({
   return (
     <div className="delete-modal-backdrop" onClick={onClose}>
       <div className="delete-modal" onClick={(e) => e.stopPropagation()}>
-        <h3>ยืนยันการลบรายการ</h3>
+        <h3>ยืนยันการยกเลิกรายการ</h3>
         <p>
           รายการ: {target?.customerName || "-"} ({target?.bookingTime || "-"})
         </p>
-
-        <label htmlFor="delete-pin">รหัส PIN ของพนักงาน</label>
-        <input
-          id="delete-pin"
-          type="password"
-          value={pin}
-          onChange={(e) => onPinChange(e.target.value)}
-          placeholder="กรอกรหัส PIN"
-        />
 
         <label htmlFor="delete-reason">เหตุผล (ไม่บังคับ)</label>
         <input
@@ -45,7 +34,7 @@ export default function DeleteAppointmentModal({
             ยกเลิก
           </button>
           <button type="button" onClick={onConfirm} disabled={busy}>
-            {busy ? "กำลังลบ..." : "ยืนยันลบ"}
+            {busy ? "กำลังยกเลิก..." : "ยืนยันยกเลิก"}
           </button>
         </div>
       </div>

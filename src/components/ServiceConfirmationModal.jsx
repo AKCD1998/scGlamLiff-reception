@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   cancelService,
   completeService,
-  ensureAppointmentFromSheet,
   getCustomerProfile,
   noShowService,
   revertService,
@@ -42,7 +41,7 @@ export default function ServiceConfirmationModal({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
-  const isAdmin = String(currentUser?.role_name || "").toLowerCase() === "admin";
+  const isAdmin = ["admin", "owner"].includes(String(currentUser?.role_name || "").toLowerCase());
   const allowNoCourseCompletion = useMemo(() => {
     const text = String(booking?.treatmentItem || "").toLowerCase();
     // Sheet/course strings look like "1/3 ..." or "2/10 ..." etc. If it's not a progress string,
@@ -81,8 +80,19 @@ export default function ServiceConfirmationModal({
 
     const run = async () => {
       try {
-        const ensured = await ensureAppointmentFromSheet(booking?.id, controller.signal);
-        const appt = ensured.appointment;
+        const appointmentId = booking?.appointmentId || booking?.appointment_id || booking?.id || "";
+        const customerId = booking?.customerId || booking?.customer_id || null;
+
+        if (!appointmentId) {
+          throw new Error("Missing appointment id");
+        }
+
+        const appt = {
+          id: appointmentId,
+          customer_id: customerId,
+          status: booking?.status || "booked",
+        };
+
         setAppointment(appt);
 
         if (!appt?.customer_id) {
@@ -111,7 +121,16 @@ export default function ServiceConfirmationModal({
     run();
 
     return () => controller.abort();
-  }, [allowNoCourseCompletion, booking?.id, open]);
+  }, [
+    allowNoCourseCompletion,
+    booking?.appointmentId,
+    booking?.appointment_id,
+    booking?.customerId,
+    booking?.customer_id,
+    booking?.id,
+    booking?.status,
+    open,
+  ]);
 
   const appointmentStatus = appointment?.status || booking?.status || "booked";
   const canMutate = useMemo(() => {
@@ -153,24 +172,17 @@ export default function ServiceConfirmationModal({
   const completingWithoutCourse = allowNoCourseCompletion && selectedPackageId === NO_COURSE_ID;
 
   const syncCourses = async () => {
-    if (!booking?.id) {
-      setPackagesError("Missing booking id");
+    const customerId = appointment?.customer_id || booking?.customerId || booking?.customer_id || null;
+
+    if (!customerId) {
+      setPackagesError("Missing customer id");
       return;
     }
 
     setPackagesLoading(true);
     setPackagesError("");
     try {
-      const ensured = await ensureAppointmentFromSheet(booking.id);
-      const appt = ensured.appointment;
-      setAppointment(appt || null);
-
-      if (!appt?.customer_id) {
-        setPackages([]);
-        return;
-      }
-
-      const profile = await getCustomerProfile(appt.customer_id);
+      const profile = await getCustomerProfile(customerId);
       const list = Array.isArray(profile.packages) ? profile.packages : [];
       setPackages(list);
     } catch (err) {

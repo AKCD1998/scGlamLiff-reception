@@ -2,7 +2,6 @@ import { useState } from "react";
 
 export function useDeleteAppointment(onDeleteAppointment, setToast) {
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [deletePin, setDeletePin] = useState("");
   const [deleteReason, setDeleteReason] = useState("");
   const [deleteError, setDeleteError] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -13,7 +12,6 @@ export function useDeleteAppointment(onDeleteAppointment, setToast) {
       return;
     }
     setDeleteTarget(row);
-    setDeletePin("");
     setDeleteReason("");
     setDeleteError("");
   };
@@ -21,18 +19,12 @@ export function useDeleteAppointment(onDeleteAppointment, setToast) {
   const closeDelete = () => {
     if (deleteBusy) return;
     setDeleteTarget(null);
-    setDeletePin("");
     setDeleteReason("");
     setDeleteError("");
   };
 
   const confirmDelete = async () => {
     if (!deleteTarget?.id) return;
-
-    if (!deletePin.trim()) {
-      setDeleteError("กรุณากรอกรหัส PIN");
-      return;
-    }
     if (typeof onDeleteAppointment !== "function") {
       setDeleteError("ระบบลบยังไม่พร้อมใช้งาน");
       return;
@@ -41,10 +33,9 @@ export function useDeleteAppointment(onDeleteAppointment, setToast) {
     try {
       setDeleteBusy(true);
       setDeleteError("");
-      await onDeleteAppointment(deleteTarget.id, deletePin.trim(), deleteReason.trim());
-      setToast?.({ type: "success", message: "ลบรายการเรียบร้อยแล้ว" });
+      await onDeleteAppointment(deleteTarget.id, deleteReason.trim());
+      setToast?.({ type: "success", message: "ยกเลิกรายการเรียบร้อยแล้ว" });
       setDeleteTarget(null);
-      setDeletePin("");
       setDeleteReason("");
     } catch (err) {
       setDeleteError(err?.message || "ลบรายการไม่สำเร็จ");
@@ -54,7 +45,7 @@ export function useDeleteAppointment(onDeleteAppointment, setToast) {
   };
 
   return {
-    deleteTarget, deletePin, setDeletePin,
+    deleteTarget,
     deleteReason, setDeleteReason,
     deleteError, deleteBusy,
     openDelete, closeDelete, confirmDelete,

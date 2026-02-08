@@ -66,8 +66,6 @@ export default function Homepage(props) {
       <DeleteAppointmentModal
         open={!!del.deleteTarget}
         target={del.deleteTarget}
-        pin={del.deletePin}
-        onPinChange={del.setDeletePin}
         reason={del.deleteReason}
         onReasonChange={del.setDeleteReason}
         error={del.deleteError}

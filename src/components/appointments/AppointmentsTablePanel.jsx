@@ -32,9 +32,15 @@ export default function AppointmentsTablePanel({
         <table>
           <thead>
             <tr>
-              <th>วันที่</th><th>เวลาจอง</th><th>ชื่อ-นามสกุล ลูกค้า</th>
-              <th>โทรศัพท์</th><th>อีเมล / line ID</th><th>Treatment item</th>
-              <th>Staff Name</th><th>ID</th><th>ลบ</th>
+              <th>วันที่</th>
+              <th>เวลาจอง</th>
+              <th>ชื่อ-นามสกุล ลูกค้า</th>
+              <th>โทรศัพท์</th>
+              <th>อีเมล / line ID</th>
+              <th>Treatment item</th>
+              <th>Staff Name</th>
+              <th>ID</th>
+              <th>ลบ</th>
             </tr>
           </thead>
           <tbody>

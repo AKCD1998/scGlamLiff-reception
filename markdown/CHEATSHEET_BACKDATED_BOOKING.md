@@ -2,12 +2,14 @@
 
 Frontend (`src/pages/Bookingpage.jsx`) ตั้งกฎไม่ให้ผู้ใช้ “จองย้อนหลัง” เพื่อ data integrity แต่ในชีวิตจริงอาจต้องมีการบันทึกย้อนหลังเป็นครั้งคราว (เช่น ลูกค้ามาแล้วแต่ลืมลง, เคสโทรจองย้อนหลัง ฯลฯ)
 
-Cheatsheet นี้สรุป 2 วิธีที่ทำให้ “คิว/booking” โผล่ในหน้า Workbench ได้:
+Cheatsheet นี้สรุป 3 วิธีที่ทำให้ “คิว/booking” โผล่ในหน้า Workbench ได้:
 
-1) **SQL ตรงเข้า PostgreSQL** (แนะนำถ้าเข้าถึง DB ได้)  
-2) **เรียก API `POST /api/visits`** (แนะนำถ้าอยากทำเร็วโดยไม่เข้า DB)
+1) **SQL ตรงเข้า PostgreSQL** (legacy: `sheet_visits_raw`)  
+2) **เรียก API `POST /api/visits`** (legacy / admin-only)  
+3) **Admin Backdate: `POST /api/appointments/admin/backdate`** (แนะนำ — appointments-first)
 
-> หมายเหตุ: ระบบ UI หลักอ่านคิวจาก `public.sheet_visits_raw` ผ่าน `GET /api/visits` (default source = `sheet`)
+> หมายเหตุ (Option A): ระบบ UI คิวหลักอ่านจาก `public.appointments` ผ่าน `GET /api/appointments/queue` แล้ว  
+> ส่วน `/api/visits` และ `sheet_visits_raw` เป็น legacy (ปิดสำหรับ staff โดยค่าเริ่มต้น)
 
 ---
 
@@ -152,7 +154,10 @@ WHERE sheet_uuid = '<SHEET_UUID>';
 Backend มี endpoint ที่ insert ลง `sheet_visits_raw` ให้เลย: `POST /api/visits`
 
 > ข้อดี: เร็ว/ไม่ต้องเข้า DB  
-> ข้อควรระวัง: endpoint นี้ **ไม่ได้บล็อก “ย้อนหลัง” ที่ backend** (กฎบล็อกอยู่ที่ frontend) ดังนั้นควรใช้เฉพาะในวงที่ควบคุมได้
+> ข้อควรระวัง:
+> - endpoint นี้เป็น **legacy** (Option A ปิดสำหรับ staff โดยค่าเริ่มต้น)  
+> - ต้องเป็น `admin/owner` หรือเปิด `LEGACY_SHEET_MODE=true` จึงจะเรียกได้  
+> - และ **ไม่ได้บล็อก “ย้อนหลัง” ที่ backend** (กฎบล็อกอยู่ที่ frontend) ดังนั้นควรใช้เฉพาะในวงที่ควบคุมได้
 
 ตัวอย่าง (PowerShell):
 
@@ -180,9 +185,10 @@ Invoke-RestMethod -Method Post -Uri "$apiBase/api/visits" -ContentType "applicat
 
 ระบบ staff จะ “ผูก” แถวใน `sheet_visits_raw` ให้กลายเป็น `appointments/customers/customer_identities` ผ่าน:
 
-- `POST /api/appointments/from-sheet/:sheetUuid/ensure` (ต้อง login staff/admin ก่อน)
+- `POST /api/appointments/from-sheet/:sheetUuid/ensure` (**admin-only**)
 
-ใน UI ปกติ **ตอนกดเปิด modal ทำรายการ/ยืนยันบริการ** มันจะเรียก ensure ให้อัตโนมัติ (ดู `src/components/ServiceConfirmationModal.jsx`).
+หมายเหตุ: ตอนนี้ UI หลักทำงานแบบ appointments-first แล้ว จึง **ไม่เรียก ensure อัตโนมัติ** ใน runtime path
+ (แนะนำให้ใช้ `POST /api/appointments/admin/backdate` แทนถ้าเป็นเคส “ย้อนหลัง”).
 
 ---
 

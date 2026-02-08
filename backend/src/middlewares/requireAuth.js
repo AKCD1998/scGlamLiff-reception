@@ -26,7 +26,7 @@ export default async function requireAuth(req, res, next) {
 
     req.user = rows[0];
     return next();
-  } catch (error) {
+  } catch (_error) {
     return res.status(401).json({ ok: false, error: 'Unauthorized' });
   }
 }

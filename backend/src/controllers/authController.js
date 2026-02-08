@@ -81,7 +81,7 @@ export async function login(req, res) {
         display_name: user.display_name,
       },
     });
-  } catch (error) {
+  } catch (_error) {
     return res.status(500).json({ ok: false, error: 'Server error' });
   }
 }

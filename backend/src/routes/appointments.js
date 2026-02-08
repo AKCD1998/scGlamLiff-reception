@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import {
   listAppointments,
-  createAppointment,
   hardDeleteAppointment,
   softDeleteAppointment,
 } from '../controllers/appointmentsController.js';
@@ -16,11 +15,12 @@ import {
 } from '../controllers/appointmentServiceController.js';
 import { adminBackdateAppointment } from '../controllers/adminAppointmentsController.js';
 import { listAppointmentsQueue } from '../controllers/appointmentsQueueController.js';
+import { createStaffAppointment } from '../controllers/staffCreateAppointmentController.js';
 
 const router = Router();
 
 // Ensure an appointments row exists for a sheet booking row (sheet_visits_raw.sheet_uuid).
-router.post('/from-sheet/:sheetUuid/ensure', requireAuth, ensureAppointmentFromSheet);
+router.post('/from-sheet/:sheetUuid/ensure', requireAuth, requireAdmin, ensureAppointmentFromSheet);
 
 // Admin-only: create a past appointment (audit logged).
 router.post('/admin/backdate', requireAuth, requireAdmin, adminBackdateAppointment);
@@ -29,7 +29,7 @@ router.post('/admin/backdate', requireAuth, requireAdmin, adminBackdateAppointme
 router.get('/queue', requireAuth, listAppointmentsQueue);
 
 router.get('/', listAppointments);
-router.post('/', createAppointment);
+router.post('/', requireAuth, createStaffAppointment);
 router.post('/delete-hard', hardDeleteAppointment);
 router.delete('/:id', softDeleteAppointment);
 

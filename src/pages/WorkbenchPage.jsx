@@ -19,7 +19,10 @@ import { useMe } from "./workbench/useMe";
 export default function WorkbenchPage() {
   const [activeTab, setActiveTab] = useState("home");
   const homePicker = useHomePickerState();
-  const { rows, loading, error, deleteAppointment } = useAppointments(50);
+  const { rows, loading, error, deleteAppointment } = useAppointments({
+    limit: 50,
+    selectedDate: homePicker.selectedDate,
+  });
   const { theme, toggleTheme } = useTheme();
   const { me, userLabel, loadingUser } = useMe();
   const navigate = useNavigate();
@@ -28,8 +31,8 @@ export default function WorkbenchPage() {
     navigate("/login");
   };
 
-  const handleDeleteAppointment = async (id, pin, reason) => {
-    await deleteAppointment(id, pin, reason);
+  const handleDeleteAppointment = async (id, reason) => {
+    await deleteAppointment(id, reason);
   };
 
   const tabs = useMemo(() => {

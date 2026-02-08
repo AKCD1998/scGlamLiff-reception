@@ -46,7 +46,7 @@ export default function LoginPage() {
       setMsg({ type: "success", text: "เข้าสู่ระบบสำเร็จ" });
       setLoading(false);
       navigate("/workbench");
-    } catch (error) {
+    } catch (_error) {
       setMsg({ type: "error", text: "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์" });
       setLoading(false);
     }
