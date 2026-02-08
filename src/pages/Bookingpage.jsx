@@ -12,6 +12,7 @@ import {
 } from "../utils/bookingTimeUtils";
 import {
   appendAppointment,
+  getBookingTreatmentOptions,
   getAppointmentsQueue,
   getCustomerProfile,
   getCustomers,
@@ -90,16 +91,63 @@ const TIME_CFG = {
   maxRecommend: 6,
 };
 
-function buildTreatmentOptions() {
-  const options = [
-    { value: "smooth 399 free", label: "Smooth 399 thb" },
-    { value: "renew 599", label: "Renew 599 thb" },
-    { value: "acne care 899", label: "Acne Care 899 thb" },
-    { value: "1/3 smooth 999 1 mask", label: "1/3 Smooth 999 thb 1 mask" },
-    { value: "1/10 smooth 2999 3 mask", label: "1/10 Smooth 2999 thb 3 mask" },
+function buildFallbackTreatmentOptions() {
+  return [
+    {
+      value: "fallback:smooth-1x",
+      label: "Smooth 399 thb",
+      treatmentId: "",
+      treatmentItemText: "smooth 399 free",
+    },
+    {
+      value: "fallback:renew",
+      label: "Renew 599 thb",
+      treatmentId: "",
+      treatmentItemText: "renew 599",
+    },
+    {
+      value: "fallback:acne-care",
+      label: "Acne Care 899 thb",
+      treatmentId: "",
+      treatmentItemText: "acne care 899",
+    },
+    {
+      value: "fallback:smooth-3x",
+      label: "1/3 Smooth 999 thb 1 mask",
+      treatmentId: "",
+      treatmentItemText: "1/3 smooth 999 1 mask",
+    },
+    {
+      value: "fallback:smooth-10x",
+      label: "1/10 Smooth 2999 thb 3 mask",
+      treatmentId: "",
+      treatmentItemText: "1/10 smooth 2999 3 mask",
+    },
   ];
+}
 
-  return options;
+function normalizeTreatmentOptionRow(row = {}) {
+  const value = String(row.value ?? "").trim();
+  const label = String(row.label ?? "").trim();
+  const treatmentId = String(row.treatment_id ?? row.treatmentId ?? "").trim();
+  const treatmentItemText = String(
+    row.treatment_item_text ?? row.treatmentItemText ?? label
+  ).trim();
+
+  if (!value || !label || !treatmentItemText) return null;
+
+  return {
+    value,
+    label,
+    treatmentId,
+    treatmentItemText,
+    source: String(row.source ?? "").trim(),
+    packageId: String(row.package_id ?? row.packageId ?? "").trim(),
+    packageCode: String(row.package_code ?? row.packageCode ?? "").trim(),
+    sessionsTotal: Number(row.sessions_total ?? row.sessionsTotal) || 0,
+    maskTotal: Number(row.mask_total ?? row.maskTotal) || 0,
+    priceThb: Number(row.price_thb ?? row.priceThb) || 0,
+  };
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -187,7 +235,14 @@ export default function Bookingpage() {
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [lineId, setLineId] = useState("");
-  const [treatmentItem, setTreatmentItem] = useState("smooth 399 free");
+  const [treatmentOptions, setTreatmentOptions] = useState(() =>
+    buildFallbackTreatmentOptions()
+  );
+  const [treatmentItem, setTreatmentItem] = useState(() => {
+    const fallback = buildFallbackTreatmentOptions();
+    return fallback[0]?.value || "";
+  });
+  const [treatmentOptionsError, setTreatmentOptionsError] = useState("");
   const [staffName, setStaffName] = useState("ส้ม");
   const [timeError, setTimeError] = useState("");
   const [submitError, setSubmitError] = useState("");
@@ -198,7 +253,6 @@ export default function Bookingpage() {
   const [statusOpen, setStatusOpen] = useState(false);
   const [statusMode, setStatusMode] = useState("idle");
   const [activeTab, setActiveTab] = useState("queue");
-  const treatmentOptions = useMemo(() => buildTreatmentOptions(), []);
   const treatmentOptionValues = useMemo(
     () => new Set(treatmentOptions.map((option) => option.value)),
     [treatmentOptions]
@@ -271,6 +325,60 @@ export default function Bookingpage() {
     run();
     return () => {
       alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const controller = new AbortController();
+
+    const loadTreatmentOptions = async () => {
+      try {
+        setTreatmentOptionsError("");
+        const data = await getBookingTreatmentOptions(controller.signal);
+        if (!alive) return;
+
+        const normalized = (data.options || [])
+          .map(normalizeTreatmentOptionRow)
+          .filter(Boolean);
+
+        if (normalized.length === 0) {
+          const fallback = buildFallbackTreatmentOptions();
+          setTreatmentOptions(fallback);
+          setTreatmentItem((prev) =>
+            fallback.some((option) => option.value === prev)
+              ? prev
+              : fallback[0]?.value || ""
+          );
+          setTreatmentOptionsError("โหลดรายการบริการไม่สำเร็จ ใช้รายการสำรอง");
+          return;
+        }
+
+        setTreatmentOptions(normalized);
+        setTreatmentItem((prev) =>
+          normalized.some((option) => option.value === prev)
+            ? prev
+            : normalized[0]?.value || ""
+        );
+      } catch (err) {
+        if (err?.name === "AbortError") return;
+        if (!alive) return;
+        const fallback = buildFallbackTreatmentOptions();
+        setTreatmentOptions(fallback);
+        setTreatmentItem((prev) =>
+          fallback.some((option) => option.value === prev)
+            ? prev
+            : fallback[0]?.value || ""
+        );
+        setTreatmentOptionsError("โหลดรายการบริการไม่สำเร็จ ใช้รายการสำรอง");
+      }
+    };
+
+    loadTreatmentOptions();
+
+    return () => {
+      alive = false;
+      controller.abort();
     };
   }, []);
 
@@ -476,7 +584,10 @@ export default function Bookingpage() {
     const rawLine = lineId.trim();
     const cleanPhone = sanitizeThaiPhone(rawPhone);
     const cleanLine = sanitizeEmailOrLine(rawLine);
-    const cleanTreatment = treatmentItem.trim();
+    const selectedTreatmentOption =
+      treatmentOptions.find((option) => option.value === treatmentItem) || null;
+    const cleanTreatment = selectedTreatmentOption?.treatmentItemText?.trim() || "";
+    const cleanTreatmentId = selectedTreatmentOption?.treatmentId?.trim() || "";
     const cleanStaff = staffName.trim();
 
     if (!dateKey || !timeKey || !cleanName || !rawPhone || !cleanTreatment || !cleanStaff) {
@@ -501,7 +612,7 @@ export default function Bookingpage() {
       return;
     }
 
-    if (!treatmentOptionValues.has(cleanTreatment)) {
+    if (!treatmentOptionValues.has(treatmentItem) || !selectedTreatmentOption) {
       setSubmitError("กรุณาเลือกบริการจากรายการที่กำหนด");
       resetStatus();
       return;
@@ -550,6 +661,9 @@ export default function Bookingpage() {
       treatment_item_text: cleanTreatment,
       staff_name: cleanStaff,
     };
+    if (cleanTreatmentId) {
+      payload.treatment_id = cleanTreatmentId;
+    }
 
     setSaving(true);
     try {
@@ -869,6 +983,9 @@ export default function Bookingpage() {
                       menuPosition="fixed"
                       styles={SELECT_STYLES}
                     />
+                    {treatmentOptionsError && (
+                      <div className="booking-time-error">{treatmentOptionsError}</div>
+                    )}
                   </div>
                   <div className="booking-field">
                     <label htmlFor="booking-provider">

@@ -14,7 +14,10 @@ import {
   revertAppointment,
 } from '../controllers/appointmentServiceController.js';
 import { adminBackdateAppointment } from '../controllers/adminAppointmentsController.js';
-import { listAppointmentsQueue } from '../controllers/appointmentsQueueController.js';
+import {
+  listAppointmentsQueue,
+  listBookingTreatmentOptions,
+} from '../controllers/appointmentsQueueController.js';
 import { createStaffAppointment } from '../controllers/staffCreateAppointmentController.js';
 
 const router = Router();
@@ -27,6 +30,7 @@ router.post('/admin/backdate', requireAuth, requireAdmin, adminBackdateAppointme
 
 // Appointments-first queue (for replacing /api/visits?source=sheet later).
 router.get('/queue', requireAuth, listAppointmentsQueue);
+router.get('/booking-options', requireAuth, listBookingTreatmentOptions);
 
 router.get('/', listAppointments);
 router.post('/', requireAuth, createStaffAppointment);

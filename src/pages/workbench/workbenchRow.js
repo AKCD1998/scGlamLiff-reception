@@ -6,7 +6,8 @@ export function normalizeRow(row = {}) {
     customerName: row.customerName ?? "",
     phone: row.phone ?? "",
     lineId: row.lineId ?? "",
-    treatmentItem: row.treatmentItem ?? "",
+    treatmentItem: row.treatmentItemDisplay ?? row.treatmentItem ?? "",
+    treatmentItemDisplay: row.treatmentItemDisplay ?? row.treatmentItem ?? "",
     staffName: row.staffName ?? "",
     datetime: row.datetime ?? "", // backward compatibility for sorting fallback
   };

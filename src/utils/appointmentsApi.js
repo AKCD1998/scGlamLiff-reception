@@ -216,3 +216,18 @@ export async function getAppointmentsQueue({ date, branchId, limit = 200 } = {},
   }
   return data;
 }
+
+export async function getBookingTreatmentOptions(signal) {
+  ensureConfig();
+  const url = `${base}/api/appointments/booking-options`;
+  const res = await fetch(url, {
+    method: "GET",
+    credentials: "include",
+    signal,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || "Server returned error");
+  }
+  return data;
+}
