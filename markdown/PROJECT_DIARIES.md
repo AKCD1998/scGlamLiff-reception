@@ -155,3 +155,33 @@
 - Regression:
   - `npm run verify:admin-edit` ผ่าน
   - `POST /api/appointments/admin/backdate` ยังตอบ `200`
+
+## 2026-02-08 — Fix: Home/Workbench lineId showing placeholders (`__STAFF__`, `phone:*`)
+
+### Symptom
+- คอลัมน์ `อีเมล / line ID` ในหน้า Home/Workbench แสดงค่าเทคนิคแทนค่าที่คนกรอก เช่น:
+  - `__STAFF__`
+  - `__BACKDATE__`
+  - `phone:08xxxxxxx`
+
+### Root cause
+- หน้า Home ใช้ `GET /api/appointments/queue` (ไม่ใช่ `/api/visits` flow หลัก)
+- SQL เดิมใน `appointmentsQueueController` map `lineId` จาก fallback `appointments.line_user_id`
+- `line_user_id` เป็น internal FK/system placeholder สำหรับ integrity ไม่ใช่ค่าที่ต้องแสดงให้ผู้ใช้เห็น
+- ค่าที่ staff/admin กรอกจริงถูกเก็บใน `appointment_events.meta.email_or_lineid` (และบางเคสอยู่ใน `customer_identities`)
+
+### Fix summary
+- ปรับ queue query ให้เลือก `lineId` จากแหล่งที่เป็น human-entered ก่อน:
+  1. ค่า `email_or_lineid` ล่าสุดใน `appointment_events.meta` (`after.email_or_lineid` หรือ `meta.email_or_lineid`)
+  2. fallback ไป `customer_identities` (`LINE`/`EMAIL`)
+  3. fallback สุดท้ายไป `line_user_id` เฉพาะค่าที่ไม่ใช่ placeholder/system prefix
+- เพิ่ม sanitize ฝั่ง backend และ frontend เพื่อกันค่าระบบเล็ดลอด:
+  - ซ่อน `__STAFF__`, `__BACKDATE__`, `phone:*`, `sheet:*`
+- ปรับตารางหน้า Home ให้แสดง `-` เมื่อไม่มีค่า
+- อัปเดต `/api/visits` appointments source ให้ behavior เดียวกัน (กัน confusion ใน legacy flow)
+
+### Verification
+- `node --check backend/src/controllers/appointmentsQueueController.js`
+- `node --check backend/src/controllers/visitsController.js`
+- `node --check src/pages/workbench/workbenchRow.js`
+- `npm run test:run -- src/pages/WorkbenchPage.test.jsx` ผ่าน

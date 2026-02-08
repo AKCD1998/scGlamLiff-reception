@@ -57,7 +57,7 @@ export default function AppointmentsTablePanel({
                   <td>{row.bookingTime}</td>
                   <td>{row.customerName}</td>
                   <td>{row.phone}</td>
-                  <td>{row.lineId}</td>
+                  <td>{row.lineId || "-"}</td>
                   <td>{row.treatmentItemDisplay || row.treatmentItem}</td>
                   <td>{row.staffName}</td>
                   <td className="row-id-cell">{row.id || "-"}</td>

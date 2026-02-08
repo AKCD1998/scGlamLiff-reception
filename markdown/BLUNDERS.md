@@ -86,3 +86,27 @@ git push -u origin deploy-mvp
 **How to prevent regression**
 - ทุก flow ที่ใช้ system placeholder ใน FK (`__STAFF__`, `__BACKDATE__`) ต้องมี ensure/upsert ก่อนใช้งาน
 - เวลาสร้าง placeholder ใหม่ ให้เช็ค FK + not null constraints ใน schema เสมอ
+
+## lineId column shows system placeholders / phone identity instead of user input
+
+**What happened**
+- ในหน้า Home/Workbench คอลัมน์ `อีเมล / line ID` แสดงค่าอย่าง `__STAFF__`, `__BACKDATE__`, `phone:...`
+- ผู้ใช้เข้าใจว่าเป็น line id ที่พนักงานพิมพ์ แต่จริง ๆ เป็น internal identity/FK
+
+**Why it happened (root cause)**
+- โค้ด list endpoint (`/api/appointments/queue`) map `lineId` โดย fallback ไป `appointments.line_user_id`
+- `line_user_id` ถูกออกแบบให้เป็น internal key (รวม system placeholders) ไม่ใช่ display contact
+- ค่า contact ที่คนกรอก (`email_or_lineid`) ไปอยู่ใน `appointment_events.meta`/`customer_identities` แต่ไม่ได้ถูกใช้เป็น source แรกของคอลัมน์นี้
+
+**How it was fixed**
+- เปลี่ยน source ของ `lineId` ใน list queries ให้เป็น display-safe order:
+  1. latest `appointment_events.meta.email_or_lineid` (รวม `meta.after.email_or_lineid`)
+  2. `customer_identities` (`LINE`/`EMAIL`)
+  3. fallback `line_user_id` เฉพาะกรณีที่ไม่ใช่ system/phone/sheet prefixes
+- เพิ่ม sanitize guard ซ้ำทั้ง backend/frontend เพื่อไม่ให้ `__STAFF__`, `__BACKDATE__`, `phone:*`, `sheet:*` โผล่ใน UI
+- แสดง `-` เมื่อไม่มีค่า contact
+
+**How to prevent regression**
+- แยกเสมอว่า field ไหนเป็น internal FK (`line_user_id`) และ field ไหนเป็น display contact (`email_or_lineid` / derived display)
+- เวลาเพิ่ม placeholder/system identity ใหม่ ต้องเพิ่ม deny-list ใน display mapper
+- สำหรับคอลัมน์ที่ผู้ใช้มองเห็น ให้มี explicit `*_display` mapping และห้าม bind ตรงกับ internal key

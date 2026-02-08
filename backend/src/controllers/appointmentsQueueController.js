@@ -45,6 +45,22 @@ function sanitizeThaiPhone(value) {
   return '';
 }
 
+function sanitizeDisplayLineId(value) {
+  const text = normalizeText(value);
+  if (!text) return '';
+
+  if (text === '__STAFF__' || text === '__BACKDATE__') {
+    return '';
+  }
+
+  const lowered = text.toLowerCase();
+  if (lowered.startsWith('phone:') || lowered.startsWith('sheet:')) {
+    return '';
+  }
+
+  return text;
+}
+
 function getTreatmentTitle(row) {
   return (
     normalizeText(row.treatment_item_text_override) ||
@@ -239,12 +255,21 @@ export async function listAppointmentsQueue(req, res) {
               ELSE ''
             END
           ) AS phone,
-          COALESCE(
-            NULLIF(ci_line.provider_user_id, ''),
-            NULLIF(ci_email.provider_user_id, ''),
-            NULLIF(a.line_user_id, ''),
-            ''
-          ) AS "lineId",
+          CASE
+            WHEN COALESCE(contact_evt.has_email_or_lineid, false)
+              THEN COALESCE(NULLIF(contact_evt.email_or_lineid_raw, ''), '')
+            ELSE COALESCE(
+              NULLIF(ci_line.provider_user_id, ''),
+              NULLIF(ci_email.provider_user_id, ''),
+              CASE
+                WHEN COALESCE(a.line_user_id, '') IN ('__STAFF__', '__BACKDATE__') THEN ''
+                WHEN a.line_user_id LIKE 'phone:%' THEN ''
+                WHEN a.line_user_id LIKE 'sheet:%' THEN ''
+                ELSE COALESCE(NULLIF(a.line_user_id, ''), '')
+              END,
+              ''
+            )
+          END AS "lineId",
           COALESCE(
             NULLIF(t.title_th, ''),
             NULLIF(t.title_en, ''),
@@ -360,6 +385,25 @@ export async function listAppointmentsQueue(req, res) {
           ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
           LIMIT 1
         ) plan_evt ON true
+        LEFT JOIN LATERAL (
+          SELECT
+            COALESCE(
+              ae.meta->'after'->>'email_or_lineid',
+              ae.meta->>'email_or_lineid'
+            ) AS email_or_lineid_raw,
+            (
+              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'email_or_lineid'
+              OR ae.meta ? 'email_or_lineid'
+            ) AS has_email_or_lineid
+          FROM appointment_events ae
+          WHERE ae.appointment_id = a.id
+            AND (
+              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'email_or_lineid'
+              OR ae.meta ? 'email_or_lineid'
+            )
+          ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
+          LIMIT 1
+        ) contact_evt ON true
         LEFT JOIN packages plan_pkg ON (
           plan_evt.package_id ~* '${UUID_PATTERN}'
           AND plan_pkg.id = plan_evt.package_id::uuid
@@ -438,6 +482,7 @@ export async function listAppointmentsQueue(req, res) {
       return {
         ...row,
         phone: normalizedPhone,
+        lineId: sanitizeDisplayLineId(row.lineId),
         treatmentItem: treatmentItemDisplay || row.treatmentItem,
         treatmentItemDisplay: treatmentItemDisplay || row.treatmentItem,
       };

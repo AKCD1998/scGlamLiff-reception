@@ -27,6 +27,22 @@ function parseLimit(value) {
   return Math.min(parsed, MAX_LIMIT);
 }
 
+function sanitizeDisplayLineId(value) {
+  const text = normalizeText(value);
+  if (!text) return '';
+
+  if (text === '__STAFF__' || text === '__BACKDATE__') {
+    return '';
+  }
+
+  const lowered = text.toLowerCase();
+  if (lowered.startsWith('phone:') || lowered.startsWith('sheet:')) {
+    return '';
+  }
+
+  return text;
+}
+
 export async function listVisits(req, res) {
   const { date } = req.query;
   const sourceRaw = typeof req.query.source === 'string' ? req.query.source.trim() : '';
@@ -74,7 +90,12 @@ export async function listVisits(req, res) {
       params
       );
 
-      return res.json({ ok: true, rows });
+      const normalizedRows = rows.map((row) => ({
+        ...row,
+        lineId: sanitizeDisplayLineId(row.lineId),
+      }));
+
+      return res.json({ ok: true, rows: normalizedRows });
     }
 
     const whereParts = ["LOWER(COALESCE(a.status, '')) NOT IN ('cancelled', 'canceled')"];
@@ -95,11 +116,21 @@ export async function listVisits(req, res) {
           COALESCE(TO_CHAR(a.scheduled_at AT TIME ZONE 'Asia/Bangkok', 'HH24:MI'), '') AS "bookingTime",
           COALESCE(c.full_name, '') AS "customerName",
           COALESCE(NULLIF(ci_phone.provider_user_id, ''), '') AS phone,
-          COALESCE(
-            NULLIF(ci_line.provider_user_id, ''),
-            NULLIF(a.line_user_id, ''),
-            ''
-          ) AS "lineId",
+          CASE
+            WHEN COALESCE(contact_evt.has_email_or_lineid, false)
+              THEN COALESCE(NULLIF(contact_evt.email_or_lineid_raw, ''), '')
+            ELSE COALESCE(
+              NULLIF(ci_line.provider_user_id, ''),
+              NULLIF(ci_email.provider_user_id, ''),
+              CASE
+                WHEN COALESCE(a.line_user_id, '') IN ('__STAFF__', '__BACKDATE__') THEN ''
+                WHEN a.line_user_id LIKE 'phone:%' THEN ''
+                WHEN a.line_user_id LIKE 'sheet:%' THEN ''
+                ELSE COALESCE(NULLIF(a.line_user_id, ''), '')
+              END,
+              ''
+            )
+          END AS "lineId",
           COALESCE(
             NULLIF(t.title_th, ''),
             NULLIF(t.title_en, ''),
@@ -124,6 +155,32 @@ export async function listVisits(req, res) {
           ORDER BY is_active DESC, created_at DESC
           LIMIT 1
         ) ci_line ON true
+        LEFT JOIN LATERAL (
+          SELECT provider_user_id
+          FROM customer_identities
+          WHERE customer_id = c.id AND provider = 'EMAIL'
+          ORDER BY is_active DESC, created_at DESC
+          LIMIT 1
+        ) ci_email ON true
+        LEFT JOIN LATERAL (
+          SELECT
+            COALESCE(
+              ae.meta->'after'->>'email_or_lineid',
+              ae.meta->>'email_or_lineid'
+            ) AS email_or_lineid_raw,
+            (
+              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'email_or_lineid'
+              OR ae.meta ? 'email_or_lineid'
+            ) AS has_email_or_lineid
+          FROM appointment_events ae
+          WHERE ae.appointment_id = a.id
+            AND (
+              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'email_or_lineid'
+              OR ae.meta ? 'email_or_lineid'
+            )
+          ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
+          LIMIT 1
+        ) contact_evt ON true
         WHERE ${whereParts.join(' AND ')}
         ORDER BY a.scheduled_at DESC
         LIMIT $${params.length}
@@ -131,7 +188,12 @@ export async function listVisits(req, res) {
       params
     );
 
-    return res.json({ ok: true, rows });
+    const normalizedRows = rows.map((row) => ({
+      ...row,
+      lineId: sanitizeDisplayLineId(row.lineId),
+    }));
+
+    return res.json({ ok: true, rows: normalizedRows });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ ok: false, error: 'Server error' });

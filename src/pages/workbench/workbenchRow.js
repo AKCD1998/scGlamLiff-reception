@@ -1,3 +1,12 @@
+function sanitizeDisplayLineId(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  if (text === "__STAFF__" || text === "__BACKDATE__") return "";
+  const lowered = text.toLowerCase();
+  if (lowered.startsWith("phone:") || lowered.startsWith("sheet:")) return "";
+  return text;
+}
+
 export function normalizeRow(row = {}) {
   return {
     id: row.id ?? "",
@@ -5,7 +14,7 @@ export function normalizeRow(row = {}) {
     bookingTime: row.bookingTime ?? "",
     customerName: row.customerName ?? "",
     phone: row.phone ?? "",
-    lineId: row.lineId ?? "",
+    lineId: sanitizeDisplayLineId(row.lineId),
     treatmentItem: row.treatmentItemDisplay ?? row.treatmentItem ?? "",
     treatmentItemDisplay: row.treatmentItemDisplay ?? row.treatmentItem ?? "",
     staffName: row.staffName ?? "",
