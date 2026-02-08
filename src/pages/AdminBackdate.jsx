@@ -1,5 +1,9 @@
-import { useMemo, useState } from "react";
-import { adminBackdate } from "../utils/appointmentsApi";
+import { useEffect, useMemo, useState } from "react";
+import Select from "react-select";
+import {
+  adminBackdate,
+  getBookingTreatmentOptions,
+} from "../utils/appointmentsApi";
 import "./AdminBackdate.css";
 
 function pad2(value) {
@@ -27,6 +31,62 @@ function isAdminRole(roleName) {
   return role === "admin" || role === "owner";
 }
 
+function normalizeTreatmentOptionRow(row = {}) {
+  const value = String(row.value ?? "").trim();
+  const label = String(row.label ?? "").trim();
+  const treatmentId = String(row.treatment_id ?? row.treatmentId ?? "").trim();
+  const treatmentItemText = String(
+    row.treatment_item_text ?? row.treatmentItemText ?? label
+  ).trim();
+
+  if (!value || !label || !treatmentId || !treatmentItemText) return null;
+
+  return {
+    value,
+    label,
+    treatmentId,
+    treatmentItemText,
+  };
+}
+
+const SELECT_STYLES = {
+  container: (base) => ({ ...base, width: "100%" }),
+  control: (base) => ({
+    ...base,
+    backgroundColor: "var(--panel)",
+    borderColor: "var(--border)",
+    boxShadow: "none",
+    minHeight: "42px",
+    "&:hover": {
+      borderColor: "var(--border)",
+    },
+  }),
+  singleValue: (base) => ({ ...base, color: "var(--text-strong)" }),
+  input: (base) => ({ ...base, color: "var(--text-strong)" }),
+  placeholder: (base) => ({ ...base, color: "var(--text-muted)" }),
+  option: (base, state) => ({
+    ...base,
+    color: "var(--text-strong)",
+    backgroundColor: state.isSelected
+      ? "rgba(47, 107, 47, 0.14)"
+      : state.isFocused
+        ? "rgba(42, 18, 6, 0.08)"
+        : "var(--panel)",
+    ":active": {
+      ...base[":active"],
+      backgroundColor: "rgba(47, 107, 47, 0.16)",
+    },
+  }),
+  menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+  menu: (base) => ({
+    ...base,
+    zIndex: 9999,
+    backgroundColor: "var(--panel)",
+    border: "1px solid var(--border)",
+  }),
+  menuList: (base) => ({ ...base, backgroundColor: "var(--panel)" }),
+};
+
 export default function AdminBackdate({ currentUser }) {
   const isAdmin = useMemo(() => isAdminRole(currentUser?.role_name), [currentUser]);
   const defaultScheduledAt = useMemo(() => {
@@ -51,6 +111,43 @@ export default function AdminBackdate({ currentUser }) {
   const [statusOpen, setStatusOpen] = useState(false);
   const [statusMode, setStatusMode] = useState("idle"); // idle | loading | success | error
   const [result, setResult] = useState(null);
+  const [treatmentOptions, setTreatmentOptions] = useState([]);
+  const [treatmentOptionValue, setTreatmentOptionValue] = useState("");
+  const [treatmentOptionsLoading, setTreatmentOptionsLoading] = useState(false);
+  const [treatmentOptionsError, setTreatmentOptionsError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    const controller = new AbortController();
+
+    const run = async () => {
+      setTreatmentOptionsLoading(true);
+      setTreatmentOptionsError("");
+      try {
+        const data = await getBookingTreatmentOptions(controller.signal);
+        if (!alive) return;
+        const normalized = (data?.options || [])
+          .map(normalizeTreatmentOptionRow)
+          .filter(Boolean);
+        setTreatmentOptions(normalized);
+      } catch (err) {
+        if (err?.name === "AbortError") return;
+        if (!alive) return;
+        setTreatmentOptions([]);
+        setTreatmentOptionsError("โหลดรายการบริการไม่สำเร็จ");
+      } finally {
+        if (alive) {
+          setTreatmentOptionsLoading(false);
+        }
+      }
+    };
+
+    run();
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, []);
 
   const handleCloseStatus = () => {
     setStatusOpen(false);
@@ -64,13 +161,22 @@ export default function AdminBackdate({ currentUser }) {
     if (Number.isNaN(scheduledAtDate.getTime())) return "รูปแบบ scheduled_at ไม่ถูกต้อง";
     if (scheduledAtDate.getTime() >= Date.now()) return "scheduled_at ต้องอยู่ในอดีต";
     if (!branchId.trim()) return "กรุณากรอก branch_id";
-    if (!treatmentId.trim()) return "กรุณากรอก treatment_id";
+    if (!treatmentOptionValue) return "กรุณาเลือกบริการ";
+    if (!treatmentId.trim()) return "ไม่พบ treatment_id ของบริการที่เลือก";
     if (!customerName.trim()) return "กรุณากรอกชื่อลูกค้า";
     if (!phone.trim()) return "กรุณากรอกเบอร์โทร";
     if (!staffName.trim()) return "กรุณากรอกชื่อพนักงาน";
-    if (!treatmentItemText.trim()) return "กรุณากรอก treatment item";
+    if (!treatmentItemText.trim()) return "ไม่พบ treatment item ของบริการที่เลือก";
     if (!reason.trim() || reason.trim().length < 5) return "กรุณากรอกเหตุผลอย่างน้อย 5 ตัวอักษร";
     return "";
+  };
+
+  const handleSelectTreatment = (option) => {
+    const nextValue = option?.value || "";
+    const selected = treatmentOptions.find((item) => item.value === nextValue) || null;
+    setTreatmentOptionValue(nextValue);
+    setTreatmentId(selected?.treatmentId || "");
+    setTreatmentItemText(selected?.treatmentItemText || "");
   };
 
   const handleSubmit = async (event) => {
@@ -152,14 +258,41 @@ export default function AdminBackdate({ currentUser }) {
               />
             </div>
 
+            <div className="abd-field abd-span-2">
+              <label htmlFor="abd-treatment-item">treatment_item_text (for audit)</label>
+              <Select
+                inputId="abd-treatment-item"
+                instanceId="abd-treatment-item"
+                isSearchable={true}
+                options={treatmentOptions}
+                value={
+                  treatmentOptions.find(
+                    (option) => option.value === treatmentOptionValue
+                  ) || null
+                }
+                onChange={handleSelectTreatment}
+                placeholder={
+                  treatmentOptionsLoading ? "กำลังโหลดรายการบริการ..." : "พิมพ์เพื่อค้นหา..."
+                }
+                isLoading={treatmentOptionsLoading}
+                isDisabled={treatmentOptionsLoading || treatmentOptions.length === 0}
+                menuPortalTarget={document.body}
+                menuPosition="fixed"
+                styles={SELECT_STYLES}
+              />
+              {treatmentOptionsError && (
+                <div className="abd-inline-error">{treatmentOptionsError}</div>
+              )}
+            </div>
+
             <div className="abd-field">
-              <label htmlFor="abd-treatment">treatment_id</label>
+              <label htmlFor="abd-treatment">treatment_id (auto)</label>
               <input
                 id="abd-treatment"
                 type="text"
                 value={treatmentId}
-                onChange={(e) => setTreatmentId(e.target.value)}
-                placeholder="uuid ของ treatments.id"
+                readOnly
+                placeholder="ระบบจะกำหนดจากรายการที่เลือก"
               />
             </div>
 
@@ -214,17 +347,6 @@ export default function AdminBackdate({ currentUser }) {
                 type="text"
                 value={staffName}
                 onChange={(e) => setStaffName(e.target.value)}
-              />
-            </div>
-
-            <div className="abd-field abd-span-2">
-              <label htmlFor="abd-treatment-item">treatment_item_text (for audit)</label>
-              <input
-                id="abd-treatment-item"
-                type="text"
-                value={treatmentItemText}
-                onChange={(e) => setTreatmentItemText(e.target.value)}
-                placeholder='เช่น "1/3 smooth 999 1 mask"'
               />
             </div>
 

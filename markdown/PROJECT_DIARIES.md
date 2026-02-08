@@ -103,3 +103,26 @@
     - `actor = staff`
     - `meta.admin_user_id = <admin uuid>`
 - รันผ่านด้วยคำสั่ง `npm run verify:admin-edit` ในโฟลเดอร์ `backend`
+
+## 2026-02-08 — AdminBackdate: Replace free-text treatment item with selectable options
+
+### Problem
+- ฟิลด์ `treatment_item_text (for audit)` ในหน้า `AdminBackdate` เดิมเป็น text input ทำให้พิมพ์ผิดง่าย
+- ฟิลด์ `treatment_id` ต้องกรอกเอง เสี่ยงใส่ไม่ตรงกับบริการที่เลือก
+
+### What changed
+- เปลี่ยน `treatment_item_text` เป็น `react-select` แบบค้นหาได้ (pattern เดียวกับหน้า Booking)
+- ดึงตัวเลือกจาก API `GET /api/appointments/booking-options`
+- เมื่อเลือก option:
+  - ระบบเติม `treatment_item_text` อัตโนมัติจาก option
+  - ระบบเติม `treatment_id` อัตโนมัติจาก option
+- ปรับ `treatment_id` ให้เป็น read-only (`treatment_id (auto)`) เพื่อกันกรอกผิด
+- เพิ่ม validation ว่าต้องเลือกบริการก่อน submit
+
+### Files
+- `src/pages/AdminBackdate.jsx`
+- `src/pages/AdminBackdate.css`
+
+### Result
+- Admin สร้างจองย้อนหลังโดยเลือกบริการจากรายการมาตรฐานเดียวกับหน้า Booking
+- ลด typo/mismatch ระหว่าง `treatment_item_text` และ `treatment_id`

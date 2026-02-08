@@ -35,6 +35,12 @@
   color: var(--text-soft);
 }
 
+.abd-inline-error {
+  margin-top: 6px;
+  color: #b23b2a;
+  font-weight: 700;
+}
+
 .abd-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

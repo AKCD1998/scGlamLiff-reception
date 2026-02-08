@@ -230,6 +230,22 @@ async function ensureStaffRow(client, user) {
   return upsert.rows[0]?.id || null;
 }
 
+async function ensureBackdateLineUserRow(client) {
+  const result = await client.query(
+    `
+      INSERT INTO line_users (line_user_id, display_name, customer_id)
+      VALUES ($1, $2, NULL)
+      ON CONFLICT (line_user_id)
+      DO UPDATE SET
+        display_name = COALESCE(line_users.display_name, EXCLUDED.display_name)
+      RETURNING line_user_id
+    `,
+    [BACKDATE_LINE_USER_ID, 'admin-backdate']
+  );
+
+  return normalizeText(result.rows[0]?.line_user_id) || BACKDATE_LINE_USER_ID;
+}
+
 async function getActiveIdentityValue(client, customerId, provider) {
   const result = await client.query(
     `
@@ -1322,6 +1338,8 @@ export async function adminBackdateAppointment(req, res) {
       return res.status(422).json({ ok: false, error: 'Unable to resolve customer' });
     }
 
+    await ensureBackdateLineUserRow(client);
+
     const insertedAppointment = await client.query(
       `
         INSERT INTO appointments (
@@ -1413,6 +1431,14 @@ export async function adminBackdateAppointment(req, res) {
     }
     if (error?.code === '23505') {
       return res.status(409).json({ ok: false, error: 'Duplicate record' });
+    }
+    if (error?.code === '23503' && error?.constraint === 'appointments_line_user_id_fkey') {
+      return res.status(422).json({
+        ok: false,
+        error: 'Unable to resolve system line_user_id for admin backdate',
+        code: error.code,
+        constraint: error.constraint,
+      });
     }
     if (error?.code === '23514') {
       if (error?.constraint === 'appointment_events_actor_check') {
