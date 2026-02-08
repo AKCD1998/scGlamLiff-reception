@@ -67,3 +67,22 @@ git push -u origin deploy-mvp
 - เวลามี event type ใหม่ ต้องอัปเดต DB check constraint พร้อมกันเสมอ
 - ห้ามใช้ UUID เป็น `appointment_events.actor` โดยตรง ให้ใช้ enum ที่ DB อนุญาต แล้วเก็บ actor UUID ใน `meta`
 - รัน `npm run verify:admin-edit` (backend) หลังแก้ logic admin edit ทุกครั้ง
+
+## staff booking fails with `appointments_line_user_id_fkey` (`__STAFF__`)
+
+**What happened**
+- ระบบจองปกติจากหน้า Booking (`POST /api/appointments`) ล้มด้วย 500
+- DB error: `Key (line_user_id)=(__STAFF__) is not present in table "line_users"` (`23503`)
+
+**Why it happened (root cause)**
+- โค้ด backend ตั้งค่า placeholder `line_user_id='__STAFF__'` ตอน insert appointments
+- แต่ไม่มีการ bootstrap/ensure แถวนี้ใน `line_users`
+- ตาราง appointments บังคับ `line_user_id` เป็น `NOT NULL` + FK
+
+**How it was fixed**
+- เพิ่ม ensure helper ใน staff booking path ให้ upsert system line user (`__STAFF__`, `staff-booking`) ก่อน insert
+- เพิ่ม error response ที่อ่านง่าย (`422`) เมื่อเจอ FK constraint นี้
+
+**How to prevent regression**
+- ทุก flow ที่ใช้ system placeholder ใน FK (`__STAFF__`, `__BACKDATE__`) ต้องมี ensure/upsert ก่อนใช้งาน
+- เวลาสร้าง placeholder ใหม่ ให้เช็ค FK + not null constraints ใน schema เสมอ

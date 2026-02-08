@@ -126,3 +126,32 @@
 ### Result
 - Admin สร้างจองย้อนหลังโดยเลือกบริการจากรายการมาตรฐานเดียวกับหน้า Booking
 - ลด typo/mismatch ระหว่าง `treatment_item_text` และ `treatment_id`
+
+## 2026-02-08 — Fix: Staff booking FK `__STAFF__` (`appointments_line_user_id_fkey`)
+
+### Symptom
+- กดบันทึกจากหน้า `Bookingpage` แล้ว API `POST /api/appointments` ตอบ 500
+- Postgres แจ้ง `23503`:
+  - `Key (line_user_id)=(__STAFF__) is not present in table "line_users"`
+  - constraint: `appointments_line_user_id_fkey`
+
+### Root Cause
+- ใน `createStaffAppointment` ระบบ insert ลง `appointments.line_user_id = '__STAFF__'`
+- แต่ตาราง `line_users` ยังไม่มีแถว system id นี้
+- เนื่องจาก `appointments.line_user_id` เป็น `NOT NULL` + FK ไป `line_users(line_user_id)` จึง insert ไม่ได้
+
+### Fix
+- เพิ่ม helper `ensureStaffLineUserRow()` ใน `backend/src/controllers/staffCreateAppointmentController.js`
+- ก่อน insert appointment ให้ upsert แถว `line_users`:
+  - `line_user_id = '__STAFF__'`
+  - `display_name = 'staff-booking'`
+- เปลี่ยน insert ให้ใช้ค่าที่ ensure แล้ว
+- เพิ่ม error mapping สำหรับ FK นี้ให้ตอบ `422` message ชัดเจนแทน generic 500
+
+### Verification
+- Reproduce เดิม: ได้ 500 + FK violation
+- หลังแก้: `POST /api/appointments` ตอบ `200` และสร้าง booking สำเร็จ
+- ตรวจ DB พบ `line_users.__STAFF__` ถูกสร้างจริง
+- Regression:
+  - `npm run verify:admin-edit` ผ่าน
+  - `POST /api/appointments/admin/backdate` ยังตอบ `200`

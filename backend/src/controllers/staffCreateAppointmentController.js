@@ -63,6 +63,22 @@ function inferTreatmentCode(raw) {
   return null;
 }
 
+async function ensureStaffLineUserRow(client) {
+  const result = await client.query(
+    `
+      INSERT INTO line_users (line_user_id, display_name, customer_id)
+      VALUES ($1, $2, NULL)
+      ON CONFLICT (line_user_id)
+      DO UPDATE SET
+        display_name = COALESCE(line_users.display_name, EXCLUDED.display_name)
+      RETURNING line_user_id
+    `,
+    [STAFF_LINE_USER_ID, 'staff-booking']
+  );
+
+  return normalizeText(result.rows[0]?.line_user_id) || STAFF_LINE_USER_ID;
+}
+
 async function resolveOrCreateCustomerByPhone(client, { phoneDigits, fullName }) {
   const identity = await client.query(
     `
@@ -265,6 +281,8 @@ export async function createStaffAppointment(req, res) {
       return res.status(422).json({ ok: false, error: 'Unable to resolve customer' });
     }
 
+    const staffLineUserId = await ensureStaffLineUserRow(client);
+
     const inserted = await client.query(
       `
         INSERT INTO appointments (
@@ -287,7 +305,7 @@ export async function createStaffAppointment(req, res) {
         )
         RETURNING id
       `,
-      [STAFF_LINE_USER_ID, resolvedTreatmentId, branchId, scheduledAtRaw, customerId, STAFF_SOURCE]
+      [staffLineUserId, resolvedTreatmentId, branchId, scheduledAtRaw, customerId, STAFF_SOURCE]
     );
 
     const appointmentId = inserted.rows[0]?.id;
@@ -321,6 +339,14 @@ export async function createStaffAppointment(req, res) {
     return res.json({ ok: true, appointment_id: appointmentId, customer_id: customerId });
   } catch (error) {
     await client.query('ROLLBACK');
+    if (error?.code === '23503' && error?.constraint === 'appointments_line_user_id_fkey') {
+      return res.status(422).json({
+        ok: false,
+        error: 'Unable to resolve system line_user_id for staff booking',
+        code: error.code,
+        constraint: error.constraint,
+      });
+    }
     console.error(error);
     const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
     return res.status(500).json({
@@ -332,4 +358,3 @@ export async function createStaffAppointment(req, res) {
     client.release();
   }
 }
-
