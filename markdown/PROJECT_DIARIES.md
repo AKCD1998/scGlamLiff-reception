@@ -61,3 +61,45 @@
 
 ### Result
 - เคสเปลี่ยนจากคอร์ส 3 ครั้งเป็นครั้งเดียว สามารถสะท้อนใน Home/Workbench ได้ถูกต้อง และมี audit trace ใน `appointment_events`
+
+## 2026-02-08 — Incident Fix: Admin Edit PATCH 500 (`appointment_events_actor_check`)
+
+### Symptom
+- หน้า `AdminEditAppointment` ยิง `PATCH /api/admin/appointments/:appointmentId` แล้วได้ 500
+- ข้อความจาก backend: `new row for relation "appointment_events" violates check constraint "appointment_events_actor_check" (23514)`
+
+### Reproduction
+1. เปิดหน้า Workbench > `แก้ไขนัดหมาย (Admin)`
+2. โหลด appointment แล้วเปลี่ยน treatment format (เช่น 3x -> one-off)
+3. กดบันทึก จะยิง payload ลักษณะนี้:
+   - `reason`
+   - `treatment_item_text`
+   - `treatment_plan_mode`
+   - `package_id`
+4. Backend fail ตอน insert `appointment_events` ใน `patchAdminAppointment`
+
+### Root Cause
+- โค้ดส่งค่า `actor` ใน `appointment_events` เป็น `req.user.id` (UUID) แต่ DB constraint `appointment_events_actor_check` อนุญาตเฉพาะ `customer | staff | system`
+- หลังแก้ actor แล้ว พบอีกชั้นว่า `event_type = ADMIN_APPOINTMENT_UPDATE` ยังไม่อยู่ใน `appointment_events_event_type_check` เดิม
+
+### Fix Summary
+- ปรับ admin event actor ให้ใช้ค่า canonical `staff` เสมอ
+- บังคับมี admin identity (`req.user.id`) ด้วย `requireAdminActorUserId()` และเก็บลง `meta.admin_user_id`
+- เพิ่ม error response แบบชัดเจนสำหรับ constraint 23514 (`actor_check` / `event_type_check`) แทน generic 500
+- เพิ่ม migration script:
+  - `backend/scripts/migrate_appointment_events_constraints.js`
+  - ขยาย allowed `event_type` ให้รองรับ `ADMIN_APPOINTMENT_UPDATE`, `ADMIN_BACKDATE_CREATE`
+  - คง actor constraint ให้ชัดเจน (`customer|staff|system`) ไม่ loosen แบบไร้ขอบเขต
+- เพิ่ม integration-style verification script:
+  - `backend/scripts/verify_admin_edit_patch.js`
+  - สร้าง appointment ชั่วคราว -> เรียก PATCH -> assert ว่า insert event สำเร็จ (`event_type=ADMIN_APPOINTMENT_UPDATE`, `actor=staff`) -> cleanup
+
+### Verification
+- ก่อน migrate: endpoint ตอบ `422` พร้อมข้อความชี้ว่า `appointment_events_event_type_check` ไม่รองรับ
+- หลังรัน `npm run migrate:appointment-events`:
+  - `PATCH /api/admin/appointments/:id` ตอบ `200`
+  - มีแถวใหม่ใน `appointment_events` พร้อม:
+    - `event_type = ADMIN_APPOINTMENT_UPDATE`
+    - `actor = staff`
+    - `meta.admin_user_id = <admin uuid>`
+- รันผ่านด้วยคำสั่ง `npm run verify:admin-edit` ในโฟลเดอร์ `backend`

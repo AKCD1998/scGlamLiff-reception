@@ -7,7 +7,9 @@
     "dev": "nodemon server.js",
     "start": "node server.js",
     "seed:admin": "node scripts/seed_admin.js",
-    "seed:user": "node scripts/seed_user.js"
+    "seed:user": "node scripts/seed_user.js",
+    "migrate:appointment-events": "node scripts/migrate_appointment_events_constraints.js",
+    "verify:admin-edit": "node scripts/verify_admin_edit_patch.js"
   },
   "keywords": [],
   "author": "",

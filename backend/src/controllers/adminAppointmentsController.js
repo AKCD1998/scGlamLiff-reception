@@ -5,6 +5,7 @@ const UUID_PATTERN =
 
 const BACKDATE_LINE_USER_ID = '__BACKDATE__';
 const BACKDATE_SOURCE = 'ADMIN';
+const APPOINTMENT_EVENT_ACTOR_STAFF = 'staff';
 const ALLOWED_BACKDATE_STATUSES = new Set(['completed', 'booked']);
 const ALLOWED_ADMIN_EDIT_STATUSES = new Set([
   'booked',
@@ -104,6 +105,16 @@ function safeActor(user) {
     normalizeText(user?.id) ||
     'admin'
   );
+}
+
+function requireAdminActorUserId(user) {
+  const userId = normalizeText(user?.id);
+  if (!userId || !UUID_PATTERN.test(userId)) {
+    const err = new Error('Missing admin actor identity');
+    err.status = 401;
+    throw err;
+  }
+  return userId;
 }
 
 function hasTimezoneOffset(value) {
@@ -556,7 +567,7 @@ async function listActivePackagesForCustomer(client, customerId) {
 
 async function createPackageUsageByAdmin(
   client,
-  { appointmentId, customerId, customerPackageId, usedMask, actor, adminUser }
+  { appointmentId, customerId, customerPackageId, usedMask, actorUserId, adminUser }
 ) {
   if (!UUID_PATTERN.test(customerPackageId || '')) {
     const err = new Error('Invalid customer_package_id');
@@ -675,10 +686,12 @@ async function createPackageUsageByAdmin(
     `,
     [
       appointmentId,
-      actor,
+      APPOINTMENT_EVENT_ACTOR_STAFF,
       JSON.stringify({
         source: 'admin_edit',
-        actor,
+        actor: APPOINTMENT_EVENT_ACTOR_STAFF,
+        actor_user_id: actorUserId,
+        actor_display_name: safeActor(adminUser),
         customer_package_id: customerPackageId,
         package_code: pkg.package_code,
         package_title: pkg.package_title,
@@ -774,7 +787,12 @@ export async function patchAdminAppointment(req, res) {
       .json({ ok: false, error: error.message || 'Invalid request payload' });
   }
 
-  const actor = normalizeText(req.user?.id) || safeActor(req.user);
+  let actorUserId = '';
+  try {
+    actorUserId = requireAdminActorUserId(req.user);
+  } catch (error) {
+    return res.status(error?.status || 401).json({ ok: false, error: error.message });
+  }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1056,7 +1074,7 @@ export async function patchAdminAppointment(req, res) {
         customerId: beforeRecord.customer_id,
         customerPackageId,
         usedMask: Boolean(req.body?.used_mask),
-        actor,
+        actorUserId,
         adminUser: req.user,
       });
       before.package_usage = null;
@@ -1076,14 +1094,15 @@ export async function patchAdminAppointment(req, res) {
       `,
       [
         appointmentId,
-        actor,
+        APPOINTMENT_EVENT_ACTOR_STAFF,
         reason,
         JSON.stringify({
           reason,
           changed_fields: changedFields,
           before,
           after,
-          admin_user_id: req.user?.id || null,
+          actor: APPOINTMENT_EVENT_ACTOR_STAFF,
+          admin_user_id: actorUserId,
           admin_username: normalizeText(req.user?.username) || null,
           admin_display_name: normalizeText(req.user?.display_name) || null,
           created_package_usage: Boolean(deductionResult),
@@ -1107,6 +1126,26 @@ export async function patchAdminAppointment(req, res) {
     await client.query('ROLLBACK');
     if (error?.status) {
       return res.status(error.status).json({ ok: false, error: error.message });
+    }
+    if (error?.code === '23514') {
+      if (error?.constraint === 'appointment_events_actor_check') {
+        return res.status(422).json({
+          ok: false,
+          error:
+            'Invalid appointment event actor. Expected actor to be one of customer|staff|system.',
+          code: error.code,
+          constraint: error.constraint,
+        });
+      }
+      if (error?.constraint === 'appointment_events_event_type_check') {
+        return res.status(422).json({
+          ok: false,
+          error:
+            'Unsupported appointment event_type for admin update. Run appointment_events constraint migration.',
+          code: error.code,
+          constraint: error.constraint,
+        });
+      }
     }
     console.error(error);
     const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
@@ -1254,7 +1293,12 @@ export async function adminBackdateAppointment(req, res) {
     return res.status(400).json({ ok: false, error: 'Invalid request payload' });
   }
 
-  const actor = safeActor(req.user);
+  let actorUserId = '';
+  try {
+    actorUserId = requireAdminActorUserId(req.user);
+  } catch (error) {
+    return res.status(error?.status || 401).json({ ok: false, error: error.message });
+  }
 
   const client = await pool.connect();
   try {
@@ -1336,9 +1380,11 @@ export async function adminBackdateAppointment(req, res) {
       [
         appointmentId,
         'ADMIN_BACKDATE_CREATE',
-        actor,
+        APPOINTMENT_EVENT_ACTOR_STAFF,
         reason,
         JSON.stringify({
+          actor: APPOINTMENT_EVENT_ACTOR_STAFF,
+          actor_user_id: actorUserId,
           scheduled_at: scheduledAtRaw,
           branch_id: branchId,
           treatment_id: treatmentId,
@@ -1351,7 +1397,7 @@ export async function adminBackdateAppointment(req, res) {
           raw_sheet_uuid: rawSheetUuid || null,
           selected_toppings: selectedToppings,
           addons_total_thb: addonsTotal,
-          staff_user_id: req.user?.id || null,
+          staff_user_id: actorUserId,
           staff_username: normalizeText(req.user?.username) || null,
           staff_display_name: normalizeText(req.user?.display_name) || null,
         }),
@@ -1367,6 +1413,26 @@ export async function adminBackdateAppointment(req, res) {
     }
     if (error?.code === '23505') {
       return res.status(409).json({ ok: false, error: 'Duplicate record' });
+    }
+    if (error?.code === '23514') {
+      if (error?.constraint === 'appointment_events_actor_check') {
+        return res.status(422).json({
+          ok: false,
+          error:
+            'Invalid appointment event actor. Expected actor to be one of customer|staff|system.',
+          code: error.code,
+          constraint: error.constraint,
+        });
+      }
+      if (error?.constraint === 'appointment_events_event_type_check') {
+        return res.status(422).json({
+          ok: false,
+          error:
+            'Unsupported appointment event_type for admin backdate. Run appointment_events constraint migration.',
+          code: error.code,
+          constraint: error.constraint,
+        });
+      }
     }
     console.error(error);
     const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';

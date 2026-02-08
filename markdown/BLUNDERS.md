@@ -42,3 +42,28 @@ git push -u origin deploy-mvp
 **A: ตัวหลักคือ `backend/src/controllers/appointmentsQueueController.js`**
 - SQL ในไฟล์นี้เป็นคนกำหนดคอลัมน์ที่หน้า Home ใช้ (`date`, `bookingTime`, `customerName`, `phone`, `lineId`, `treatmentItem`, `staffName`)
 - ฝั่ง frontend ทำหน้าที่เรียก API + map/ส่งต่อข้อมูลผ่าน `src/pages/workbench/useAppointments.js` และ render ใน `src/components/appointments/AppointmentsTablePanel.jsx`
+
+## appointment_events_actor_check violated on admin appointment update
+
+**What happened**
+- ตอนแก้ appointment จากหน้า Admin Edit แล้ว submit
+- `PATCH /api/admin/appointments/:id` ล้มด้วย `500` (จริง ๆ เป็น `23514` จาก Postgres)
+- backend แตกตอน `INSERT INTO appointment_events ...` ใน `patchAdminAppointment`
+
+**Why it happened (root cause)**
+- โค้ดส่งค่า `actor` เป็น `req.user.id` (UUID)
+- แต่ constraint `appointment_events_actor_check` อนุญาตเฉพาะ `customer | staff | system`
+- และยังมีอีกชั้น: `event_type = ADMIN_APPOINTMENT_UPDATE` ไม่อยู่ใน `appointment_events_event_type_check` เดิม
+
+**How it was fixed**
+- เปลี่ยน actor ของ admin event ให้เป็นค่า canonical `staff`
+- บังคับตรวจ `req.user.id` ด้วย helper (`requireAdminActorUserId`) แล้วเก็บ identity ลง `meta.admin_user_id`
+- เพิ่ม error mapping สำหรับ `23514` ให้ตอบ message ชัดเจนแทน generic 500
+- เพิ่ม migration script เพื่อขยาย `appointment_events_event_type_check` ให้รองรับ:
+  - `ADMIN_APPOINTMENT_UPDATE`
+  - `ADMIN_BACKDATE_CREATE`
+
+**How to prevent regression**
+- เวลามี event type ใหม่ ต้องอัปเดต DB check constraint พร้อมกันเสมอ
+- ห้ามใช้ UUID เป็น `appointment_events.actor` โดยตรง ให้ใช้ enum ที่ DB อนุญาต แล้วเก็บ actor UUID ใน `meta`
+- รัน `npm run verify:admin-edit` (backend) หลังแก้ logic admin edit ทุกครั้ง
