@@ -1,6 +1,8 @@
 import { query } from '../db.js';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const UUID_PATTERN =
+  '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$';
 const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 500;
 const DEFAULT_EXCLUDED_STATUSES = new Set(['cancelled', 'canceled', 'no_show']);
@@ -45,6 +47,7 @@ function sanitizeThaiPhone(value) {
 
 function getTreatmentTitle(row) {
   return (
+    normalizeText(row.treatment_item_text_override) ||
     normalizeText(row.treatment_name) ||
     normalizeText(row.treatmentItem) ||
     normalizeText(row.treatment_title_en) ||
@@ -254,10 +257,45 @@ export async function listAppointmentsQueue(req, res) {
             NULLIF(t.code, ''),
             ''
           ) AS "treatmentItem",
+          COALESCE(NULLIF(plan_evt.treatment_item_text, ''), '') AS treatment_item_text_override,
+          COALESCE(NULLIF(plan_evt.treatment_plan_mode, ''), '') AS treatment_plan_mode,
+          COALESCE(NULLIF(plan_evt.package_id, ''), '') AS treatment_plan_package_id,
+          COALESCE(pu_current.customer_package_id, NULL) AS smooth_usage_customer_package_id,
           COALESCE(pkg_ctx.customer_package_id, NULL) AS smooth_customer_package_id,
-          COALESCE(pkg_ctx.sessions_total, smooth_default.sessions_total, 0) AS smooth_sessions_total,
-          COALESCE(pkg_ctx.mask_total, smooth_default.mask_total, 0) AS smooth_mask_total,
-          COALESCE(pkg_ctx.price_thb, smooth_default.price_thb, 0) AS smooth_price_thb,
+          COALESCE(
+            pkg_ctx.sessions_total,
+            CASE
+              WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) = 'package'
+                THEN plan_pkg.sessions_total
+              WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) = 'one_off'
+                THEN 1
+              ELSE NULL
+            END,
+            smooth_default.sessions_total,
+            0
+          ) AS smooth_sessions_total,
+          COALESCE(
+            pkg_ctx.mask_total,
+            CASE
+              WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) = 'package'
+                THEN plan_pkg.mask_total
+              WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) = 'one_off'
+                THEN 0
+              ELSE NULL
+            END,
+            smooth_default.mask_total,
+            0
+          ) AS smooth_mask_total,
+          COALESCE(
+            pkg_ctx.price_thb,
+            CASE
+              WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) = 'package'
+                THEN plan_pkg.price_thb
+              ELSE NULL
+            END,
+            smooth_default.price_thb,
+            0
+          ) AS smooth_price_thb,
           COALESCE(pkg_usage.sessions_used, 0) AS smooth_sessions_used,
           COALESCE(pkg_usage.mask_used, 0) AS smooth_mask_used,
           '-' AS "staffName"
@@ -297,6 +335,37 @@ export async function listAppointmentsQueue(req, res) {
         ) smooth_pkg ON true
         LEFT JOIN LATERAL (
           SELECT
+            COALESCE(
+              NULLIF(ae.meta->'after'->>'treatment_item_text', ''),
+              NULLIF(ae.meta->>'treatment_item_text', '')
+            ) AS treatment_item_text,
+            COALESCE(
+              NULLIF(ae.meta->'after'->>'treatment_plan_mode', ''),
+              NULLIF(ae.meta->>'treatment_plan_mode', '')
+            ) AS treatment_plan_mode,
+            COALESCE(
+              NULLIF(ae.meta->'after'->>'package_id', ''),
+              NULLIF(ae.meta->>'package_id', '')
+            ) AS package_id
+          FROM appointment_events ae
+          WHERE ae.appointment_id = a.id
+            AND (
+              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'treatment_item_text'
+              OR ae.meta ? 'treatment_item_text'
+              OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'treatment_plan_mode'
+              OR ae.meta ? 'treatment_plan_mode'
+              OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'package_id'
+              OR ae.meta ? 'package_id'
+            )
+          ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
+          LIMIT 1
+        ) plan_evt ON true
+        LEFT JOIN packages plan_pkg ON (
+          plan_evt.package_id ~* '${UUID_PATTERN}'
+          AND plan_pkg.id = plan_evt.package_id::uuid
+        )
+        LEFT JOIN LATERAL (
+          SELECT
             cp.id AS customer_package_id,
             p.code AS package_code,
             p.title AS package_title,
@@ -305,7 +374,15 @@ export async function listAppointmentsQueue(req, res) {
             p.price_thb
           FROM customer_packages cp
           JOIN packages p ON p.id = cp.package_id
-          WHERE cp.id = COALESCE(pu_current.customer_package_id, smooth_pkg.customer_package_id)
+          WHERE cp.id = (
+            CASE
+              WHEN pu_current.customer_package_id IS NOT NULL
+                THEN pu_current.customer_package_id
+              WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) <> ''
+                THEN NULL
+              ELSE smooth_pkg.customer_package_id
+            END
+          )
           LIMIT 1
         ) pkg_ctx ON true
         LEFT JOIN LATERAL (

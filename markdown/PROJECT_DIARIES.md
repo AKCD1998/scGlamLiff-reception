@@ -46,3 +46,18 @@
 - Requires selecting `customer_package_id`.
 - Creates `package_usages` row with consistency checks (remaining sessions/masks).
 
+## 2026-02-08 — Fix: Edit Treatment Format (3x -> 1x)
+
+### Issue
+- หน้า Home queue ยังแสดง treatment item ตาม active package เดิม แม้หน้างานต้องการเปลี่ยนรูปแบบคอร์สในนัดหมายนั้น
+
+### What changed
+- เพิ่มการแก้ไข `treatment format` ใน `AdminEditAppointment` โดยดึงตัวเลือกจาก `GET /api/appointments/booking-options`
+- เพิ่ม payload สำหรับแผนคอร์สใน `PATCH /api/admin/appointments/:appointmentId`:
+  - `treatment_item_text`
+  - `treatment_plan_mode` (`one_off` | `package`)
+  - `package_id` (เมื่อเป็น `package`)
+- Queue endpoint อ่านค่า plan ล่าสุดจาก `appointment_events.meta` แล้วคำนวณ `Treatment item` ตาม override ก่อน fallback ไป active package
+
+### Result
+- เคสเปลี่ยนจากคอร์ส 3 ครั้งเป็นครั้งเดียว สามารถสะท้อนใน Home/Workbench ได้ถูกต้อง และมี audit trace ใน `appointment_events`

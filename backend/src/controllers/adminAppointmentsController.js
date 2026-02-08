@@ -13,6 +13,7 @@ const ALLOWED_ADMIN_EDIT_STATUSES = new Set([
   'no_show',
   'rescheduled',
 ]);
+const ALLOWED_TREATMENT_PLAN_MODES = new Set(['', 'one_off', 'package']);
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const LINE_ID_PATTERN = /^[a-zA-Z0-9._-]{1,50}$/;
 
@@ -62,6 +63,13 @@ function normalizeAppointmentStatus(value) {
   const normalized = normalizeText(value).toLowerCase();
   if (!normalized) return '';
   if (normalized === 'canceled') return 'cancelled';
+  return normalized;
+}
+
+function normalizeTreatmentPlanMode(value) {
+  const normalized = normalizeText(value).toLowerCase();
+  if (!normalized) return '';
+  if (normalized === 'oneoff') return 'one_off';
   return normalized;
 }
 
@@ -449,6 +457,50 @@ async function getAppointmentDetailsById(client, appointmentId, { forUpdate = fa
   return result.rows[0] || null;
 }
 
+async function getAppointmentTreatmentPlan(client, appointmentId) {
+  const result = await client.query(
+    `
+      SELECT
+        COALESCE(
+          NULLIF(ae.meta->'after'->>'treatment_item_text', ''),
+          NULLIF(ae.meta->>'treatment_item_text', '')
+        ) AS treatment_item_text,
+        COALESCE(
+          NULLIF(ae.meta->'after'->>'treatment_plan_mode', ''),
+          NULLIF(ae.meta->>'treatment_plan_mode', '')
+        ) AS treatment_plan_mode,
+        COALESCE(
+          NULLIF(ae.meta->'after'->>'package_id', ''),
+          NULLIF(ae.meta->>'package_id', '')
+        ) AS package_id
+      FROM appointment_events ae
+      WHERE ae.appointment_id = $1
+        AND (
+          COALESCE(ae.meta->'after', '{}'::jsonb) ? 'treatment_item_text'
+          OR ae.meta ? 'treatment_item_text'
+          OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'treatment_plan_mode'
+          OR ae.meta ? 'treatment_plan_mode'
+          OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'package_id'
+          OR ae.meta ? 'package_id'
+        )
+      ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
+      LIMIT 1
+    `,
+    [appointmentId]
+  );
+
+  const row = result.rows[0] || {};
+  const normalizedMode = normalizeTreatmentPlanMode(row.treatment_plan_mode);
+  const normalizedPackageId = normalizeText(row.package_id);
+  const normalizedText = normalizeText(row.treatment_item_text);
+
+  return {
+    treatment_item_text: normalizedText,
+    treatment_plan_mode: ALLOWED_TREATMENT_PLAN_MODES.has(normalizedMode) ? normalizedMode : '',
+    package_id: UUID_PATTERN.test(normalizedPackageId) ? normalizedPackageId : '',
+  };
+}
+
 async function listActivePackagesForCustomer(client, customerId) {
   const result = await client.query(
     `
@@ -659,6 +711,8 @@ export async function getAdminAppointmentById(req, res) {
       return res.status(404).json({ ok: false, error: 'Appointment not found' });
     }
 
+    const treatmentPlan = await getAppointmentTreatmentPlan(client, appointmentId);
+
     const activePackages = appointment.customer_id
       ? await listActivePackagesForCustomer(client, appointment.customer_id)
       : [];
@@ -680,6 +734,9 @@ export async function getAdminAppointmentById(req, res) {
         line_id: appointment.line_id,
         email: appointment.email,
         email_or_lineid: appointment.email_or_lineid,
+        treatment_item_text: treatmentPlan.treatment_item_text || appointment.treatment_title,
+        treatment_plan_mode: treatmentPlan.treatment_plan_mode,
+        package_id: treatmentPlan.package_id,
       },
       active_packages: activePackages,
     });
@@ -731,6 +788,7 @@ export async function patchAdminAppointment(req, res) {
       await client.query('ROLLBACK');
       return res.status(422).json({ ok: false, error: 'Appointment missing customer_id' });
     }
+    const beforePlan = await getAppointmentTreatmentPlan(client, appointmentId);
 
     const before = {};
     const after = {};
@@ -774,6 +832,82 @@ export async function patchAdminAppointment(req, res) {
         appointmentUpdateFields.treatment_id = nextTreatmentId;
         before.treatment_id = beforeRecord.treatment_id;
         after.treatment_id = nextTreatmentId;
+      }
+    }
+
+    const planFieldProvided =
+      hasOwnField(req.body, 'treatment_item_text') ||
+      hasOwnField(req.body, 'treatment_plan_mode') ||
+      hasOwnField(req.body, 'package_id');
+
+    if (planFieldProvided) {
+      let nextTreatmentItemText = beforePlan.treatment_item_text;
+      let nextTreatmentPlanMode = beforePlan.treatment_plan_mode;
+      let nextPackageId = beforePlan.package_id;
+
+      if (hasOwnField(req.body, 'treatment_item_text')) {
+        nextTreatmentItemText = requireText(req.body?.treatment_item_text, 'treatment_item_text');
+      }
+
+      if (hasOwnField(req.body, 'treatment_plan_mode')) {
+        nextTreatmentPlanMode = normalizeTreatmentPlanMode(req.body?.treatment_plan_mode);
+        if (!ALLOWED_TREATMENT_PLAN_MODES.has(nextTreatmentPlanMode)) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            ok: false,
+            error: 'treatment_plan_mode must be one of one_off|package (or empty)',
+          });
+        }
+      }
+
+      if (hasOwnField(req.body, 'package_id')) {
+        nextPackageId = normalizeText(req.body?.package_id);
+      }
+
+      if (nextPackageId && !UUID_PATTERN.test(nextPackageId)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ ok: false, error: 'Invalid package_id' });
+      }
+
+      if (nextPackageId && !nextTreatmentPlanMode) {
+        nextTreatmentPlanMode = 'package';
+      }
+
+      if (nextTreatmentPlanMode === 'one_off') {
+        nextPackageId = '';
+      }
+
+      if (nextTreatmentPlanMode === 'package' && !nextPackageId) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          ok: false,
+          error: 'package_id is required when treatment_plan_mode=package',
+        });
+      }
+
+      if (nextPackageId) {
+        const packageExists = await client.query('SELECT id FROM packages WHERE id = $1 LIMIT 1', [
+          nextPackageId,
+        ]);
+        if (packageExists.rowCount === 0) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ ok: false, error: 'Package not found' });
+        }
+      }
+
+      if (beforePlan.treatment_item_text !== nextTreatmentItemText) {
+        before.treatment_item_text = beforePlan.treatment_item_text || null;
+        after.treatment_item_text = nextTreatmentItemText || null;
+      }
+
+      if (beforePlan.treatment_plan_mode !== nextTreatmentPlanMode) {
+        before.treatment_plan_mode = beforePlan.treatment_plan_mode || null;
+        after.treatment_plan_mode = nextTreatmentPlanMode || null;
+      }
+
+      if (beforePlan.package_id !== nextPackageId) {
+        before.package_id = beforePlan.package_id || null;
+        after.package_id = nextPackageId || null;
       }
     }
 

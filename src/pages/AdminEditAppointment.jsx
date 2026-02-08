@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  getBookingTreatmentOptions,
   getAdminAppointmentById,
   patchAdminAppointment,
 } from "../utils/appointmentsApi";
@@ -98,6 +99,26 @@ function sanitizeEmailOrLine(value) {
   return { ok: true, value: text };
 }
 
+function normalizeTreatmentOptionRow(row = {}) {
+  const value = String(row.value ?? "").trim();
+  const label = String(row.label ?? "").trim();
+  const treatmentId = String(row.treatment_id ?? row.treatmentId ?? "").trim();
+  const treatmentItemText = String(
+    row.treatment_item_text ?? row.treatmentItemText ?? label
+  ).trim();
+
+  if (!value || !label || !treatmentItemText) return null;
+
+  return {
+    value,
+    label,
+    source: String(row.source ?? "").trim(),
+    treatmentId,
+    treatmentItemText,
+    packageId: String(row.package_id ?? row.packageId ?? "").trim(),
+  };
+}
+
 function isAdminRole(roleName) {
   const role = String(roleName || "").trim().toLowerCase();
   return role === "admin" || role === "owner";
@@ -123,6 +144,10 @@ export default function AdminEditAppointment({ currentUser }) {
   const [scheduledAtLocal, setScheduledAtLocal] = useState("");
   const [branchId, setBranchId] = useState("");
   const [treatmentId, setTreatmentId] = useState("");
+  const [treatmentItemText, setTreatmentItemText] = useState("");
+  const [treatmentOptionValue, setTreatmentOptionValue] = useState("");
+  const [treatmentOptions, setTreatmentOptions] = useState([]);
+  const [treatmentOptionsError, setTreatmentOptionsError] = useState("");
   const [status, setStatus] = useState("booked");
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
@@ -161,6 +186,8 @@ export default function AdminEditAppointment({ currentUser }) {
     setScheduledAtLocal(toBangkokLocalValue(appt?.scheduled_at));
     setBranchId(String(appt?.branch_id || ""));
     setTreatmentId(String(appt?.treatment_id || ""));
+    setTreatmentItemText(String(appt?.treatment_item_text || appt?.treatment_title || ""));
+    setTreatmentOptionValue("");
     setStatus(normalizeStatus(appt?.status) || "booked");
     setCustomerName(String(appt?.customer_full_name || ""));
     setPhone(String(appt?.phone || ""));
@@ -177,6 +204,74 @@ export default function AdminEditAppointment({ currentUser }) {
     setSubmitError("");
     setLookupError("");
   };
+
+  useEffect(() => {
+    let alive = true;
+    const controller = new AbortController();
+
+    const run = async () => {
+      try {
+        setTreatmentOptionsError("");
+        const data = await getBookingTreatmentOptions(controller.signal);
+        if (!alive) return;
+        const normalized = (data?.options || [])
+          .map(normalizeTreatmentOptionRow)
+          .filter(Boolean);
+        setTreatmentOptions(normalized);
+      } catch (err) {
+        if (err?.name === "AbortError") return;
+        if (!alive) return;
+        setTreatmentOptions([]);
+        setTreatmentOptionsError("โหลดรายการ treatment format ไม่สำเร็จ (ยังแก้แบบ manual ได้)");
+      }
+    };
+
+    run();
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!appointment || treatmentOptions.length === 0) return;
+    if (treatmentOptionValue && treatmentOptions.some((option) => option.value === treatmentOptionValue)) {
+      return;
+    }
+
+    const currentMode = String(appointment.treatment_plan_mode || "").trim().toLowerCase();
+    const currentPackageId = String(appointment.package_id || "").trim();
+    const currentTreatmentId = String(appointment.treatment_id || "").trim();
+    const currentText = String(appointment.treatment_item_text || "").trim();
+
+    let matched = null;
+
+    if (currentMode === "package" && currentPackageId) {
+      matched = treatmentOptions.find(
+        (option) => option.source === "package" && option.packageId === currentPackageId
+      );
+    }
+
+    if (!matched && currentMode === "one_off") {
+      matched = treatmentOptions.find(
+        (option) => option.source === "treatment" && option.treatmentId === currentTreatmentId
+      );
+    }
+
+    if (!matched && currentText) {
+      matched = treatmentOptions.find((option) => option.treatmentItemText === currentText);
+    }
+
+    if (!matched && currentTreatmentId) {
+      matched = treatmentOptions.find(
+        (option) => option.source === "treatment" && option.treatmentId === currentTreatmentId
+      );
+    }
+
+    if (matched) {
+      setTreatmentOptionValue(matched.value);
+    }
+  }, [appointment, treatmentOptionValue, treatmentOptions]);
 
   const loadAppointment = async () => {
     setLookupError("");
@@ -240,6 +335,61 @@ export default function AdminEditAppointment({ currentUser }) {
     if (cleanTreatment !== String(appointment.treatment_id || "").trim()) {
       payload.treatment_id = cleanTreatment;
       diffs.push(buildDiffRow("treatment_id", appointment.treatment_id, cleanTreatment));
+    }
+
+    const cleanTreatmentItemText = String(treatmentItemText || "").trim();
+    if (!cleanTreatmentItemText) {
+      return { error: "treatment_item_text ห้ามว่าง" };
+    }
+
+    const currentTreatmentItemText = String(
+      appointment.treatment_item_text || appointment.treatment_title || ""
+    ).trim();
+    if (cleanTreatmentItemText !== currentTreatmentItemText) {
+      payload.treatment_item_text = cleanTreatmentItemText;
+      diffs.push(
+        buildDiffRow(
+          "treatment_item_text",
+          currentTreatmentItemText,
+          cleanTreatmentItemText
+        )
+      );
+    }
+
+    const selectedOption =
+      treatmentOptions.find((option) => option.value === treatmentOptionValue) || null;
+    const currentPlanMode = String(appointment.treatment_plan_mode || "").trim();
+    const currentPackageId = String(appointment.package_id || "").trim();
+
+    if (selectedOption) {
+      let nextPlanMode = "";
+      let nextPackageId = "";
+
+      if (selectedOption.source === "package") {
+        nextPlanMode = "package";
+        nextPackageId = String(selectedOption.packageId || "").trim();
+        if (!isUuid(nextPackageId)) {
+          return { error: "package_id ของตัวเลือกไม่ถูกต้อง" };
+        }
+      } else if (selectedOption.source === "treatment") {
+        const lowerLabel = String(selectedOption.label || "").toLowerCase();
+        if (lowerLabel.includes("smooth")) {
+          nextPlanMode = "one_off";
+          nextPackageId = "";
+        }
+      }
+
+      if (nextPlanMode !== currentPlanMode) {
+        payload.treatment_plan_mode = nextPlanMode;
+        diffs.push(
+          buildDiffRow("treatment_plan_mode", currentPlanMode || "-", nextPlanMode || "-")
+        );
+      }
+
+      if (nextPackageId !== currentPackageId) {
+        payload.package_id = nextPackageId;
+        diffs.push(buildDiffRow("package_id", currentPackageId || "-", nextPackageId || "-"));
+      }
     }
 
     const cleanStatus = normalizeStatus(status);
@@ -351,6 +501,20 @@ export default function AdminEditAppointment({ currentUser }) {
     setConfirmOpen(true);
   };
 
+  const handleSelectTreatmentOption = (value) => {
+    setTreatmentOptionValue(value);
+    const selected = treatmentOptions.find((option) => option.value === value) || null;
+    if (!selected) return;
+    if (selected.treatmentId) {
+      setTreatmentId(selected.treatmentId);
+    }
+    if (selected.treatmentItemText) {
+      setTreatmentItemText(selected.treatmentItemText);
+    } else if (selected.label) {
+      setTreatmentItemText(selected.label);
+    }
+  };
+
   const handleConfirmSubmit = async () => {
     if (!appointment?.id || !pendingPayload) return;
     setSubmitError("");
@@ -440,12 +604,41 @@ export default function AdminEditAppointment({ currentUser }) {
               </div>
 
               <div className="aed-field">
+                <label htmlFor="aed-treatment-option">treatment format</label>
+                <select
+                  id="aed-treatment-option"
+                  value={treatmentOptionValue}
+                  onChange={(event) => handleSelectTreatmentOption(event.target.value)}
+                >
+                  <option value="">-- เลือกจากรายการ (optional) --</option>
+                  {treatmentOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                {treatmentOptionsError ? (
+                  <div className="aed-field-hint">{treatmentOptionsError}</div>
+                ) : null}
+              </div>
+
+              <div className="aed-field">
                 <label htmlFor="aed-treatment">treatment_id</label>
                 <input
                   id="aed-treatment"
                   type="text"
                   value={treatmentId}
                   onChange={(event) => setTreatmentId(event.target.value)}
+                />
+              </div>
+
+              <div className="aed-field">
+                <label htmlFor="aed-treatment-item-text">treatment_item_text</label>
+                <input
+                  id="aed-treatment-item-text"
+                  type="text"
+                  value={treatmentItemText}
+                  onChange={(event) => setTreatmentItemText(event.target.value)}
                 />
               </div>
 
