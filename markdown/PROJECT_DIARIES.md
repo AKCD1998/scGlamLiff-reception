@@ -185,3 +185,28 @@
 - `node --check backend/src/controllers/visitsController.js`
 - `node --check src/pages/workbench/workbenchRow.js`
 - `npm run test:run -- src/pages/WorkbenchPage.test.jsx` ผ่าน
+
+## 2026-02-08 — Fix: Staff Name disappeared after lineId refactor
+
+### Symptom
+- หลังแก้ lineId mapping หน้า Home/Workbench คอลัมน์ `Staff Name` แสดง `-` ทุกแถว
+
+### Root cause
+- API หลักของหน้า Home คือ `GET /api/appointments/queue`
+- ใน SQL ของ `appointmentsQueueController` ค่า `staffName` ถูก hardcode เป็น `'-'`
+- endpoint `/api/visits?source=appointments` ก็ใช้ `'-'` เช่นกัน จึงไม่มีข้อมูล staff จริงส่งถึง frontend
+
+### Fix summary
+- กู้ staffName source ที่ backend โดยใช้ลำดับ fallback:
+  1. `sheet_visits_raw.staff_name` (ผ่าน `raw_sheet_uuid`)
+  2. `appointment_events.meta.staff_name` ล่าสุดที่ไม่ว่าง
+  3. `appointment_events.meta.staff_display_name` ล่าสุดที่ไม่ว่าง
+  4. `'-'`
+- คง lineId sanitization fix เดิมไว้ทั้งหมด
+- เพิ่ม normalization guard ฝั่ง frontend mapper ให้รองรับทั้ง `staffName` และ `staff_name`
+
+### Verification
+- `node --check backend/src/controllers/appointmentsQueueController.js`
+- `node --check backend/src/controllers/visitsController.js`
+- `node --check src/pages/workbench/workbenchRow.js`
+- `npm run test:run -- src/pages/WorkbenchPage.test.jsx`

@@ -59,7 +59,7 @@ export default function AppointmentsTablePanel({
                   <td>{row.phone}</td>
                   <td>{row.lineId || "-"}</td>
                   <td>{row.treatmentItemDisplay || row.treatmentItem}</td>
-                  <td>{row.staffName}</td>
+                  <td>{row.staffName || "-"}</td>
                   <td className="row-id-cell">{row.id || "-"}</td>
                   <td>
                     <button type="button" className="row-delete-btn" onClick={() => onOpenDelete(row)}>

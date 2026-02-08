@@ -61,6 +61,12 @@ function sanitizeDisplayLineId(value) {
   return text;
 }
 
+function sanitizeDisplayStaffName(value) {
+  const text = normalizeText(value);
+  if (!text) return '-';
+  return text;
+}
+
 function getTreatmentTitle(row) {
   return (
     normalizeText(row.treatment_item_text_override) ||
@@ -323,10 +329,16 @@ export async function listAppointmentsQueue(req, res) {
           ) AS smooth_price_thb,
           COALESCE(pkg_usage.sessions_used, 0) AS smooth_sessions_used,
           COALESCE(pkg_usage.mask_used, 0) AS smooth_mask_used,
-          '-' AS "staffName"
+          COALESCE(
+            NULLIF(svr.staff_name, ''),
+            NULLIF(staff_name_evt.staff_name, ''),
+            NULLIF(staff_display_evt.staff_display_name, ''),
+            '-'
+          ) AS "staffName"
         FROM appointments a
         LEFT JOIN customers c ON a.customer_id = c.id
         LEFT JOIN treatments t ON a.treatment_id = t.id
+        LEFT JOIN sheet_visits_raw svr ON svr.sheet_uuid = a.raw_sheet_uuid
         LEFT JOIN LATERAL (
           SELECT
             p.sessions_total,
@@ -404,6 +416,44 @@ export async function listAppointmentsQueue(req, res) {
           ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
           LIMIT 1
         ) contact_evt ON true
+        LEFT JOIN LATERAL (
+          SELECT
+            COALESCE(
+              NULLIF(ae.meta->'after'->>'staff_name', ''),
+              NULLIF(ae.meta->>'staff_name', '')
+            ) AS staff_name
+          FROM appointment_events ae
+          WHERE ae.appointment_id = a.id
+            AND (
+              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'staff_name'
+              OR ae.meta ? 'staff_name'
+            )
+            AND COALESCE(
+              NULLIF(ae.meta->'after'->>'staff_name', ''),
+              NULLIF(ae.meta->>'staff_name', '')
+            ) IS NOT NULL
+          ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
+          LIMIT 1
+        ) staff_name_evt ON true
+        LEFT JOIN LATERAL (
+          SELECT
+            COALESCE(
+              NULLIF(ae.meta->'after'->>'staff_display_name', ''),
+              NULLIF(ae.meta->>'staff_display_name', '')
+            ) AS staff_display_name
+          FROM appointment_events ae
+          WHERE ae.appointment_id = a.id
+            AND (
+              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'staff_display_name'
+              OR ae.meta ? 'staff_display_name'
+            )
+            AND COALESCE(
+              NULLIF(ae.meta->'after'->>'staff_display_name', ''),
+              NULLIF(ae.meta->>'staff_display_name', '')
+            ) IS NOT NULL
+          ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
+          LIMIT 1
+        ) staff_display_evt ON true
         LEFT JOIN packages plan_pkg ON (
           plan_evt.package_id ~* '${UUID_PATTERN}'
           AND plan_pkg.id = plan_evt.package_id::uuid
@@ -483,6 +533,7 @@ export async function listAppointmentsQueue(req, res) {
         ...row,
         phone: normalizedPhone,
         lineId: sanitizeDisplayLineId(row.lineId),
+        staffName: sanitizeDisplayStaffName(row.staffName),
         treatmentItem: treatmentItemDisplay || row.treatmentItem,
         treatmentItemDisplay: treatmentItemDisplay || row.treatmentItem,
       };

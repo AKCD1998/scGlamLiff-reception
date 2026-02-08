@@ -43,6 +43,12 @@ function sanitizeDisplayLineId(value) {
   return text;
 }
 
+function sanitizeDisplayStaffName(value) {
+  const text = normalizeText(value);
+  if (!text) return '-';
+  return text;
+}
+
 export async function listVisits(req, res) {
   const { date } = req.query;
   const sourceRaw = typeof req.query.source === 'string' ? req.query.source.trim() : '';
@@ -93,6 +99,7 @@ export async function listVisits(req, res) {
       const normalizedRows = rows.map((row) => ({
         ...row,
         lineId: sanitizeDisplayLineId(row.lineId),
+        staffName: sanitizeDisplayStaffName(row.staffName),
       }));
 
       return res.json({ ok: true, rows: normalizedRows });
@@ -137,10 +144,16 @@ export async function listVisits(req, res) {
             NULLIF(t.code, ''),
             ''
           ) AS "treatmentItem",
-          '-' AS "staffName"
+          COALESCE(
+            NULLIF(svr.staff_name, ''),
+            NULLIF(staff_name_evt.staff_name, ''),
+            NULLIF(staff_display_evt.staff_display_name, ''),
+            '-'
+          ) AS "staffName"
         FROM appointments a
         LEFT JOIN customers c ON a.customer_id = c.id
         LEFT JOIN treatments t ON a.treatment_id = t.id
+        LEFT JOIN sheet_visits_raw svr ON svr.sheet_uuid = a.raw_sheet_uuid
         LEFT JOIN LATERAL (
           SELECT provider_user_id
           FROM customer_identities
@@ -181,6 +194,44 @@ export async function listVisits(req, res) {
           ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
           LIMIT 1
         ) contact_evt ON true
+        LEFT JOIN LATERAL (
+          SELECT
+            COALESCE(
+              NULLIF(ae.meta->'after'->>'staff_name', ''),
+              NULLIF(ae.meta->>'staff_name', '')
+            ) AS staff_name
+          FROM appointment_events ae
+          WHERE ae.appointment_id = a.id
+            AND (
+              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'staff_name'
+              OR ae.meta ? 'staff_name'
+            )
+            AND COALESCE(
+              NULLIF(ae.meta->'after'->>'staff_name', ''),
+              NULLIF(ae.meta->>'staff_name', '')
+            ) IS NOT NULL
+          ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
+          LIMIT 1
+        ) staff_name_evt ON true
+        LEFT JOIN LATERAL (
+          SELECT
+            COALESCE(
+              NULLIF(ae.meta->'after'->>'staff_display_name', ''),
+              NULLIF(ae.meta->>'staff_display_name', '')
+            ) AS staff_display_name
+          FROM appointment_events ae
+          WHERE ae.appointment_id = a.id
+            AND (
+              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'staff_display_name'
+              OR ae.meta ? 'staff_display_name'
+            )
+            AND COALESCE(
+              NULLIF(ae.meta->'after'->>'staff_display_name', ''),
+              NULLIF(ae.meta->>'staff_display_name', '')
+            ) IS NOT NULL
+          ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
+          LIMIT 1
+        ) staff_display_evt ON true
         WHERE ${whereParts.join(' AND ')}
         ORDER BY a.scheduled_at DESC
         LIMIT $${params.length}
@@ -191,6 +242,7 @@ export async function listVisits(req, res) {
     const normalizedRows = rows.map((row) => ({
       ...row,
       lineId: sanitizeDisplayLineId(row.lineId),
+      staffName: sanitizeDisplayStaffName(row.staffName),
     }));
 
     return res.json({ ok: true, rows: normalizedRows });

@@ -17,7 +17,7 @@ export function normalizeRow(row = {}) {
     lineId: sanitizeDisplayLineId(row.lineId),
     treatmentItem: row.treatmentItemDisplay ?? row.treatmentItem ?? "",
     treatmentItemDisplay: row.treatmentItemDisplay ?? row.treatmentItem ?? "",
-    staffName: row.staffName ?? "",
+    staffName: row.staffName ?? row.staff_name ?? "",
     datetime: row.datetime ?? "", // backward compatibility for sorting fallback
   };
 }

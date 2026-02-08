@@ -110,3 +110,26 @@ git push -u origin deploy-mvp
 - แยกเสมอว่า field ไหนเป็น internal FK (`line_user_id`) และ field ไหนเป็น display contact (`email_or_lineid` / derived display)
 - เวลาเพิ่ม placeholder/system identity ใหม่ ต้องเพิ่ม deny-list ใน display mapper
 - สำหรับคอลัมน์ที่ผู้ใช้มองเห็น ให้มี explicit `*_display` mapping และห้าม bind ตรงกับ internal key
+
+## Staff Name column regressed after lineId mapping refactor
+
+**What happened**
+- หลังแก้ lineId mapping/sanitization แล้วคอลัมน์ `Staff Name` ในหน้า Home กลายเป็น `-` ทุกแถว
+
+**Why it happened (root cause)**
+- query ของ `/api/appointments/queue` และ `/api/visits?source=appointments` คืนค่า `staffName` แบบ hardcoded (`'-'`)
+- frontend จึงไม่ได้รับชื่อ staff จริง แม้ข้อมูลมีอยู่ใน `sheet_visits_raw` หรือ `appointment_events.meta`
+
+**How it was fixed**
+- ปรับ backend query ให้ resolve `staffName` จากแหล่งข้อมูลจริงด้วย fallback ที่ชัดเจน:
+  1. `sheet_visits_raw.staff_name`
+  2. latest non-empty `appointment_events.meta.staff_name`
+  3. latest non-empty `appointment_events.meta.staff_display_name`
+  4. `'-'`
+- คง lineId fix เดิม (sanitize placeholders/system prefixes) โดยไม่ rollback
+- เสริม mapper ฝั่ง frontend ให้รองรับ `staffName`/`staff_name`
+
+**How to prevent regression**
+- ห้าม hardcode คอลัมน์ที่เป็น business display field (`staffName`, `lineId`) ถ้ามี source จริงใน DB
+- เวลา refactor endpoint ให้มี contract checklist ต่อคอลัมน์หลักของ UI table
+- เพิ่ม contract/integration test ที่ assert ว่า response shape มี field สำคัญครบและไม่เป็นค่าทดแทนผิด (`'-'`) โดยไม่จำเป็น
