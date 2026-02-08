@@ -54,4 +54,20 @@ describe("WorkbenchPage", () => {
       expect(getAppointmentsQueue).toHaveBeenCalled();
     });
   });
+
+  it("defaults to all dates (no date filter) on first load", async () => {
+    render(
+      <MemoryRouter>
+        <WorkbenchPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(getAppointmentsQueue).toHaveBeenCalled();
+    });
+
+    const firstCallArgs = getAppointmentsQueue.mock.calls[0]?.[0] || {};
+    expect(firstCallArgs.limit).toBe(50);
+    expect(firstCallArgs.date).toBeUndefined();
+  });
 });

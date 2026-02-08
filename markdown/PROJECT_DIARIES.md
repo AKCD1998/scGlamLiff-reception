@@ -210,3 +210,22 @@
 - `node --check backend/src/controllers/visitsController.js`
 - `node --check src/pages/workbench/workbenchRow.js`
 - `npm run test:run -- src/pages/WorkbenchPage.test.jsx`
+
+## 2026-02-08 — Workbench default date filter changed to All Dates
+
+### Goal
+- เปลี่ยนค่าเริ่มต้นของหน้า Home/Workbench จาก “กรองเฉพาะวันนี้” เป็น “แสดงทั้งหมด”
+
+### What changed
+- เปลี่ยน initial state ของตัวกรองวันที่ใน `useHomePickerState` ให้เป็น `null` แทน `new Date()`
+- logic เดิมของ filter รองรับ `selectedDate=null` อยู่แล้ว จึงแสดงทุกแถวอัตโนมัติ
+- ปฏิทินยังเลือกวันที่เพื่อกรองได้เหมือนเดิม และปุ่ม `แสดงทั้งหมด` ยังใช้ล้างตัวกรองกลับสู่ all rows
+
+### UX after change
+- เปิดหน้า Workbench/Home ครั้งแรก: ตารางแสดงทุกแถว
+- เมื่อผู้ใช้เลือกวันในปฏิทิน: ตารางกรองตามวันนั้น
+- กด `แสดงทั้งหมด`: กลับไปแสดงทุกแถว
+
+### Verification
+- เพิ่ม test: `defaults to all dates (no date filter) on first load` ใน `src/pages/WorkbenchPage.test.jsx`
+- รันผ่าน: `npm run test:run -- src/pages/WorkbenchPage.test.jsx`

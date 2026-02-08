@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 export function useHomePickerState() {
-  const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [selectedDate, setSelectedDate] = useState(null);
 
   const [displayMonth, setDisplayMonth] = useState(() => {
     const today = new Date();
