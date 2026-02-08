@@ -6,6 +6,7 @@ import { logout } from "../utils/authClient";
 import Homepage from "./Homepage";
 import Bookingpage from "./Bookingpage";
 import AdminBackdate from "./AdminBackdate";
+import AdminEditAppointment from "./AdminEditAppointment";
 import "./WorkbenchPage.css";
 import TabPlaceholder from "../components/TabPlaceholder";
 import WorkbenchLoadingOverlay from "../components/WorkbenchLoadingOverlay";
@@ -46,11 +47,15 @@ export default function WorkbenchPage() {
     const isAdmin = role === "admin" || role === "owner";
     if (isAdmin) {
       baseTabs.push({ id: "adminBackdate", label: "จองย้อนหลัง (Admin)" });
+      baseTabs.push({ id: "adminEditAppointment", label: "แก้ไขนัดหมาย (Admin)" });
     }
     return baseTabs;
   }, [me]);
 
-  const isAdminTabAvailable = useMemo(() => tabs.some((t) => t.id === "adminBackdate"), [tabs]);
+  const isAdminTabAvailable = useMemo(
+    () => tabs.some((t) => t.id === "adminBackdate"),
+    [tabs]
+  );
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -61,6 +66,11 @@ export default function WorkbenchPage() {
           return <TabPlaceholder title="จองย้อนหลัง (Admin)" />;
         }
         return <AdminBackdate currentUser={me} />;
+      case "adminEditAppointment":
+        if (!isAdminTabAvailable) {
+          return <TabPlaceholder title="แก้ไขนัดหมาย (Admin)" />;
+        }
+        return <AdminEditAppointment currentUser={me} />;
       case "stock":
         return <TabPlaceholder title="เกี่ยวกับสต๊อก" />;
       case "productGuide":

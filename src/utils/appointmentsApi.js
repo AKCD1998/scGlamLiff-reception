@@ -198,6 +198,40 @@ export async function adminBackdate(payload, signal) {
   return data;
 }
 
+export async function getAdminAppointmentById(appointmentId, signal) {
+  ensureConfig();
+  if (!appointmentId) throw new Error("Missing appointment id");
+  const url = `${base}/api/admin/appointments/${encodeURIComponent(appointmentId)}`;
+  const res = await fetch(url, {
+    method: "GET",
+    credentials: "include",
+    signal,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || "Server returned error");
+  }
+  return data;
+}
+
+export async function patchAdminAppointment(appointmentId, payload, signal) {
+  ensureConfig();
+  if (!appointmentId) throw new Error("Missing appointment id");
+  const url = `${base}/api/admin/appointments/${encodeURIComponent(appointmentId)}`;
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    signal,
+    body: JSON.stringify(payload || {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || "Server returned error");
+  }
+  return data;
+}
+
 export async function getAppointmentsQueue({ date, branchId, limit = 200 } = {}, signal) {
   ensureConfig();
   const params = new URLSearchParams();

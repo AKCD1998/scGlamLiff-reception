@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import WorkbenchPage from "./WorkbenchPage";
-import { getAppointments, deleteSheetVisit } from "../utils/appointmentsApi";
+import { getAppointmentsQueue, cancelAppointment } from "../utils/appointmentsApi";
 import { getMe, logout } from "../utils/authClient";
 
 vi.mock("./Homepage", () => ({
@@ -15,10 +15,13 @@ vi.mock("./Homepage", () => ({
 }));
 vi.mock("./Bookingpage", () => ({ default: () => <div data-testid="bookingpage">Booking mock</div> }));
 vi.mock("./AdminBackdate", () => ({ default: () => <div data-testid="adminbackdate">Admin mock</div> }));
+vi.mock("./AdminEditAppointment", () => ({
+  default: () => <div data-testid="adminedit">Admin Edit mock</div>,
+}));
 
 vi.mock("../utils/appointmentsApi", () => ({
-  getAppointments: vi.fn(),
-  deleteSheetVisit: vi.fn(),
+  getAppointmentsQueue: vi.fn(),
+  cancelAppointment: vi.fn(),
 }));
 vi.mock("../utils/authClient", () => ({
   getMe: vi.fn(),
@@ -30,8 +33,8 @@ beforeEach(() => {
     ok: true,
     data: { display_name: "Test", username: "test", role_name: "staff" },
   });
-  getAppointments.mockResolvedValue({ rows: [] });
-  deleteSheetVisit.mockResolvedValue({ ok: true });
+  getAppointmentsQueue.mockResolvedValue({ ok: true, rows: [] });
+  cancelAppointment.mockResolvedValue({ ok: true });
   logout.mockResolvedValue({ ok: true });
 });
 
@@ -48,7 +51,7 @@ describe("WorkbenchPage", () => {
 
     await waitFor(() => {
       expect(getMe).toHaveBeenCalled();
-      expect(getAppointments).toHaveBeenCalled();
+      expect(getAppointmentsQueue).toHaveBeenCalled();
     });
   });
 });

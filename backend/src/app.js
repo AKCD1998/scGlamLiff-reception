@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 
 import authRoutes from './routes/auth.js';
 import appointmentRoutes from './routes/appointments.js';
+import adminAppointmentRoutes from './routes/adminAppointments.js';
 import customersRoutes from './routes/customers.js';
 import visitsRoutes from './routes/visits.js';
 import sheetVisitsRoutes from './routes/sheetVisits.js';
@@ -31,7 +32,7 @@ export function createApp() {
         return callback(new Error('Not allowed by CORS'));
       },
       credentials: true,
-      methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+      methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization'],
     })
   );
@@ -45,6 +46,7 @@ export function createApp() {
 
   app.use('/api/auth', authRoutes);
   app.use('/api/appointments', appointmentRoutes);
+  app.use('/api/admin', adminAppointmentRoutes);
   app.use('/api/customers', customersRoutes);
   app.use('/api/visits', visitsRoutes);
   app.use('/api/sheet-visits', sheetVisitsRoutes);
