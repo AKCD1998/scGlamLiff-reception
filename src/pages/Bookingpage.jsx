@@ -588,6 +588,7 @@ export default function Bookingpage() {
       treatmentOptions.find((option) => option.value === treatmentItem) || null;
     const cleanTreatment = selectedTreatmentOption?.treatmentItemText?.trim() || "";
     const cleanTreatmentId = selectedTreatmentOption?.treatmentId?.trim() || "";
+    const cleanPackageId = selectedTreatmentOption?.packageId?.trim() || "";
     const cleanStaff = staffName.trim();
 
     if (!dateKey || !timeKey || !cleanName || !rawPhone || !cleanTreatment || !cleanStaff) {
@@ -663,6 +664,9 @@ export default function Bookingpage() {
     };
     if (cleanTreatmentId) {
       payload.treatment_id = cleanTreatmentId;
+    }
+    if (cleanPackageId) {
+      payload.package_id = cleanPackageId;
     }
 
     setSaving(true);

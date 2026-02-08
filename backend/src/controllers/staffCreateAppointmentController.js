@@ -63,6 +63,125 @@ function inferTreatmentCode(raw) {
   return null;
 }
 
+function inferSmoothPackageHint(raw) {
+  const text = normalizeText(raw).toLowerCase();
+  if (!text || !text.includes('smooth')) return null;
+
+  const sessionMatch = text.match(/(\d+)\s*\/\s*(\d+)/);
+  const sessionsTotal = sessionMatch ? Number(sessionMatch[2]) : 1;
+  if (!Number.isFinite(sessionsTotal) || sessionsTotal <= 0) return null;
+
+  const priceCandidates = [...text.matchAll(/\b(\d{3,4})\b/g)]
+    .map((match) => Number(match[1]))
+    .filter((value) => Number.isFinite(value) && value >= 100);
+  const price = priceCandidates.length > 0 ? priceCandidates[0] : null;
+
+  let maskTotal = 0;
+  const maskProgressMatch = text.match(/(\d+)\s*\/\s*(\d+)\s*mask/);
+  if (maskProgressMatch) {
+    const total = Number(maskProgressMatch[2]);
+    if (Number.isFinite(total) && total >= 0) {
+      maskTotal = total;
+    }
+  } else {
+    const maskMatch = text.match(/\b(\d+)\s*mask\b/);
+    if (maskMatch) {
+      const total = Number(maskMatch[1]);
+      if (Number.isFinite(total) && total >= 0) {
+        maskTotal = total;
+      }
+    }
+  }
+
+  return { sessionsTotal, price, maskTotal };
+}
+
+async function resolvePackageIdForStaffBooking(client, { explicitPackageId, treatmentItemText }) {
+  const packageId = normalizeText(explicitPackageId);
+  if (packageId) {
+    const pkg = await client.query('SELECT id FROM packages WHERE id = $1 LIMIT 1', [packageId]);
+    if (pkg.rowCount === 0) {
+      const err = new Error('Package not found');
+      err.status = 400;
+      throw err;
+    }
+    return packageId;
+  }
+
+  const hint = inferSmoothPackageHint(treatmentItemText);
+  if (!hint) return null;
+
+  const { sessionsTotal, price, maskTotal } = hint;
+
+  if (price) {
+    const packageCode = `SMOOTH_C${sessionsTotal}_${price}_M${maskTotal}`;
+    const byCode = await client.query(
+      'SELECT id FROM packages WHERE UPPER(COALESCE(code, \'\')) = UPPER($1) LIMIT 1',
+      [packageCode]
+    );
+    if (byCode.rowCount > 0) return byCode.rows[0].id;
+  }
+
+  const params = [sessionsTotal];
+  const whereParts = [
+    "LOWER(COALESCE(code, '')) LIKE 'smooth%'",
+    'COALESCE(sessions_total, 0) = $1',
+  ];
+
+  if (price) {
+    params.push(price);
+    whereParts.push(`COALESCE(price_thb, 0) = $${params.length}`);
+  }
+
+  if (sessionsTotal > 1) {
+    params.push(maskTotal);
+    whereParts.push(`COALESCE(mask_total, 0) = $${params.length}`);
+  }
+
+  const fallback = await client.query(
+    `
+      SELECT id
+      FROM packages
+      WHERE ${whereParts.join(' AND ')}
+      ORDER BY price_thb ASC NULLS LAST, id ASC
+      LIMIT 1
+    `,
+    params
+  );
+
+  return fallback.rowCount > 0 ? fallback.rows[0].id : null;
+}
+
+async function ensureActiveCustomerPackage(client, { customerId, packageId, note }) {
+  if (!customerId || !packageId) return null;
+
+  const existing = await client.query(
+    `
+      SELECT id
+      FROM customer_packages
+      WHERE customer_id = $1
+        AND package_id = $2
+        AND LOWER(COALESCE(status, '')) = 'active'
+      ORDER BY purchased_at DESC NULLS LAST, id DESC
+      LIMIT 1
+    `,
+    [customerId, packageId]
+  );
+
+  if (existing.rowCount > 0) return existing.rows[0].id;
+
+  const inserted = await client.query(
+    `
+      INSERT INTO customer_packages (customer_id, package_id, status, purchased_at, note)
+      VALUES ($1, $2, 'active', now(), $3)
+      RETURNING id
+    `,
+    [customerId, packageId, note || 'auto:staff']
+  );
+
+  return inserted.rows[0]?.id || null;
+}
+
 async function ensureStaffLineUserRow(client) {
   const result = await client.query(
     `
@@ -152,6 +271,7 @@ export async function createStaffAppointment(req, res) {
   let scheduledAtRaw;
   let branchId;
   let treatmentId;
+  let packageId;
   let customerFullName;
   let phoneDigits;
   let emailOrLineid;
@@ -204,6 +324,12 @@ export async function createStaffAppointment(req, res) {
     emailOrLineid = normalizeText(req.body?.email_or_lineid);
     staffName = normalizeText(req.body?.staff_name);
     treatmentItemText = normalizeText(req.body?.treatment_item_text);
+    packageId = normalizeText(req.body?.package_id);
+    if (packageId && !UUID_PATTERN.test(packageId)) {
+      const err = new Error('Invalid package_id');
+      err.status = 400;
+      throw err;
+    }
 
     const treatmentIdRaw = normalizeText(req.body?.treatment_id);
     if (treatmentIdRaw) {
@@ -282,6 +408,10 @@ export async function createStaffAppointment(req, res) {
     }
 
     const staffLineUserId = await ensureStaffLineUserRow(client);
+    const resolvedPackageId = await resolvePackageIdForStaffBooking(client, {
+      explicitPackageId: packageId,
+      treatmentItemText,
+    });
 
     const inserted = await client.query(
       `
@@ -309,6 +439,11 @@ export async function createStaffAppointment(req, res) {
     );
 
     const appointmentId = inserted.rows[0]?.id;
+    const customerPackageId = await ensureActiveCustomerPackage(client, {
+      customerId,
+      packageId: resolvedPackageId,
+      note: appointmentId ? `auto:staff:${appointmentId}` : 'auto:staff',
+    });
 
     await client.query(
       `
@@ -328,6 +463,8 @@ export async function createStaffAppointment(req, res) {
           email_or_lineid: emailOrLineid || null,
           staff_name: staffName || null,
           treatment_item_text: treatmentItemText || null,
+          package_id: resolvedPackageId || null,
+          customer_package_id: customerPackageId || null,
           staff_user_id: req.user?.id || null,
           staff_username: normalizeText(req.user?.username) || null,
           staff_display_name: normalizeText(req.user?.display_name) || null,
@@ -336,7 +473,12 @@ export async function createStaffAppointment(req, res) {
     );
 
     await client.query('COMMIT');
-    return res.json({ ok: true, appointment_id: appointmentId, customer_id: customerId });
+    return res.json({
+      ok: true,
+      appointment_id: appointmentId,
+      customer_id: customerId,
+      customer_package_id: customerPackageId || null,
+    });
   } catch (error) {
     await client.query('ROLLBACK');
     if (error?.code === '23503' && error?.constraint === 'appointments_line_user_id_fkey') {

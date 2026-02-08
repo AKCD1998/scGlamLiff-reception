@@ -133,3 +133,24 @@ git push -u origin deploy-mvp
 - ห้าม hardcode คอลัมน์ที่เป็น business display field (`staffName`, `lineId`) ถ้ามี source จริงใน DB
 - เวลา refactor endpoint ให้มี contract checklist ต่อคอลัมน์หลักของ UI table
 - เพิ่ม contract/integration test ที่ assert ว่า response shape มี field สำคัญครบและไม่เป็นค่าทดแทนผิด (`'-'`) โดยไม่จำเป็น
+
+## Edge case: `sessions_total=1` excluded from selectable packages
+
+**What happened**
+- ใน `ServiceConfirmationModal` เคส one-off smooth แสดง `ไม่พบคอร์สที่ใช้งานได้`
+- ทำให้ staff ไม่สามารถเลือก package เพื่อตัด 1/1 session ได้
+
+**Why it happened (root cause)**
+- Backend auto-create package logic เดิมตัดเคส `sessions_total <= 1` ออกจากการ infer package
+- เลยไม่สร้าง `customer_packages` สำหรับคอร์ส 1 ครั้ง แม้มี definition อยู่ในตาราง `packages`
+- Modal ได้ `profile.packages` ว่าง จึงไม่มี radio card ให้เลือก
+
+**How it was fixed**
+- ปรับ inference/lookup ให้รองรับ `sessions_total=1` (รวม fallback lookup สำหรับ smooth one-off)
+- เพิ่มรับ `package_id` จาก staff booking payload แล้ว ensure active `customer_package` โดยตรง
+- เพิ่ม regression test ฝั่ง frontend helper เพื่อยืนยันว่า package 1 session ที่เหลือ > 0 ต้องถูกแสดง
+
+**How to prevent regression**
+- ห้ามใช้เงื่อนไข `> 1` กับ session eligibility; ใช้ `> 0` สำหรับความสามารถในการตัดคอร์ส
+- ใส่ edge-case test สำหรับ `sessions_total=1`, `sessions_used=0` ทุกครั้งที่แก้ package flow
+- เมื่อเพิ่ม display format ใหม่ (เช่น `1/1 ...`) ต้องทบทวน backend infer/create logic ให้รองรับ format เดียวกัน

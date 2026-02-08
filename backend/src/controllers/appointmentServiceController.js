@@ -15,6 +15,11 @@ function normalizePhone(raw) {
   return String(raw).replace(/[^\d]/g, '').trim();
 }
 
+function normalizeText(raw) {
+  if (raw === null || raw === undefined) return '';
+  return String(raw).trim();
+}
+
 function safeDisplayName(user) {
   return String(user?.display_name || user?.username || '').trim() || null;
 }
@@ -111,52 +116,92 @@ function inferTreatmentCode(raw) {
   return null;
 }
 
-function inferPackageCode(raw) {
-  const text = String(raw || '').toLowerCase().trim();
-  if (!text.includes('smooth')) return null;
+function inferSmoothPackageHint(raw) {
+  const text = normalizeText(raw).toLowerCase();
+  if (!text || !text.includes('smooth')) return null;
 
-  // Course strings look like: "1/3 smooth 999 1 mask" or "1/10 smooth 2999 1/3 mask"
+  // Course strings look like: "1/3 smooth 999 1 mask", "1/10 smooth 2999 1/3 mask",
+  // and one-off display can be "1/1 Smooth (399) | Mask 0/0".
   const sessionMatch = text.match(/(\d+)\s*\/\s*(\d+)/);
-  if (!sessionMatch) return null;
-  const sessionsTotal = Number(sessionMatch[2]);
-  if (!Number.isFinite(sessionsTotal) || sessionsTotal <= 1) return null;
+  const sessionsTotal = sessionMatch ? Number(sessionMatch[2]) : 1;
+  if (!Number.isFinite(sessionsTotal) || sessionsTotal <= 0) return null;
 
   const priceCandidates = [...text.matchAll(/\b(\d{3,4})\b/g)]
     .map((match) => Number(match[1]))
     .filter((value) => Number.isFinite(value) && value >= 100);
   const price = priceCandidates.length > 0 ? priceCandidates[0] : null;
-  if (!price) return null;
 
   let maskTotal = 0;
   const maskProgressMatch = text.match(/(\d+)\s*\/\s*(\d+)\s*mask/);
   if (maskProgressMatch) {
     const total = Number(maskProgressMatch[2]);
-    if (Number.isFinite(total) && total > 0) {
+    if (Number.isFinite(total) && total >= 0) {
       maskTotal = total;
     }
   } else {
     const maskMatch = text.match(/\b(\d+)\s*mask\b/);
     if (maskMatch) {
       const total = Number(maskMatch[1]);
-      if (Number.isFinite(total) && total > 0) {
+      if (Number.isFinite(total) && total >= 0) {
         maskTotal = total;
       }
     }
   }
 
-  return `SMOOTH_C${sessionsTotal}_${price}_M${maskTotal}`;
+  return { sessionsTotal, price, maskTotal };
+}
+
+async function resolvePackageIdFromTreatmentItem(client, treatmentItemText) {
+  const hint = inferSmoothPackageHint(treatmentItemText);
+  if (!hint) return null;
+
+  const { sessionsTotal, price, maskTotal } = hint;
+
+  if (price) {
+    const packageCode = `SMOOTH_C${sessionsTotal}_${price}_M${maskTotal}`;
+    const byCode = await client.query(
+      'SELECT id FROM packages WHERE UPPER(COALESCE(code, \'\')) = UPPER($1) LIMIT 1',
+      [packageCode]
+    );
+    if (byCode.rowCount > 0) return byCode.rows[0].id;
+  }
+
+  // Fallback lookup by dimensions. This keeps one-off (1/1) selectable even when
+  // treatment_item_text does not carry explicit package code.
+  const params = [sessionsTotal];
+  const whereParts = [
+    "LOWER(COALESCE(code, '')) LIKE 'smooth%'",
+    'COALESCE(sessions_total, 0) = $1',
+  ];
+
+  if (price) {
+    params.push(price);
+    whereParts.push(`COALESCE(price_thb, 0) = $${params.length}`);
+  }
+
+  if (sessionsTotal > 1) {
+    params.push(maskTotal);
+    whereParts.push(`COALESCE(mask_total, 0) = $${params.length}`);
+  }
+
+  const fallback = await client.query(
+    `
+      SELECT id
+      FROM packages
+      WHERE ${whereParts.join(' AND ')}
+      ORDER BY price_thb ASC NULLS LAST, id ASC
+      LIMIT 1
+    `,
+    params
+  );
+
+  return fallback.rowCount > 0 ? fallback.rows[0].id : null;
 }
 
 async function ensureCustomerPackageFromTreatmentItem(client, { customerId, treatmentItemText, sheetUuid }) {
   if (!customerId) return null;
-
-  const packageCode = inferPackageCode(treatmentItemText);
-  if (!packageCode) return null;
-
-  const pkg = await client.query('SELECT id FROM packages WHERE code = $1 LIMIT 1', [packageCode]);
-  if (pkg.rowCount === 0) return null;
-
-  const packageId = pkg.rows[0].id;
+  const packageId = await resolvePackageIdFromTreatmentItem(client, treatmentItemText);
+  if (!packageId) return null;
   const existing = await client.query(
     `
       SELECT id

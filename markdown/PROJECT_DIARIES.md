@@ -256,3 +256,30 @@
 ### Verification
 - `npm run test:run -- src/pages/WorkbenchPage.test.jsx`
 - `npm run build`
+
+## 2026-02-08 — Fix: 1-session course not selectable in ServiceConfirmationModal
+
+### Symptom
+- ใน `ServiceConfirmationModal` เคสคอร์ส 1 ครั้งขึ้น `ไม่พบคอร์สที่ใช้งานได้`
+- Staff เลือกคอร์สเพื่อตัด `1/1` ไม่ได้ แม้มีแพ็กเกจแบบ 1 session ในระบบ
+
+### Root cause
+- ฝั่ง backend ที่ auto-create `customer_packages` เดาจาก `treatment_item_text` โดย logic เดิมข้ามเคส `sessions_total <= 1`
+- ผลคือ appointment ที่เป็น one-off smooth ไม่ผูก `customer_package` ให้ลูกค้า ทำให้ `GET /api/customers/:id/profile` คืน `packages=[]` สำหรับเคสนั้น
+- ฝั่ง modal จึงไม่มี package card ให้เลือก
+
+### Fix summary
+- ปรับ backend package inference ให้รองรับ one-off (`sessions_total=1`) ด้วย
+  - `backend/src/controllers/appointmentServiceController.js`
+  - `backend/src/controllers/staffCreateAppointmentController.js`
+- เพิ่ม fallback lookup package แบบ `smooth + sessions_total=1` แม้ข้อความไม่มี code ตรง
+- เพิ่มรองรับ `package_id` จาก Booking payload แล้ว ensure active `customer_package` อัตโนมัติ
+  - `src/pages/Bookingpage.jsx` ส่ง `package_id` เมื่อ option ที่เลือกเป็น package
+- ปรับ modal helper ให้ normalize และเลือกเฉพาะ package ที่ `sessionsRemaining > 0`
+  - `src/components/ServiceConfirmationModal.jsx`
+
+### Verification
+- `node --check backend/src/controllers/appointmentServiceController.js`
+- `node --check backend/src/controllers/staffCreateAppointmentController.js`
+- `npm run test:run -- src/components/ServiceConfirmationModal.test.jsx src/pages/WorkbenchPage.test.jsx`
+- `npm run build`

@@ -19,6 +19,47 @@ function statusLabel(status) {
   return "จองแล้ว";
 }
 
+export function buildActivePackages(packages = []) {
+  return packages
+    .filter((pkg) => String(pkg?.status || "").toLowerCase() === "active")
+    .map((pkg) => {
+      const sessionsTotal = Number(pkg?.package?.sessions_total);
+      const sessionsTotalSafe = Number.isFinite(sessionsTotal) ? sessionsTotal : 0;
+
+      const sessionsUsed = Number(pkg?.usage?.sessions_used);
+      const sessionsUsedSafe = Number.isFinite(sessionsUsed) ? sessionsUsed : 0;
+
+      const sessionsRemainingRaw = Number(pkg?.usage?.sessions_remaining);
+      const sessionsRemaining = Number.isFinite(sessionsRemainingRaw)
+        ? sessionsRemainingRaw
+        : Math.max(sessionsTotalSafe - sessionsUsedSafe, 0);
+
+      const maskTotal = Number(pkg?.package?.mask_total);
+      const maskTotalSafe = Number.isFinite(maskTotal) ? maskTotal : 0;
+
+      const maskUsed = Number(pkg?.usage?.mask_used);
+      const maskUsedSafe = Number.isFinite(maskUsed) ? maskUsed : 0;
+
+      const maskRemainingRaw = Number(pkg?.usage?.mask_remaining);
+      const maskRemaining = Number.isFinite(maskRemainingRaw)
+        ? maskRemainingRaw
+        : Math.max(maskTotalSafe - maskUsedSafe, 0);
+
+      return {
+        ...pkg,
+        _computed: {
+          sessionsTotal: Math.max(sessionsTotalSafe, 0),
+          sessionsUsed: Math.max(sessionsUsedSafe, 0),
+          sessionsRemaining: Math.max(sessionsRemaining, 0),
+          maskTotal: Math.max(maskTotalSafe, 0),
+          maskUsed: Math.max(maskUsedSafe, 0),
+          maskRemaining: Math.max(maskRemaining, 0),
+        },
+      };
+    })
+    .filter((pkg) => pkg._computed.sessionsRemaining > 0);
+}
+
 export default function ServiceConfirmationModal({
   open,
   onClose,
@@ -139,29 +180,7 @@ export default function ServiceConfirmationModal({
   }, [appointmentStatus]);
 
   const activePackages = useMemo(() => {
-    return packages
-      .filter((pkg) => String(pkg?.status || "").toLowerCase() === "active")
-      .map((pkg) => {
-        const sessionsTotal = Number(pkg.package?.sessions_total) || 0;
-        const sessionsUsed = Number(pkg.usage?.sessions_used) || 0;
-        const sessionsRemaining = Number(pkg.usage?.sessions_remaining) || Math.max(sessionsTotal - sessionsUsed, 0);
-
-        const maskTotal = Number(pkg.package?.mask_total) || 0;
-        const maskUsed = Number(pkg.usage?.mask_used) || 0;
-        const maskRemaining = Number(pkg.usage?.mask_remaining) || Math.max(maskTotal - maskUsed, 0);
-
-        return {
-          ...pkg,
-          _computed: {
-            sessionsTotal,
-            sessionsUsed,
-            sessionsRemaining,
-            maskTotal,
-            maskUsed,
-            maskRemaining,
-          },
-        };
-      });
+    return buildActivePackages(packages);
   }, [packages]);
 
   const selectedPkg = useMemo(
