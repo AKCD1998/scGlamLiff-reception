@@ -179,3 +179,24 @@ git push -u origin deploy-mvp
 - ปุ่มที่ชื่อว่า “sync” ต้องมี side effect ที่จำเป็นตาม business intent ไม่ใช่แค่ refresh data
 - แยกชัดเจนระหว่าง `refresh` กับ `provision/ensure` และทดสอบทั้งสองเส้นทาง
 - สำหรับ flow ที่พึ่งพา `customer_packages` ให้มี endpoint กลางสำหรับ ensure package จาก appointment เสมอ
+
+## package sync gating hid 1-session when 3-session already existed
+
+**What happened**
+- ลูกค้าที่มีทั้งคอร์ส 1 ครั้งและ 3 ครั้ง มองเห็นใน modal แค่คอร์ส 3 ครั้ง
+- staff เลือกคอร์ส 1 ครั้งเพื่อตัดไม่ได้ แม้ควรมีสิทธิ์เลือก
+
+**Why it happened (root cause)**
+- logic ตอนเปิด modal sync คอร์สเฉพาะตอน `packages` ว่างเท่านั้น
+- ถ้ามี package อยู่แล้วอย่างน้อย 1 ใบ (เช่น 3-session) ระบบไม่ sync เพิ่ม package ที่ขาด (1-session)
+- backend profile ไม่ได้ dedupe เอง; ปัญหาเกิดจาก sync condition ฝั่ง frontend
+
+**How it was fixed**
+- เปลี่ยนให้ modal เรียก `syncAppointmentCourse` ทุกครั้งสำหรับเคสนัดที่ต้องตัดคอร์ส ก่อนโหลด profile
+- คงปุ่ม `ซิงค์คอร์ส` ให้เป็น sync จริง + reload profile
+- เพิ่ม test เคส `[1-session, 3-session]` ต้องแสดงครบทั้ง 2 ใบ
+
+**How to prevent regression**
+- หลีกเลี่ยงเงื่อนไข gate แบบ “sync เฉพาะ list ว่าง” ใน flow ที่ต้อง ensure consistency ราย appointment
+- แยก test ให้ครอบเคส mix-package (`1+3`, `3+10`) เสมอ
+- ใช้ sorting deterministic แทน dedupe เงียบ ๆ ในชั้น UI

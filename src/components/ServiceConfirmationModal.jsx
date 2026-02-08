@@ -58,7 +58,24 @@ export function buildActivePackages(packages = []) {
         },
       };
     })
-    .filter((pkg) => pkg._computed.sessionsRemaining > 0);
+    .filter((pkg) => pkg._computed.sessionsRemaining > 0)
+    .sort((a, b) => {
+      const remainingDiff = b._computed.sessionsRemaining - a._computed.sessionsRemaining;
+      if (remainingDiff !== 0) return remainingDiff;
+
+      const totalDiff = b._computed.sessionsTotal - a._computed.sessionsTotal;
+      if (totalDiff !== 0) return totalDiff;
+
+      const aPurchasedAt = Date.parse(String(a?.purchased_at || ""));
+      const bPurchasedAt = Date.parse(String(b?.purchased_at || ""));
+      const aTs = Number.isNaN(aPurchasedAt) ? 0 : aPurchasedAt;
+      const bTs = Number.isNaN(bPurchasedAt) ? 0 : bPurchasedAt;
+      if (aTs !== bTs) return bTs - aTs;
+
+      return String(a?.customer_package_id || "").localeCompare(
+        String(b?.customer_package_id || "")
+      );
+    });
 }
 
 export default function ServiceConfirmationModal({
@@ -145,17 +162,19 @@ export default function ServiceConfirmationModal({
         setPackagesLoading(true);
         setPackagesError("");
         try {
-          const profile = await getCustomerProfile(appt.customer_id, controller.signal);
-          let list = Array.isArray(profile.packages) ? profile.packages : [];
-
-          if (list.length === 0 && !allowNoCourseCompletion) {
+          let syncErrorMessage = "";
+          if (!allowNoCourseCompletion) {
             try {
               await syncAppointmentCourse(appointmentId, controller.signal);
-              const refreshedProfile = await getCustomerProfile(appt.customer_id, controller.signal);
-              list = Array.isArray(refreshedProfile.packages) ? refreshedProfile.packages : [];
             } catch (syncErr) {
-              setPackagesError(syncErr?.message || "ซิงค์คอร์สไม่สำเร็จ");
+              syncErrorMessage = syncErr?.message || "ซิงค์คอร์สไม่สำเร็จ";
             }
+          }
+
+          const profile = await getCustomerProfile(appt.customer_id, controller.signal);
+          let list = Array.isArray(profile.packages) ? profile.packages : [];
+          if (list.length === 0 && !allowNoCourseCompletion && syncErrorMessage) {
+            setPackagesError(syncErrorMessage);
           }
 
           setPackages(list);

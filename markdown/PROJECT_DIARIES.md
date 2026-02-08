@@ -314,3 +314,31 @@
 - `node --check backend/src/routes/appointments.js`
 - `node --check src/utils/appointmentsApi.js`
 - `npm run test:run -- src/components/ServiceConfirmationModal.test.jsx`
+
+## 2026-02-08 — Fix: 1-session package hidden when customer also has 3-session package
+
+### Symptom
+- ลูกค้าที่มีคอร์ส `1-session` และ `3-session` พร้อมกัน เห็นใน `ServiceConfirmationModal` แค่คอร์ส 3-session
+- เคส `3 + 10` แสดงครบทั้งสองคอร์ส ทำให้ดูเหมือนมี dedupe เฉพาะบางกรณี
+
+### Root cause
+- หน้า modal เรียก `sync-course` เฉพาะตอน `packages` ว่าง (`list.length === 0`) เท่านั้น
+- ถ้าลูกค้ามี package อยู่แล้ว 1 ใบ (เช่น 3-session) แต่ package 1-session ยังไม่ถูก provision ระบบจะไม่ sync เพิ่ม
+- ผลลัพธ์: โปรไฟล์ยังคืนเฉพาะ 3-session จึง render แค่ใบเดียว
+
+### Fix summary
+- ปรับ flow ตอนเปิด modal:
+  - สำหรับเคสที่ต้องใช้คอร์ส (`allowNoCourseCompletion === false`) ให้เรียก `syncAppointmentCourse` ทุกครั้งก่อนโหลด profile
+  - จากนั้นโหลด `getCustomerProfile` และ render รายการล่าสุด
+- คง behavior เดิมของปุ่ม `ซิงค์คอร์ส` ให้เรียก sync จริงก่อน reload
+- เพิ่ม sorting deterministic ใน `buildActivePackages`:
+  - `sessionsRemaining` มาก -> น้อย
+  - ถ้าเท่ากัน ดู `sessionsTotal` มาก -> น้อย
+  - ถ้าเท่ากัน ดู `purchased_at` ใหม่ -> เก่า
+
+### Verification
+- เพิ่ม test ใหม่ใน `src/components/ServiceConfirmationModal.test.jsx`:
+  - input เป็นแพ็กเกจ `1-session remaining=1` + `3-session remaining=2`
+  - assert ว่าต้องเห็นทั้ง 2 package
+- `npm run test:run -- src/components/ServiceConfirmationModal.test.jsx`
+- `npm run build`
