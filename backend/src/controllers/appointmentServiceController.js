@@ -198,10 +198,9 @@ async function resolvePackageIdFromTreatmentItem(client, treatmentItemText) {
   return fallback.rowCount > 0 ? fallback.rows[0].id : null;
 }
 
-async function ensureCustomerPackageFromTreatmentItem(client, { customerId, treatmentItemText, sheetUuid }) {
-  if (!customerId) return null;
-  const packageId = await resolvePackageIdFromTreatmentItem(client, treatmentItemText);
-  if (!packageId) return null;
+async function ensureActiveCustomerPackage(client, { customerId, packageId, note }) {
+  if (!customerId || !packageId) return null;
+
   const existing = await client.query(
     `
       SELECT id
@@ -223,10 +222,69 @@ async function ensureCustomerPackageFromTreatmentItem(client, { customerId, trea
       VALUES ($1, $2, 'active', now(), $3)
       RETURNING id
     `,
-    [customerId, packageId, sheetUuid ? `auto:sheet:${sheetUuid}` : 'auto:sheet']
+    [customerId, packageId, note || 'auto:sync']
   );
 
   return inserted.rows[0]?.id || null;
+}
+
+async function resolveDefaultSmoothOneOffPackageId(client) {
+  const result = await client.query(
+    `
+      SELECT id
+      FROM packages
+      WHERE LOWER(COALESCE(code, '')) LIKE 'smooth%'
+        AND COALESCE(sessions_total, 0) = 1
+      ORDER BY price_thb ASC NULLS LAST, id ASC
+      LIMIT 1
+    `
+  );
+
+  return result.rowCount > 0 ? result.rows[0].id : null;
+}
+
+async function getAppointmentTreatmentPlanFromEvents(client, appointmentId) {
+  const result = await client.query(
+    `
+      SELECT
+        COALESCE(
+          NULLIF(ae.meta->'after'->>'treatment_item_text', ''),
+          NULLIF(ae.meta->>'treatment_item_text', '')
+        ) AS treatment_item_text,
+        COALESCE(
+          NULLIF(ae.meta->'after'->>'package_id', ''),
+          NULLIF(ae.meta->>'package_id', '')
+        ) AS package_id
+      FROM appointment_events ae
+      WHERE ae.appointment_id = $1
+        AND (
+          COALESCE(ae.meta->'after', '{}'::jsonb) ? 'treatment_item_text'
+          OR ae.meta ? 'treatment_item_text'
+          OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'package_id'
+          OR ae.meta ? 'package_id'
+        )
+      ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
+      LIMIT 1
+    `,
+    [appointmentId]
+  );
+
+  const row = result.rows[0] || {};
+  return {
+    treatmentItemText: normalizeText(row.treatment_item_text),
+    packageId: normalizeText(row.package_id),
+  };
+}
+
+async function ensureCustomerPackageFromTreatmentItem(client, { customerId, treatmentItemText, sheetUuid }) {
+  if (!customerId) return null;
+  const packageId = await resolvePackageIdFromTreatmentItem(client, treatmentItemText);
+  if (!packageId) return null;
+  return ensureActiveCustomerPackage(client, {
+    customerId,
+    packageId,
+    note: sheetUuid ? `auto:sheet:${sheetUuid}` : 'auto:sheet',
+  });
 }
 
 export async function ensureAppointmentFromSheet(req, res) {
@@ -454,6 +512,90 @@ export async function ensureAppointmentFromSheet(req, res) {
       error: isProd ? 'Server error' : error?.message || 'Server error',
       code: isProd ? undefined : error?.code || null,
     });
+  } finally {
+    client.release();
+  }
+}
+
+export async function syncAppointmentCourse(req, res) {
+  const appointmentId = normalizeText(req.params?.id);
+  if (!UUID_PATTERN.test(appointmentId)) {
+    return res.status(400).json({ ok: false, error: 'Invalid appointment id' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const appointmentResult = await client.query(
+      `
+        SELECT
+          a.id,
+          a.customer_id,
+          COALESCE(NULLIF(t.code, ''), '') AS treatment_code
+        FROM appointments a
+        LEFT JOIN treatments t ON t.id = a.treatment_id
+        WHERE a.id = $1
+        LIMIT 1
+        FOR UPDATE OF a
+      `,
+      [appointmentId]
+    );
+
+    if (appointmentResult.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ ok: false, error: 'Appointment not found' });
+    }
+
+    const appointment = appointmentResult.rows[0];
+    const customerId = normalizeText(appointment.customer_id);
+    if (!customerId) {
+      await client.query('ROLLBACK');
+      return res.status(422).json({ ok: false, error: 'Appointment has no customer' });
+    }
+
+    const plan = await getAppointmentTreatmentPlanFromEvents(client, appointmentId);
+
+    let packageId = '';
+    if (UUID_PATTERN.test(plan.packageId)) {
+      const packageExists = await client.query('SELECT id FROM packages WHERE id = $1 LIMIT 1', [
+        plan.packageId,
+      ]);
+      if (packageExists.rowCount > 0) {
+        packageId = plan.packageId;
+      }
+    }
+
+    if (!packageId && plan.treatmentItemText) {
+      packageId = (await resolvePackageIdFromTreatmentItem(client, plan.treatmentItemText)) || '';
+    }
+
+    if (!packageId && String(appointment.treatment_code || '').toLowerCase() === 'smooth') {
+      packageId = (await resolveDefaultSmoothOneOffPackageId(client)) || '';
+    }
+
+    if (!packageId) {
+      await client.query('COMMIT');
+      return res.json({ ok: true, synced: false, reason: 'No package mapping found' });
+    }
+
+    const customerPackageId = await ensureActiveCustomerPackage(client, {
+      customerId,
+      packageId,
+      note: `auto:sync:${appointmentId}`,
+    });
+
+    await client.query('COMMIT');
+    return res.json({
+      ok: true,
+      synced: Boolean(customerPackageId),
+      package_id: packageId,
+      customer_package_id: customerPackageId || null,
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error(error);
+    return res.status(500).json({ ok: false, error: 'Server error' });
   } finally {
     client.release();
   }

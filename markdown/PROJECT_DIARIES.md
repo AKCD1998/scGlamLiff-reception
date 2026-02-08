@@ -283,3 +283,34 @@
 - `node --check backend/src/controllers/staffCreateAppointmentController.js`
 - `npm run test:run -- src/components/ServiceConfirmationModal.test.jsx src/pages/WorkbenchPage.test.jsx`
 - `npm run build`
+
+## 2026-02-08 — Fix: Service modal sync actually provisions missing one-off package
+
+### Symptom
+- เปิด `ServiceConfirmationModal` แล้วเจอ `ไม่พบคอร์สที่ใช้งานได้` สำหรับเคส `1/1 Smooth (399) | Mask 0/0`
+- กด `ซิงค์คอร์ส` แล้วรายการคอร์สยังไม่โผล่ เพราะเดิมแค่รีโหลด profile
+
+### Root cause
+- ปุ่ม `ซิงค์คอร์ส` ใน frontend เรียกแค่ `GET /api/customers/:id/profile`
+- ไม่มี endpoint ที่สร้าง/ensure `customer_packages` จากข้อมูล appointment ที่กำลังจะ complete
+- ดังนั้นเคสที่ package ยังไม่ถูกสร้างในอดีต จะคงเป็น `packages=[]` ตลอด
+
+### Fix summary
+- เพิ่ม endpoint ใหม่ `POST /api/appointments/:id/sync-course`
+  - ไฟล์: `backend/src/controllers/appointmentServiceController.js`
+  - Route: `backend/src/routes/appointments.js`
+  - ทำงานโดย:
+    1. หา package จาก `appointment_events.meta` (`package_id` หรือ `treatment_item_text`)
+    2. fallback smooth one-off จาก `packages` (`sessions_total=1`)
+    3. ensure active `customer_packages` ให้ลูกค้า
+- ปรับ `ServiceConfirmationModal` ให้:
+  - ตอนเปิด modal ถ้าไม่พบ package และไม่ใช่ one-off แบบ no-course ให้ลอง sync 1 ครั้งอัตโนมัติแล้วโหลด profile ใหม่
+  - ปุ่ม `ซิงค์คอร์ส` เรียก endpoint sync จริงก่อน reload profile
+- เพิ่ม client helper:
+  - `src/utils/appointmentsApi.js` → `syncAppointmentCourse(appointmentId)`
+
+### Verification
+- `node --check backend/src/controllers/appointmentServiceController.js`
+- `node --check backend/src/routes/appointments.js`
+- `node --check src/utils/appointmentsApi.js`
+- `npm run test:run -- src/components/ServiceConfirmationModal.test.jsx`

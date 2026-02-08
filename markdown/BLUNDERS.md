@@ -154,3 +154,28 @@ git push -u origin deploy-mvp
 - ห้ามใช้เงื่อนไข `> 1` กับ session eligibility; ใช้ `> 0` สำหรับความสามารถในการตัดคอร์ส
 - ใส่ edge-case test สำหรับ `sessions_total=1`, `sessions_used=0` ทุกครั้งที่แก้ package flow
 - เมื่อเพิ่ม display format ใหม่ (เช่น `1/1 ...`) ต้องทบทวน backend infer/create logic ให้รองรับ format เดียวกัน
+
+## Sync button only reloaded profile (did not provision package)
+
+**What happened**
+- ใน `ServiceConfirmationModal` เคส 1-session smooth ยังขึ้น `ไม่พบคอร์สที่ใช้งานได้`
+- ผู้ใช้กด `ซิงค์คอร์ส` แล้วก็ยังไม่เห็น package card
+
+**Why it happened (root cause)**
+- ปุ่ม `ซิงค์คอร์ส` เดิมเรียกแค่ `GET /api/customers/:id/profile`
+- ไม่มี backend action ที่ ensure/create `customer_packages` จาก appointment context
+- ถ้า package ไม่ได้ถูกสร้างมาก่อนหน้า การ refresh profile อย่างเดียวไม่มีทางทำให้รายการโผล่
+
+**How it was fixed**
+- เพิ่ม backend endpoint `POST /api/appointments/:id/sync-course`
+  - resolve package จาก `appointment_events.meta.package_id` หรือ `treatment_item_text`
+  - fallback smooth one-off (`sessions_total=1`) เมื่อเป็น treatment code `smooth`
+  - ensure active `customer_packages` แล้วค่อยให้ frontend reload profile
+- ปรับ frontend modal ให้เรียก endpoint นี้ทั้ง:
+  - ตอนเปิด modal (กรณีไม่มี package และต้องตัดคอร์ส)
+  - ตอนกดปุ่ม `ซิงค์คอร์ส`
+
+**How to prevent regression**
+- ปุ่มที่ชื่อว่า “sync” ต้องมี side effect ที่จำเป็นตาม business intent ไม่ใช่แค่ refresh data
+- แยกชัดเจนระหว่าง `refresh` กับ `provision/ensure` และทดสอบทั้งสองเส้นทาง
+- สำหรับ flow ที่พึ่งพา `customer_packages` ให้มี endpoint กลางสำหรับ ensure package จาก appointment เสมอ

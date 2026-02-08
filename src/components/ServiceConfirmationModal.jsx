@@ -5,6 +5,7 @@ import {
   getCustomerProfile,
   noShowService,
   revertService,
+  syncAppointmentCourse,
 } from "../utils/appointmentsApi";
 import "./ServiceConfirmationModal.css";
 
@@ -145,7 +146,18 @@ export default function ServiceConfirmationModal({
         setPackagesError("");
         try {
           const profile = await getCustomerProfile(appt.customer_id, controller.signal);
-          const list = Array.isArray(profile.packages) ? profile.packages : [];
+          let list = Array.isArray(profile.packages) ? profile.packages : [];
+
+          if (list.length === 0 && !allowNoCourseCompletion) {
+            try {
+              await syncAppointmentCourse(appointmentId, controller.signal);
+              const refreshedProfile = await getCustomerProfile(appt.customer_id, controller.signal);
+              list = Array.isArray(refreshedProfile.packages) ? refreshedProfile.packages : [];
+            } catch (syncErr) {
+              setPackagesError(syncErr?.message || "ซิงค์คอร์สไม่สำเร็จ");
+            }
+          }
+
           setPackages(list);
         } catch (pkgErr) {
           setPackages([]);
@@ -191,16 +203,18 @@ export default function ServiceConfirmationModal({
   const completingWithoutCourse = allowNoCourseCompletion && selectedPackageId === NO_COURSE_ID;
 
   const syncCourses = async () => {
+    const appointmentId = appointment?.id || booking?.appointmentId || booking?.appointment_id || booking?.id || "";
     const customerId = appointment?.customer_id || booking?.customerId || booking?.customer_id || null;
 
-    if (!customerId) {
-      setPackagesError("Missing customer id");
+    if (!appointmentId || !customerId) {
+      setPackagesError("Missing appointment/customer id");
       return;
     }
 
     setPackagesLoading(true);
     setPackagesError("");
     try {
+      await syncAppointmentCourse(appointmentId);
       const profile = await getCustomerProfile(customerId);
       const list = Array.isArray(profile.packages) ? profile.packages : [];
       setPackages(list);

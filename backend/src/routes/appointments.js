@@ -12,6 +12,7 @@ import {
   ensureAppointmentFromSheet,
   noShowAppointment,
   revertAppointment,
+  syncAppointmentCourse,
 } from '../controllers/appointmentServiceController.js';
 import { adminBackdateAppointment } from '../controllers/adminAppointmentsController.js';
 import {
@@ -41,5 +42,6 @@ router.post('/:id/complete', requireAuth, completeAppointment);
 router.post('/:id/cancel', requireAuth, cancelAppointment);
 router.post('/:id/no-show', requireAuth, noShowAppointment);
 router.post('/:id/revert', requireAuth, revertAppointment);
+router.post('/:id/sync-course', requireAuth, syncAppointmentCourse);
 
 export default router;

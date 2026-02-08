@@ -128,6 +128,15 @@ export async function completeService(appointmentId, payload, signal) {
   );
 }
 
+export async function syncAppointmentCourse(appointmentId, signal) {
+  if (!appointmentId) throw new Error("Missing appointment id");
+  return postAppointmentAction(
+    `/api/appointments/${encodeURIComponent(appointmentId)}/sync-course`,
+    null,
+    signal
+  );
+}
+
 export async function cancelService(appointmentId, signal) {
   if (!appointmentId) throw new Error("Missing appointment id");
   return postAppointmentAction(
