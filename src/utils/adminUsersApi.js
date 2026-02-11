@@ -25,3 +25,41 @@ export async function createStaffUser(payload) {
   return data;
 }
 
+export async function listStaffUsers() {
+  ensureConfig();
+  const url = `${base}/api/admin/staff-users`;
+  const res = await fetch(url, {
+    method: "GET",
+    credentials: "include",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) {
+    const message = data?.error || "Server returned error";
+    const error = new Error(message);
+    error.status = res.status;
+    throw error;
+  }
+  return data;
+}
+
+export async function patchStaffUser(id, payload) {
+  ensureConfig();
+  if (!id) {
+    throw new Error("Missing user id");
+  }
+  const url = `${base}/api/admin/staff-users/${encodeURIComponent(id)}`;
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(payload || {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) {
+    const message = data?.error || "Server returned error";
+    const error = new Error(message);
+    error.status = res.status;
+    throw error;
+  }
+  return data;
+}

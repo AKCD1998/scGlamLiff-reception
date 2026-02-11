@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { createStaffUser } from "../utils/adminUsersApi";
+import { useCallback, useEffect, useState } from "react";
+import { createStaffUser, listStaffUsers, patchStaffUser } from "../utils/adminUsersApi";
 
 const ROLE_OPTIONS = ["staff", "admin", "owner"];
 
@@ -10,8 +10,51 @@ export default function AdminUsersPage() {
   const [roleName, setRoleName] = useState("staff");
   const [isActive, setIsActive] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [loadingList, setLoadingList] = useState(false);
+  const [rowBusyMap, setRowBusyMap] = useState({});
   const [message, setMessage] = useState({ type: "", text: "" });
-  const [lastCreatedUser, setLastCreatedUser] = useState(null);
+  const [users, setUsers] = useState([]);
+
+  const handleApiError = useCallback((error, fallbackMessage) => {
+    const status = error?.status;
+    if (status === 400) {
+      setMessage({ type: "error", text: error.message || "ข้อมูลไม่ถูกต้อง" });
+      return;
+    }
+    if (status === 401) {
+      setMessage({ type: "error", text: "Unauthorized กรุณาเข้าสู่ระบบใหม่" });
+      return;
+    }
+    if (status === 403) {
+      setMessage({ type: "error", text: "Forbidden: เฉพาะ Admin/Owner เท่านั้น" });
+      return;
+    }
+    if (status === 404) {
+      setMessage({ type: "error", text: error.message || "ไม่พบผู้ใช้" });
+      return;
+    }
+    if (status === 409) {
+      setMessage({ type: "error", text: error.message || "Username นี้มีอยู่แล้ว" });
+      return;
+    }
+    setMessage({ type: "error", text: error?.message || fallbackMessage });
+  }, []);
+
+  const loadUsers = useCallback(async () => {
+    setLoadingList(true);
+    try {
+      const result = await listStaffUsers();
+      setUsers(Array.isArray(result?.rows) ? result.rows : []);
+    } catch (error) {
+      handleApiError(error, "ไม่สามารถโหลดรายชื่อผู้ใช้ได้");
+    } finally {
+      setLoadingList(false);
+    }
+  }, [handleApiError]);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -54,27 +97,70 @@ export default function AdminUsersPage() {
     setLoading(true);
     setMessage({ type: "", text: "" });
     try {
-      const result = await createStaffUser(payload);
-      setLastCreatedUser(result?.data || null);
+      await createStaffUser(payload);
       setPassword("");
       setMessage({ type: "success", text: "สร้างผู้ใช้สำเร็จ" });
+      await loadUsers();
     } catch (error) {
-      const status = error?.status;
-      if (status === 400) {
-        setMessage({ type: "error", text: error.message || "ข้อมูลไม่ถูกต้อง" });
-      } else if (status === 401) {
-        setMessage({ type: "error", text: "Unauthorized กรุณาเข้าสู่ระบบใหม่" });
-      } else if (status === 403) {
-        setMessage({ type: "error", text: "Forbidden: เฉพาะ Admin/Owner เท่านั้น" });
-      } else if (status === 409) {
-        setMessage({ type: "error", text: error.message || "Username นี้มีอยู่แล้ว" });
-      } else {
-        setMessage({ type: "error", text: error?.message || "ไม่สามารถสร้างผู้ใช้ได้" });
-      }
+      handleApiError(error, "ไม่สามารถสร้างผู้ใช้ได้");
     } finally {
       setLoading(false);
     }
   };
+
+  const setRowBusy = useCallback((userId, busy) => {
+    setRowBusyMap((prev) => {
+      const next = { ...prev };
+      if (busy) {
+        next[userId] = true;
+      } else {
+        delete next[userId];
+      }
+      return next;
+    });
+  }, []);
+
+  const handleToggleActive = useCallback(async (user) => {
+    if (!user?.id) return;
+    const nextValue = !Boolean(user.is_active);
+    setRowBusy(user.id, true);
+    setMessage({ type: "", text: "" });
+    try {
+      const result = await patchStaffUser(user.id, { is_active: nextValue });
+      const updated = result?.data || {};
+      setUsers((prev) =>
+        prev.map((item) => (item.id === user.id ? { ...item, ...updated } : item))
+      );
+      setMessage({ type: "success", text: "อัปเดตสถานะผู้ใช้สำเร็จ" });
+    } catch (error) {
+      handleApiError(error, "ไม่สามารถอัปเดตสถานะผู้ใช้ได้");
+    } finally {
+      setRowBusy(user.id, false);
+    }
+  }, [handleApiError, setRowBusy]);
+
+  const handleResetPassword = useCallback(async (user) => {
+    if (!user?.id) return;
+    const nextPassword = window.prompt("กรอกรหัสผ่านใหม่ (อย่างน้อย 6 ตัวอักษร)");
+    if (nextPassword === null) return;
+    if (nextPassword.length < 6) {
+      setMessage({ type: "error", text: "Password ต้องมีอย่างน้อย 6 ตัวอักษร" });
+      return;
+    }
+    const confirmed = window.confirm(`ยืนยันรีเซ็ตรหัสผ่านของ ${user.username}?`);
+    if (!confirmed) return;
+
+    setRowBusy(user.id, true);
+    setMessage({ type: "", text: "" });
+    try {
+      await patchStaffUser(user.id, { password: nextPassword });
+      setMessage({ type: "success", text: `รีเซ็ตรหัสผ่านของ ${user.username} สำเร็จ` });
+    } catch (error) {
+      handleApiError(error, "ไม่สามารถรีเซ็ตรหัสผ่านได้");
+    } finally {
+      setRowBusy(user.id, false);
+    }
+  }, [handleApiError, setRowBusy]);
 
   return (
     <section className="panel">
@@ -162,7 +248,10 @@ export default function AdminUsersPage() {
         </p>
       </form>
 
-      {lastCreatedUser ? (
+      <h3>รายชื่อผู้ใช้</h3>
+      {loadingList ? (
+        <p>กำลังโหลด...</p>
+      ) : (
         <table className="booking-table">
           <thead>
             <tr>
@@ -170,18 +259,54 @@ export default function AdminUsersPage() {
               <th>Display name</th>
               <th>Role</th>
               <th>is_active</th>
+              <th>Created at</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td>{lastCreatedUser.username}</td>
-              <td>{lastCreatedUser.display_name}</td>
-              <td>{lastCreatedUser.role_name}</td>
-              <td>{String(lastCreatedUser.is_active)}</td>
-            </tr>
+            {users.length === 0 ? (
+              <tr>
+                <td colSpan="6">ไม่มีข้อมูล</td>
+              </tr>
+            ) : (
+              users.map((user) => {
+                const rowBusy = Boolean(rowBusyMap[user.id]);
+                return (
+                  <tr key={user.id || user.username}>
+                    <td>{user.username}</td>
+                    <td>{user.display_name}</td>
+                    <td>{user.role_name}</td>
+                    <td>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(user.is_active)}
+                          disabled={rowBusy}
+                          onChange={() => handleToggleActive(user)}
+                        />
+                        {" "}
+                        {Boolean(user.is_active) ? "active" : "inactive"}
+                      </label>
+                    </td>
+                    <td>
+                      {user.created_at ? new Date(user.created_at).toLocaleString() : "-"}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        disabled={rowBusy}
+                        onClick={() => handleResetPassword(user)}
+                      >
+                        Reset Password
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
           </tbody>
         </table>
-      ) : null}
+      )}
     </section>
   );
 }
