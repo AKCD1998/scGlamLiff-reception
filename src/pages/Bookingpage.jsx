@@ -20,6 +20,7 @@ import {
 import { getMe } from "../utils/authClient";
 import CustomerProfileModal from "../components/CustomerProfileModal";
 import ServiceConfirmationModal from "../components/ServiceConfirmationModal";
+import StatusOverlay from "./booking/components/StatusOverlay";
 import {
   formatAppointmentStatus,
   getRowTimestamp,
@@ -869,54 +870,7 @@ export default function Bookingpage() {
         </section>
       </div>
       {statusOpen && (
-        <div className="status-overlay" role="dialog" aria-modal="true">
-          <div className="status-card">
-            {statusMode === "loading" ? (
-              <>
-                <div className="status-spinner" aria-hidden="true" />
-                <div className="status-message">กำลังส่งข้อมูล...</div>
-              </>
-            ) : (
-              <>
-                <div className={`status-icon ${statusMode === "success" ? "success" : "error"}`}>
-                  {statusMode === "success" ? (
-                    <svg className="status-svg" viewBox="0 0 52 52" aria-hidden="true">
-                      <circle className="status-circle" cx="26" cy="26" r="24" fill="none" />
-                      <path
-                        className="status-check"
-                        fill="none"
-                        d="M14 27l7 7 17-17"
-                      />
-                    </svg>
-                  ) : (
-                    <svg className="status-svg" viewBox="0 0 52 52" aria-hidden="true">
-                      <circle className="status-circle" cx="26" cy="26" r="24" fill="none" />
-                      <path
-                        className="status-cross"
-                        fill="none"
-                        d="M17 17l18 18M35 17L17 35"
-                      />
-                    </svg>
-                  )}
-                </div>
-                <div className="status-message">
-                  {statusMode === "success" ? (
-                    <>
-                      บันทึกการจองเรียบร้อย
-                      <br />
-                      ระบบกำลังพากลับไปหน้า Workbench
-                    </>
-                  ) : (
-                    <>บันทึกไม่สำเร็จ กรุณาลองใหม่</>
-                  )}
-                </div>
-                <button className="status-button" type="button" onClick={handleCloseStatus}>
-                  ปิด
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+        <StatusOverlay open={statusOpen} mode={statusMode} onClose={handleCloseStatus} />
       )}
       <CustomerProfileModal
         open={isEditModalOpen}
