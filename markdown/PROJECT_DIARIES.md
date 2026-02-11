@@ -1,5 +1,26 @@
 # Project Diaries
 
+## 2026-02-11 — Refactor: Bookingpage Step 1 (extract helpers/constants)
+
+### What changed
+- Extracted pure helper functions/constants/validators from `src/pages/Bookingpage.jsx` into small modules (no logic/UI/styling changes).
+- Updated `src/pages/Bookingpage.jsx` imports to use the new modules.
+
+### Files added
+- `src/pages/booking/utils/bookingPageFormatters.js`
+  - `normalizeRow`, `normalizeCustomerRow`, `shortenId`, `formatAppointmentStatus`, `getRowTimestamp`, `normalizeTreatmentOptionRow`
+- `src/pages/booking/utils/constants.js`
+  - `TIME_CFG`, `SELECT_STYLES`, `EMAIL_PATTERN`, `LINE_ID_PATTERN`, `buildFallbackTreatmentOptions`
+- `src/pages/booking/utils/validators.js`
+  - `sanitizeThaiPhone`, `sanitizeEmailOrLine`
+
+### Verification
+- `npm run test:run`
+- `npm run build`
+
+### Commit
+- `refactor(booking): extract Bookingpage utils` (33b6921)
+
 ## 2026-02-08 — Admin Edit Appointment (Admin-only)
 
 ### What was added
