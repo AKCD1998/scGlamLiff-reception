@@ -20,7 +20,8 @@ import {
 import { getMe } from "../utils/authClient";
 import CustomerProfileModal from "../components/CustomerProfileModal";
 import ServiceConfirmationModal from "../components/ServiceConfirmationModal";
-import QueueTable from "./booking/components/QueueTable";
+import BookingTabs from "./booking/components/BookingTabs";
+import QueuePanel from "./booking/components/QueuePanel";
 import StatusOverlay from "./booking/components/StatusOverlay";
 import {
   formatAppointmentStatus,
@@ -513,66 +514,19 @@ export default function Bookingpage() {
     <section className="booking-page">
       <div className="booking-grid">
         <section className="booking-panel">
-          <div className="booking-panel-header booking-tab-header">
-            <div className="booking-tabs" role="tablist" aria-label="Booking tabs">
-              <button
-                type="button"
-                id="booking-tab-queue"
-                role="tab"
-                aria-selected={activeTab === "queue"}
-                aria-controls="booking-panel-queue"
-                className={`booking-tab ${activeTab === "queue" ? "active" : ""}`}
-                onClick={() => setActiveTab("queue")}
-              >
-                คิวให้บริการ
-              </button>
-              <button
-                type="button"
-                id="booking-tab-customer"
-                role="tab"
-                aria-selected={activeTab === "customer"}
-                aria-controls="booking-panel-customer"
-                className={`booking-tab ${activeTab === "customer" ? "active" : ""}`}
-                onClick={() => setActiveTab("customer")}
-              >
-                ข้อมูลลูกค้า
-              </button>
-            </div>
-          </div>
+          <BookingTabs activeTab={activeTab} onSelectTab={setActiveTab} />
           <div className="booking-panel-body">
             {activeTab === "queue" ? (
-              <div
-                id="booking-panel-queue"
-                role="tabpanel"
-                aria-labelledby="booking-tab-queue"
-              >
-                <div className="booking-queue-filter">
-                  <div className="booking-field booking-queue-filter-field">
-                    <label htmlFor="queue-filter-date">กรองตามวันที่</label>
-                    <input
-                      id="queue-filter-date"
-                      type="date"
-                      value={queueDateFilter}
-                      onChange={(event) => setQueueDateFilter(event.target.value)}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    className="booking-queue-filter-clear"
-                    onClick={() => setQueueDateFilter("")}
-                    disabled={!queueDateFilter}
-                  >
-                    แสดงทั้งหมด
-                  </button>
-                </div>
-                <QueueTable
-                  loading={loading}
-                  error={error}
-                  rows={filteredRows}
-                  onOpenServiceModal={handleOpenServiceModal}
-                  formatAppointmentStatus={formatAppointmentStatus}
-                />
-              </div>
+              <QueuePanel
+                queueDateFilter={queueDateFilter}
+                onChangeQueueDateFilter={setQueueDateFilter}
+                onClearQueueDateFilter={() => setQueueDateFilter("")}
+                loading={loading}
+                error={error}
+                rows={filteredRows}
+                onOpenServiceModal={handleOpenServiceModal}
+                formatAppointmentStatus={formatAppointmentStatus}
+              />
             ) : (
               <div
                 id="booking-panel-customer"
