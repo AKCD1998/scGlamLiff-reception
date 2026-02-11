@@ -20,6 +20,7 @@ import {
 import { getMe } from "../utils/authClient";
 import CustomerProfileModal from "../components/CustomerProfileModal";
 import ServiceConfirmationModal from "../components/ServiceConfirmationModal";
+import QueueTable from "./booking/components/QueueTable";
 import StatusOverlay from "./booking/components/StatusOverlay";
 import {
   formatAppointmentStatus,
@@ -564,63 +565,13 @@ export default function Bookingpage() {
                     แสดงทั้งหมด
                   </button>
                 </div>
-                <table className="booking-table">
-                  <thead>
-                    <tr>
-                      <th className="booking-table-check" aria-label="เลือกคิว" />
-                      <th>เวลาจอง</th>
-                      <th>ชื่อ-นามสกุล ลูกค้า</th>
-                      <th>โทรศัพท์</th>
-                      <th>Treatment item</th>
-                      <th>Staff Name</th>
-                      <th>สถานะลูกค้า</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loading ? (
-                      <tr>
-                        <td colSpan="7">กำลังโหลด...</td>
-                      </tr>
-                    ) : error ? (
-                      <tr>
-                        <td colSpan="7">เกิดข้อผิดพลาด: {error}</td>
-                      </tr>
-                    ) : filteredRows.length === 0 ? (
-                      <tr>
-                        <td colSpan="7">ไม่มีข้อมูล</td>
-                      </tr>
-                    ) : (
-                      filteredRows.map((row, idx) => (
-                        <tr key={`${row.bookingTime}-${row.customerName}-${idx}`}>
-                          <td className="booking-table-check">
-                            <label className="booking-check">
-                              <input
-                                type="checkbox"
-                                className="booking-check-input"
-                                checked={false}
-                                readOnly
-                                aria-label={`Confirm service for ${row.customerName || "customer"} ${row.bookingTime || ""}`}
-                                onClick={(event) => {
-                                  event.preventDefault();
-                                  handleOpenServiceModal(row);
-                                }}
-                              />
-                              <span className="booking-check-box" aria-hidden="true" />
-                            </label>
-                          </td>
-                          <td>{row.bookingTime}</td>
-                          <td>{row.customerName}</td>
-                          <td>{row.phone}</td>
-                          <td>{row.treatmentItem}</td>
-                          <td>{row.staffName}</td>
-                          <td className="booking-table-status">
-                            {formatAppointmentStatus(row.status)}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                <QueueTable
+                  loading={loading}
+                  error={error}
+                  rows={filteredRows}
+                  onOpenServiceModal={handleOpenServiceModal}
+                  formatAppointmentStatus={formatAppointmentStatus}
+                />
               </div>
             ) : (
               <div
