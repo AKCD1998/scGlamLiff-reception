@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Select from "react-select";
 import {
   buildOccupiedRanges,
   formatDateKey,
@@ -21,6 +20,8 @@ import { getMe } from "../utils/authClient";
 import CustomerProfileModal from "../components/CustomerProfileModal";
 import ServiceConfirmationModal from "../components/ServiceConfirmationModal";
 import BookingTabs from "./booking/components/BookingTabs";
+import BookingFormPanel from "./booking/components/BookingFormPanel";
+import CustomerPanel from "./booking/components/CustomerPanel";
 import QueuePanel from "./booking/components/QueuePanel";
 import StatusOverlay from "./booking/components/StatusOverlay";
 import {
@@ -510,6 +511,43 @@ export default function Bookingpage() {
     }
   };
 
+  const handleBookingDateChange = useCallback((value) => {
+    setBookingDate(value);
+    setSubmitError("");
+    setSubmitSuccess("");
+  }, []);
+
+  const handleCustomerNameChange = useCallback((value) => {
+    setCustomerName(value);
+  }, []);
+
+  const handleBookingTimeChange = useCallback((value) => {
+    setBookingTime(value);
+  }, []);
+
+  const handlePickRecommendedSlot = useCallback((slot) => {
+    setBookingTime(slot);
+  }, []);
+
+  const handlePhoneChange = useCallback((rawValue) => {
+    const digitsOnly = rawValue.replace(/\D+/g, "").slice(0, 11);
+    setPhone(digitsOnly);
+    setPhoneError("");
+  }, []);
+
+  const handleLineIdChange = useCallback((value) => {
+    setLineId(value);
+    setLineIdError("");
+  }, []);
+
+  const handleTreatmentChange = useCallback((value) => {
+    setTreatmentItem(value);
+  }, []);
+
+  const handleStaffChange = useCallback((value) => {
+    setStaffName(value);
+  }, []);
+
   return (
     <section className="booking-page">
       <div className="booking-grid">
@@ -528,251 +566,46 @@ export default function Bookingpage() {
                 formatAppointmentStatus={formatAppointmentStatus}
               />
             ) : (
-              <div
-                id="booking-panel-customer"
-                role="tabpanel"
-                aria-labelledby="booking-tab-customer"
-              >
-                <table className="booking-table">
-                  <thead>
-                    <tr>
-                      <th>Customer ID</th>
-                      <th>Full name</th>
-                      <th>Edit</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {customersLoading ? (
-                      <tr>
-                        <td colSpan="3">กำลังโหลด...</td>
-                      </tr>
-                    ) : customersError ? (
-                      <tr>
-                        <td colSpan="3">เกิดข้อผิดพลาด: {customersError}</td>
-                      </tr>
-                    ) : customers.length === 0 ? (
-                      <tr>
-                        <td colSpan="3">ไม่มีข้อมูล</td>
-                      </tr>
-                    ) : (
-                      customers.map((customer) => (
-                        <tr key={customer.id || customer.fullName}>
-                          <td title={customer.id}>{shortenId(customer.id)}</td>
-                          <td>{customer.fullName}</td>
-                          <td>
-                            <button
-                              type="button"
-                              className="booking-edit-button"
-                              aria-label="Edit customer"
-                              onClick={() => handleOpenEditModal(customer)}
-                            >
-                              <svg
-                                viewBox="0 0 24 24"
-                                aria-hidden="true"
-                                className="booking-edit-icon"
-                              >
-                                <path
-                                  d="M3 17.25V21h3.75L19.81 7.94l-3.75-3.75L3 17.25z"
-                                  fill="currentColor"
-                                />
-                                <path
-                                  d="M20.71 6.04a1 1 0 0 0 0-1.41l-1.34-1.34a1 1 0 0 0-1.41 0l-1.13 1.13 3.75 3.75 1.13-1.13z"
-                                  fill="currentColor"
-                                />
-                              </svg>
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <CustomerPanel
+                customersLoading={customersLoading}
+                customersError={customersError}
+                customers={customers}
+                shortenId={shortenId}
+                onOpenEditModal={handleOpenEditModal}
+              />
             )}
           </div>
         </section>
 
-        <section className="booking-panel">
-          <div className="booking-panel-header">+ เพิ่มบริการจองคิว</div>
-          <div className="booking-panel-body">
-            <form className="booking-form">
-              <div className="booking-card">
-                <div className="booking-row">
-                  <div className="booking-field">
-                    <label htmlFor="booking-date">
-                      วันที่ <span className="booking-required">*</span>
-                    </label>
-                    <input
-                      id="booking-date"
-                      type="date"
-                      value={bookingDate}
-                      onChange={(event) => {
-                        setBookingDate(event.target.value);
-                        setSubmitError("");
-                        setSubmitSuccess("");
-                      }}
-                    />
-                  </div>
-                  <div className="booking-field">
-                    <label htmlFor="booking-name">
-                      ชื่อ-นามสกุล <span className="booking-required">*</span>
-                    </label>
-                    <input
-                      id="booking-name"
-                      type="text"
-                      placeholder="ชื่อผู้จอง"
-                      value={customerName}
-                      onChange={(event) => setCustomerName(event.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="booking-row">
-                  <div className="booking-time-card">
-                    <label htmlFor="booking-time">
-                      เวลา <span className="booking-required">*</span>
-                    </label>
-                    <div className="booking-time-input">
-                      <input
-                        id="booking-time"
-                        type="time"
-                        value={bookingTime}
-                        onChange={(event) => setBookingTime(event.target.value)}
-                      />
-                      <span className="booking-time-icon" aria-hidden="true">▾</span>
-                    </div>
-                    {timeError && (
-                      <div className="booking-time-error">{timeError}</div>
-                    )}
-                    <div className="booking-time-suggest">
-                      <div className="booking-time-suggest-header">ช่วงเวลาที่แนะนำ</div>
-                      {recommendedSlots.length === 0 ? (
-                        <div className="booking-time-empty">
-                          วันนี้/วันดังกล่าวไม่มีช่วงเวลาว่างตามเงื่อนไขแล้ว
-                        </div>
-                      ) : (
-                        <div className="booking-time-slots">
-                          {recommendedSlots.map((slot) => (
-                            <button
-                              key={slot}
-                              type="button"
-                              className="slot-chip"
-                              onClick={() => setBookingTime(slot)}
-                            >
-                              {slot}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="booking-field">
-                    <label htmlFor="booking-phone">
-                      เบอร์โทร <span className="booking-required">*</span>
-                    </label>
-                    <input
-                      id="booking-phone"
-                      type="tel"
-                      placeholder="08x-xxx-xxxx"
-                      inputMode="numeric"
-                      maxLength={11}
-                      value={phone}
-                      onChange={(event) => {
-                        const digitsOnly = event.target.value.replace(/\D+/g, "").slice(0, 11);
-                        setPhone(digitsOnly);
-                        setPhoneError("");
-                      }}
-                    />
-                    {phoneError && (
-                      <div className="booking-time-error">{phoneError}</div>
-                    )}
-                  </div>
-                </div>
-
-                <hr className="booking-divider" />
-
-                <div className="booking-row">
-                  <div className="booking-field booking-spacer" aria-hidden="true" />
-                  <div className="booking-field">
-                    <label htmlFor="booking-line">ไลน์ไอดี</label>
-                    <input
-                      id="booking-line"
-                      type="text"
-                      placeholder="Line ID"
-                      value={lineId}
-                      onChange={(event) => {
-                        setLineId(event.target.value);
-                        setLineIdError("");
-                      }}
-                    />
-                    {lineIdError && (
-                      <div className="booking-time-error">{lineIdError}</div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="booking-row">
-                  <div className="booking-field">
-                    <label htmlFor="booking-service">
-                      บริการที่เลือกใช้ <span className="booking-required">*</span>
-                    </label>
-                    <Select
-                      inputId="booking-service"
-                      instanceId="booking-service"
-                      isSearchable={true}
-                      options={treatmentOptions}
-                      value={
-                        treatmentOptions.find(
-                          (option) => option.value === treatmentItem
-                        ) || null
-                      }
-                      onChange={(option) => setTreatmentItem(option?.value || "")}
-                      placeholder="พิมพ์เพื่อค้นหา..."
-                      menuPortalTarget={document.body}
-                      menuPosition="fixed"
-                      styles={SELECT_STYLES}
-                    />
-                    {treatmentOptionsError && (
-                      <div className="booking-time-error">{treatmentOptionsError}</div>
-                    )}
-                  </div>
-                  <div className="booking-field">
-                    <label htmlFor="booking-provider">
-                      ผู้ให้บริการ <span className="booking-required">*</span>
-                    </label>
-                    <select
-                      id="booking-provider"
-                      value={staffName}
-                      onChange={(event) => setStaffName(event.target.value)}
-                    >
-                      <option>ส้ม</option>
-                      <option>โบว์</option>
-                      <option>เบนซ์</option>
-                      <option>แพร</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="booking-actions">
-                  <button
-                    type="button"
-                    className="booking-save-btn"
-                    onClick={handleSaveBooking}
-                    disabled={saving || isPastBooking || Boolean(timeError)}
-                  >
-                    {saving ? "กำลังบันทึก..." : "บันทึกข้อมูลการจอง"}
-                  </button>
-                  {submitError && (
-                    <div className="booking-submit-error">{submitError}</div>
-                  )}
-                  {submitSuccess && (
-                    <div className="booking-submit-success">{submitSuccess}</div>
-                  )}
-                </div>
-              </div>
-            </form>
-          </div>
-        </section>
+        <BookingFormPanel
+          bookingDate={bookingDate}
+          onBookingDateChange={handleBookingDateChange}
+          customerName={customerName}
+          onCustomerNameChange={handleCustomerNameChange}
+          bookingTime={bookingTime}
+          onBookingTimeChange={handleBookingTimeChange}
+          recommendedSlots={recommendedSlots}
+          onPickRecommendedSlot={handlePickRecommendedSlot}
+          timeError={timeError}
+          phone={phone}
+          onPhoneChange={handlePhoneChange}
+          phoneError={phoneError}
+          lineId={lineId}
+          onLineIdChange={handleLineIdChange}
+          lineIdError={lineIdError}
+          treatmentOptions={treatmentOptions}
+          treatmentItem={treatmentItem}
+          onTreatmentChange={handleTreatmentChange}
+          treatmentOptionsError={treatmentOptionsError}
+          staffName={staffName}
+          onStaffChange={handleStaffChange}
+          saving={saving}
+          isPastBooking={isPastBooking}
+          submitError={submitError}
+          submitSuccess={submitSuccess}
+          onSave={handleSaveBooking}
+          SELECT_STYLES={SELECT_STYLES}
+        />
       </div>
       {statusOpen && (
         <StatusOverlay open={statusOpen} mode={statusMode} onClose={handleCloseStatus} />
