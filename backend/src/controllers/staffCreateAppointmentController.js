@@ -8,6 +8,7 @@ const TIME_PATTERN = /^\d{2}:\d{2}$/;
 const DEFAULT_BRANCH_ID = process.env.DEFAULT_BRANCH_ID || 'branch-003';
 const STAFF_LINE_USER_ID = '__STAFF__';
 const STAFF_SOURCE = 'WEB';
+const ADMIN_ROLES = new Set(['admin', 'owner']);
 
 function normalizeText(value) {
   if (value === null || value === undefined) return '';
@@ -32,7 +33,7 @@ function hasTimezoneOffset(value) {
   return /[zZ]|[+-]\d{2}:?\d{2}$/.test(value);
 }
 
-function requireFutureIsoDatetime(value) {
+function requireIsoDatetimeWithTimezone(value) {
   const raw = requireText(value, 'scheduled_at');
   if (!hasTimezoneOffset(raw)) {
     const err = new Error('scheduled_at must include timezone offset (e.g. 2026-02-05T14:00:00+07:00)');
@@ -45,12 +46,67 @@ function requireFutureIsoDatetime(value) {
     err.status = 400;
     throw err;
   }
+  return raw;
+}
+
+function requireFutureIsoDatetime(value) {
+  const raw = requireIsoDatetimeWithTimezone(value);
+  const parsed = new Date(raw);
   if (parsed.getTime() <= Date.now()) {
     const err = new Error('scheduled_at must be in the future');
     err.status = 400;
     throw err;
   }
   return raw;
+}
+
+function isAdminRole(roleName) {
+  const role = String(roleName || '').trim().toLowerCase();
+  return ADMIN_ROLES.has(role);
+}
+
+function parseOverridePayload(rawOverride) {
+  if (rawOverride === null || rawOverride === undefined) return null;
+  if (typeof rawOverride !== 'object' || Array.isArray(rawOverride)) {
+    const err = new Error('override must be an object');
+    err.status = 400;
+    throw err;
+  }
+
+  const isOverride = rawOverride.is_override === true;
+  const reason = normalizeText(rawOverride.reason) || 'ADMIN_OVERRIDE';
+  const confirmedAt = normalizeText(rawOverride.confirmed_at);
+  const violationsRaw = rawOverride.violations;
+  const violations = Array.isArray(violationsRaw)
+    ? violationsRaw.map((item) => normalizeText(item)).filter(Boolean)
+    : [];
+
+  if (isOverride) {
+    if (!Array.isArray(violationsRaw) || violations.length === 0) {
+      const err = new Error('override.violations must be a non-empty array');
+      err.status = 400;
+      throw err;
+    }
+    if (!confirmedAt) {
+      const err = new Error('override.confirmed_at is required');
+      err.status = 400;
+      throw err;
+    }
+    const confirmedDate = new Date(confirmedAt);
+    if (Number.isNaN(confirmedDate.getTime())) {
+      const err = new Error('override.confirmed_at must be a valid ISO datetime');
+      err.status = 400;
+      throw err;
+    }
+  }
+
+  return {
+    isOverride,
+    reason,
+    confirmedAt,
+    violations,
+    snapshot: rawOverride,
+  };
 }
 
 function inferTreatmentCode(raw) {
@@ -277,17 +333,29 @@ export async function createStaffAppointment(req, res) {
   let emailOrLineid;
   let staffName;
   let treatmentItemText;
+  let overridePayload = null;
+  let canApplyAdminOverride = false;
+  let visitDate = '';
+  let visitTime = '';
 
   try {
+    overridePayload = parseOverridePayload(req.body?.override);
+    canApplyAdminOverride = Boolean(
+      overridePayload?.isOverride && isAdminRole(req.user?.role_name)
+    );
+    const parseScheduledAt = canApplyAdminOverride
+      ? requireIsoDatetimeWithTimezone
+      : requireFutureIsoDatetime;
+
     // Accept both:
     // - { scheduled_at, phone, ... } (new)
     // - { visit_date, visit_time_text, phone_raw, ... } (legacy Bookingpage payload)
     const scheduledAtInput = normalizeText(req.body?.scheduled_at);
-    const visitDate = normalizeText(req.body?.visit_date);
-    const visitTime = normalizeText(req.body?.visit_time_text);
+    visitDate = normalizeText(req.body?.visit_date);
+    visitTime = normalizeText(req.body?.visit_time_text);
 
     if (scheduledAtInput) {
-      scheduledAtRaw = requireFutureIsoDatetime(scheduledAtInput);
+      scheduledAtRaw = parseScheduledAt(scheduledAtInput);
     } else {
       const vDate = requireText(visitDate, 'visit_date');
       const vTime = requireText(visitTime, 'visit_time_text');
@@ -301,7 +369,7 @@ export async function createStaffAppointment(req, res) {
         err.status = 400;
         throw err;
       }
-      scheduledAtRaw = requireFutureIsoDatetime(`${vDate}T${vTime}:00+07:00`);
+      scheduledAtRaw = parseScheduledAt(`${vDate}T${vTime}:00+07:00`);
     }
 
     branchId = normalizeText(req.body?.branch_id) || DEFAULT_BRANCH_ID;
@@ -381,20 +449,22 @@ export async function createStaffAppointment(req, res) {
       resolvedTreatmentId = byCode.rows[0].id;
     }
 
-    const collision = await client.query(
-      `
-        SELECT id
-        FROM appointments
-        WHERE branch_id = $1
-          AND scheduled_at = $2
-          AND LOWER(COALESCE(status, '')) IN ('booked', 'rescheduled')
-        LIMIT 1
-      `,
-      [branchId, scheduledAtRaw]
-    );
-    if (collision.rowCount > 0) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ ok: false, error: 'Time slot is already booked' });
+    if (!canApplyAdminOverride) {
+      const collision = await client.query(
+        `
+          SELECT id
+          FROM appointments
+          WHERE branch_id = $1
+            AND scheduled_at = $2
+            AND LOWER(COALESCE(status, '')) IN ('booked', 'rescheduled')
+          LIMIT 1
+        `,
+        [branchId, scheduledAtRaw]
+      );
+      if (collision.rowCount > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ ok: false, error: 'Time slot is already booked' });
+      }
     }
 
     const customerId = await resolveOrCreateCustomerByPhone(client, {
@@ -471,6 +541,44 @@ export async function createStaffAppointment(req, res) {
         }),
       ]
     );
+
+    if (canApplyAdminOverride) {
+      const actorName =
+        normalizeText(req.user?.display_name) || normalizeText(req.user?.username) || null;
+      await client.query(
+        `
+          INSERT INTO appointment_override_logs (
+            id,
+            appointment_id,
+            actor_user_id,
+            actor_name,
+            violations_json,
+            override_reason,
+            request_payload_snapshot
+          )
+          VALUES (gen_random_uuid(), $1, $2, $3, $4::jsonb, $5, $6::jsonb)
+        `,
+        [
+          appointmentId,
+          req.user?.id || null,
+          actorName,
+          JSON.stringify(overridePayload?.violations || []),
+          overridePayload?.reason || 'ADMIN_OVERRIDE',
+          JSON.stringify({
+            scheduled_at: scheduledAtRaw,
+            visit_date: visitDate || null,
+            visit_time_text: visitTime || null,
+            branch_id: branchId,
+            override: {
+              is_override: true,
+              reason: overridePayload?.reason || 'ADMIN_OVERRIDE',
+              violations: overridePayload?.violations || [],
+              confirmed_at: overridePayload?.confirmedAt || null,
+            },
+          }),
+        ]
+      );
+    }
 
     await client.query('COMMIT');
     return res.json({
