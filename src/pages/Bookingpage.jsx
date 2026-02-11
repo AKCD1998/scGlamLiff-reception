@@ -17,6 +17,7 @@ import {
   getCustomers,
 } from "../utils/appointmentsApi";
 import { getMe } from "../utils/authClient";
+import AdminOverrideModal from "../components/AdminOverrideModal";
 import CustomerProfileModal from "../components/CustomerProfileModal";
 import ServiceConfirmationModal from "../components/ServiceConfirmationModal";
 import BookingTabs from "./booking/components/BookingTabs";
@@ -39,6 +40,11 @@ import {
 } from "./booking/utils/constants";
 import { sanitizeEmailOrLine, sanitizeThaiPhone } from "./booking/utils/validators";
 import "./Bookingpage.css";
+
+function isAdminRole(roleName) {
+  const role = String(roleName || "").trim().toLowerCase();
+  return role === "admin" || role === "owner";
+}
 
 export default function Bookingpage() {
   const [rows, setRows] = useState([]);
@@ -77,6 +83,9 @@ export default function Bookingpage() {
   const [saving, setSaving] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [statusMode, setStatusMode] = useState("idle");
+  const [overrideModalOpen, setOverrideModalOpen] = useState(false);
+  const [overrideViolations, setOverrideViolations] = useState([]);
+  const [overridePassword, setOverridePassword] = useState("");
   const [activeTab, setActiveTab] = useState("queue");
   const treatmentOptionValues = useMemo(
     () => new Set(treatmentOptions.map((option) => option.value)),
@@ -85,6 +94,7 @@ export default function Bookingpage() {
   const [me, setMe] = useState(null);
   const [serviceModalOpen, setServiceModalOpen] = useState(false);
   const [selectedBookingRow, setSelectedBookingRow] = useState(null);
+  const isAdmin = useMemo(() => isAdminRole(me?.role_name), [me?.role_name]);
 
   const resetStatus = useCallback(() => {
     setStatusOpen(false);
@@ -392,7 +402,42 @@ export default function Bookingpage() {
     return dateTime.getTime() < Date.now();
   }, [bookingDate, bookingTime, isPastDate]);
 
-  const handleSaveBooking = async () => {
+  const collectTimeConstraintViolations = useCallback(() => {
+    const violations = [];
+
+    if (isPastBooking) {
+      violations.push({
+        key: "PAST_BOOKING",
+        titleTh: "การจองย้อนหลัง",
+        detailTh: "วันเวลาที่เลือกอยู่ก่อนเวลาปัจจุบัน",
+      });
+    }
+
+    const candidateMin = parseTimeToMinutes(bookingTime);
+    const lastBookingMin = parseTimeToMinutes(TIME_CFG.lastBooking);
+    if (Number.isFinite(candidateMin) && Number.isFinite(lastBookingMin) && candidateMin > lastBookingMin) {
+      violations.push({
+        key: "CUTOFF_19",
+        titleTh: "เกินเวลาปิดรับจอง",
+        detailTh: "เวลาสุดท้ายในการจองคือ 19:00",
+      });
+    }
+
+    if (Number.isFinite(candidateMin) && !isTimeAvailable(candidateMin, occupiedRanges, TIME_CFG)) {
+      violations.push({
+        key: "OVERLAP",
+        titleTh: "เวลาชนกับคิวที่มีอยู่แล้ว",
+        detailTh: "ช่วงเวลานี้ชนกับคิวที่มีอยู่แล้ว กรุณาเลือกเวลาอื่น",
+      });
+    }
+
+    return violations;
+  }, [bookingTime, isPastBooking, occupiedRanges]);
+
+  const handleSaveBooking = async (options = {}) => {
+    const overrideMeta = options.override;
+    const allowTimeOverride = Boolean(overrideMeta?.is_override);
+
     if (saving) return;
     setSubmitError("");
     setSubmitSuccess("");
@@ -443,7 +488,7 @@ export default function Bookingpage() {
       return;
     }
 
-    if (timeError) {
+    if (timeError && !allowTimeOverride) {
       setSubmitError(timeError);
       resetStatus();
       return;
@@ -456,7 +501,7 @@ export default function Bookingpage() {
       return;
     }
     const lastBookingMin = parseTimeToMinutes(TIME_CFG.lastBooking);
-    if (Number.isFinite(lastBookingMin) && candidateMin > lastBookingMin) {
+    if (!allowTimeOverride && Number.isFinite(lastBookingMin) && candidateMin > lastBookingMin) {
       setSubmitError("เวลาสุดท้ายในการจองคือ 19:00");
       resetStatus();
       return;
@@ -465,7 +510,7 @@ export default function Bookingpage() {
     const dayKey = normalizeDateString(dateKey);
     const rowsForDay = rows.filter((row) => normalizeDateString(row.date) === dayKey);
     const occupied = buildOccupiedRanges(rowsForDay, TIME_CFG);
-    if (!isTimeAvailable(candidateMin, occupied, TIME_CFG)) {
+    if (!allowTimeOverride && !isTimeAvailable(candidateMin, occupied, TIME_CFG)) {
       setSubmitError("ช่วงเวลานี้ชนกับคิวที่มีอยู่แล้ว กรุณาเลือกเวลาอื่น");
       resetStatus();
       return;
@@ -489,7 +534,7 @@ export default function Bookingpage() {
 
     setSaving(true);
     try {
-      await appendAppointment(payload);
+      await appendAppointment(payload, overrideMeta ? { override: overrideMeta } : undefined);
       setSubmitSuccess("บันทึกแล้ว");
       setBookingTime("");
       setCustomerName("");
@@ -504,6 +549,45 @@ export default function Bookingpage() {
       setSaving(false);
     }
   };
+
+  const handleSaveClick = useCallback(() => {
+    if (!isAdmin) {
+      handleSaveBooking();
+      return;
+    }
+
+    const violations = collectTimeConstraintViolations();
+    if (violations.length === 0) {
+      handleSaveBooking();
+      return;
+    }
+
+    setOverrideViolations(violations);
+    setOverridePassword("");
+    setOverrideModalOpen(true);
+  }, [collectTimeConstraintViolations, handleSaveBooking, isAdmin]);
+
+  const handleCancelOverride = useCallback(() => {
+    setOverrideModalOpen(false);
+    setOverridePassword("");
+    setOverrideViolations([]);
+  }, []);
+
+  const handleConfirmOverride = useCallback(() => {
+    if (overridePassword !== "123123") return;
+
+    const overrideMeta = {
+      is_override: true,
+      reason: "ADMIN_OVERRIDE",
+      violations: overrideViolations.map((item) => item.key),
+      confirmed_at: new Date().toISOString(),
+    };
+
+    setOverrideModalOpen(false);
+    setOverridePassword("");
+    setOverrideViolations([]);
+    handleSaveBooking({ override: overrideMeta });
+  }, [handleSaveBooking, overridePassword, overrideViolations]);
 
   const handleBookingDateChange = useCallback((value) => {
     setBookingDate(value);
@@ -594,13 +678,21 @@ export default function Bookingpage() {
           staffName={staffName}
           onStaffChange={handleStaffChange}
           saving={saving}
-          isPastBooking={isPastBooking}
+          allowTimeOverride={isAdmin}
           submitError={submitError}
           submitSuccess={submitSuccess}
-          onSave={handleSaveBooking}
+          onSave={handleSaveClick}
           SELECT_STYLES={SELECT_STYLES}
         />
       </div>
+      <AdminOverrideModal
+        open={overrideModalOpen}
+        violations={overrideViolations}
+        password={overridePassword}
+        onPasswordChange={setOverridePassword}
+        onCancel={handleCancelOverride}
+        onConfirm={handleConfirmOverride}
+      />
       {statusOpen && (
         <StatusOverlay open={statusOpen} mode={statusMode} onClose={handleCloseStatus} />
       )}

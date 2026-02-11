@@ -1,0 +1,99 @@
+.admin-override-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.admin-override-card {
+  width: min(560px, 100%);
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e7d8c6;
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.2);
+  padding: 20px;
+}
+
+.admin-override-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #2d1b12;
+}
+
+.admin-override-body {
+  margin-top: 10px;
+  color: #4f392c;
+}
+
+.admin-override-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+}
+
+.admin-override-item + .admin-override-item {
+  margin-top: 8px;
+}
+
+.admin-override-item-title {
+  font-weight: 600;
+  color: #2d1b12;
+}
+
+.admin-override-item-detail {
+  color: #6b5141;
+}
+
+.admin-override-label {
+  display: block;
+  margin-top: 16px;
+  margin-bottom: 6px;
+  color: #2d1b12;
+  font-weight: 600;
+}
+
+.admin-override-input {
+  width: 100%;
+  border: 1px solid #d8c3ad;
+  border-radius: 10px;
+  min-height: 40px;
+  padding: 0 12px;
+  font: inherit;
+  color: #2d1b12;
+}
+
+.admin-override-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.admin-override-cancel,
+.admin-override-confirm {
+  border: 0;
+  border-radius: 10px;
+  min-height: 38px;
+  padding: 0 14px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.admin-override-cancel {
+  background: #f1e9e0;
+  color: #2d1b12;
+}
+
+.admin-override-confirm {
+  background: #2f6b2f;
+  color: #fff;
+}
+
+.admin-override-confirm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+

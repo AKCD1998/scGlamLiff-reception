@@ -13,14 +13,18 @@ function ensureConfig() {
   }
 }
 
-export async function appendAppointment(payload) {
+export async function appendAppointment(payload, options = {}) {
   ensureConfig();
+  const bodyPayload = { ...(payload || {}) };
+  if (options?.override !== undefined) {
+    bodyPayload.override = options.override;
+  }
   const url = `${base}/api/appointments`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(bodyPayload),
   });
   const data = await res.json();
   if (!data.ok) {

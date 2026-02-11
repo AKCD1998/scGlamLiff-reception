@@ -23,7 +23,7 @@ export default function BookingFormPanel({
   staffName,
   onStaffChange,
   saving,
-  isPastBooking,
+  allowTimeOverride,
   submitError,
   submitSuccess,
   onSave,
@@ -185,7 +185,7 @@ export default function BookingFormPanel({
                 type="button"
                 className="booking-save-btn"
                 onClick={onSave}
-                disabled={saving || Boolean(timeError)}
+                disabled={saving || (!allowTimeOverride && Boolean(timeError))}
               >
                 {saving ? "กำลังบันทึก..." : "บันทึกข้อมูลการจอง"}
               </button>
