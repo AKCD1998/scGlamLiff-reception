@@ -7,6 +7,7 @@ import Homepage from "./Homepage";
 import Bookingpage from "./Bookingpage";
 import AdminBackdate from "./AdminBackdate";
 import AdminEditAppointment from "./AdminEditAppointment";
+import AdminUsersPage from "./AdminUsersPage";
 import "./WorkbenchPage.css";
 import TabPlaceholder from "../components/TabPlaceholder";
 import WorkbenchLoadingOverlay from "../components/WorkbenchLoadingOverlay";
@@ -48,6 +49,7 @@ export default function WorkbenchPage() {
     if (isAdmin) {
       baseTabs.push({ id: "adminBackdate", label: "จองย้อนหลัง (Admin)" });
       baseTabs.push({ id: "adminEditAppointment", label: "แก้ไขนัดหมาย (Admin)" });
+      baseTabs.push({ id: "adminUsers", label: "จัดการผู้ใช้ (Admin)" });
     }
     return baseTabs;
   }, [me]);
@@ -71,6 +73,11 @@ export default function WorkbenchPage() {
           return <TabPlaceholder title="แก้ไขนัดหมาย (Admin)" />;
         }
         return <AdminEditAppointment currentUser={me} />;
+      case "adminUsers":
+        if (!isAdminTabAvailable) {
+          return <TabPlaceholder title="จัดการผู้ใช้ (Admin)" />;
+        }
+        return <AdminUsersPage />;
       case "stock":
         return <TabPlaceholder title="เกี่ยวกับสต๊อก" />;
       case "productGuide":
