@@ -20,201 +20,21 @@ import {
 import { getMe } from "../utils/authClient";
 import CustomerProfileModal from "../components/CustomerProfileModal";
 import ServiceConfirmationModal from "../components/ServiceConfirmationModal";
+import {
+  formatAppointmentStatus,
+  getRowTimestamp,
+  normalizeCustomerRow,
+  normalizeRow,
+  normalizeTreatmentOptionRow,
+  shortenId,
+} from "./booking/utils/bookingPageFormatters";
+import {
+  buildFallbackTreatmentOptions,
+  SELECT_STYLES,
+  TIME_CFG,
+} from "./booking/utils/constants";
+import { sanitizeEmailOrLine, sanitizeThaiPhone } from "./booking/utils/validators";
 import "./Bookingpage.css";
-
-function normalizeRow(row = {}) {
-  return {
-    id: row.id ?? "",
-    date: row.date ?? "",
-    bookingTime: row.bookingTime ?? "",
-    customerName: row.customerName ?? "",
-    phone: row.phone ?? "",
-    treatmentItem: row.treatmentItem ?? "",
-    staffName: row.staffName ?? "",
-    datetime: row.datetime ?? "",
-    status: row.status ?? "",
-    appointmentId: row.appointment_id ?? row.appointmentId ?? "",
-    customerId: row.customer_id ?? row.customerId ?? "",
-  };
-}
-
-function normalizeCustomerRow(row = {}) {
-  return {
-    id: row.id ?? "",
-    fullName: row.full_name ?? row.fullName ?? "",
-    createdAt: row.created_at ?? row.createdAt ?? "",
-  };
-}
-
-function shortenId(value) {
-  if (!value) return "";
-  return String(value).slice(0, 8);
-}
-
-function formatAppointmentStatus(status) {
-  const s = String(status || "booked").toLowerCase();
-  if (s === "completed") return "ให้บริการแล้ว";
-  if (s === "cancelled" || s === "canceled") return "ยกเลิก";
-  if (s === "no_show") return "ไม่มา";
-  if (s === "rescheduled") return "เลื่อนนัด";
-  return "จองแล้ว";
-}
-
-function getRowTimestamp(row) {
-  const dateKey = normalizeDateString(row.date);
-  if (dateKey) {
-    const timeMinutes = parseTimeToMinutes(row.bookingTime);
-    if (Number.isFinite(timeMinutes)) {
-      const [yyyy, mm, dd] = dateKey.split("-").map((p) => Number(p));
-      if (yyyy && mm && dd) {
-        const base = new Date(yyyy, mm - 1, dd);
-        base.setHours(Math.floor(timeMinutes / 60), timeMinutes % 60, 0, 0);
-        return base.getTime();
-      }
-    }
-    const fallback = Date.parse(dateKey);
-    if (!Number.isNaN(fallback)) return fallback;
-  }
-  const dt = Date.parse(row.datetime || "");
-  return Number.isNaN(dt) ? 0 : dt;
-}
-
-const TIME_CFG = {
-  open: "08:00",
-  close: "20:00",
-  lastBooking: "19:00",
-  intervalMin: 120,
-  leadTimeMin: 60,
-  serviceDurationMin: 30,
-  bufferAfterMin: 15,
-  slotBlockMin: 45,
-  maxRecommend: 6,
-};
-
-function buildFallbackTreatmentOptions() {
-  return [
-    {
-      value: "fallback:smooth-1x",
-      label: "Smooth 399 thb",
-      treatmentId: "",
-      treatmentItemText: "smooth 399 free",
-    },
-    {
-      value: "fallback:renew",
-      label: "Renew 599 thb",
-      treatmentId: "",
-      treatmentItemText: "renew 599",
-    },
-    {
-      value: "fallback:acne-care",
-      label: "Acne Care 899 thb",
-      treatmentId: "",
-      treatmentItemText: "acne care 899",
-    },
-    {
-      value: "fallback:smooth-3x",
-      label: "1/3 Smooth 999 thb 1 mask",
-      treatmentId: "",
-      treatmentItemText: "1/3 smooth 999 1 mask",
-    },
-    {
-      value: "fallback:smooth-10x",
-      label: "1/10 Smooth 2999 thb 3 mask",
-      treatmentId: "",
-      treatmentItemText: "1/10 smooth 2999 3 mask",
-    },
-  ];
-}
-
-function normalizeTreatmentOptionRow(row = {}) {
-  const value = String(row.value ?? "").trim();
-  const label = String(row.label ?? "").trim();
-  const treatmentId = String(row.treatment_id ?? row.treatmentId ?? "").trim();
-  const treatmentItemText = String(
-    row.treatment_item_text ?? row.treatmentItemText ?? label
-  ).trim();
-
-  if (!value || !label || !treatmentItemText) return null;
-
-  return {
-    value,
-    label,
-    treatmentId,
-    treatmentItemText,
-    source: String(row.source ?? "").trim(),
-    packageId: String(row.package_id ?? row.packageId ?? "").trim(),
-    packageCode: String(row.package_code ?? row.packageCode ?? "").trim(),
-    sessionsTotal: Number(row.sessions_total ?? row.sessionsTotal) || 0,
-    maskTotal: Number(row.mask_total ?? row.maskTotal) || 0,
-    priceThb: Number(row.price_thb ?? row.priceThb) || 0,
-  };
-}
-
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const LINE_ID_PATTERN = /^[a-zA-Z0-9._-]{1,50}$/;
-
-function sanitizeThaiPhone(input) {
-  const digits = String(input ?? "").replace(/\D+/g, "");
-  if (!digits) return "";
-
-  if (digits.startsWith("66") && digits.length === 11) {
-    return `0${digits.slice(-9)}`;
-  }
-
-  if (digits.length === 10 && digits.startsWith("0")) {
-    return digits;
-  }
-
-  if (digits.length === 9 && !digits.startsWith("0")) {
-    return `0${digits}`;
-  }
-
-  return "";
-}
-
-function sanitizeEmailOrLine(input) {
-  const cleaned = String(input ?? "").trim();
-  if (!cleaned) return "";
-
-  if (cleaned.includes("@")) {
-    return EMAIL_PATTERN.test(cleaned) ? cleaned : "";
-  }
-
-  return LINE_ID_PATTERN.test(cleaned) ? cleaned : "";
-}
-
-const SELECT_STYLES = {
-  container: (base) => ({ ...base, width: "100%" }),
-  control: (base) => ({
-    ...base,
-    backgroundColor: "#fffaf6",
-    borderColor: "var(--booking-border)",
-    boxShadow: "none",
-    minHeight: "42px",
-    "&:hover": {
-      borderColor: "var(--booking-border)",
-    },
-  }),
-  singleValue: (base) => ({ ...base, color: "#000" }),
-  input: (base) => ({ ...base, color: "#000" }),
-  placeholder: (base) => ({ ...base, color: "#000" }),
-  option: (base, state) => ({
-    ...base,
-    color: "#000",
-    backgroundColor: state.isSelected
-      ? "#f0e4d6"
-      : state.isFocused
-        ? "#f7efe6"
-        : "#fff",
-    ":active": {
-      ...base[":active"],
-      backgroundColor: "#f0e4d6",
-    },
-  }),
-  menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-  menu: (base) => ({ ...base, zIndex: 9999, backgroundColor: "#fff" }),
-  menuList: (base) => ({ ...base, backgroundColor: "#fff" }),
-};
 
 export default function Bookingpage() {
   const [rows, setRows] = useState([]);
