@@ -443,12 +443,6 @@ export default function Bookingpage() {
       return;
     }
 
-    if (isPastBooking) {
-      setSubmitError("ไม่สามารถจองย้อนหลังได้");
-      resetStatus();
-      return;
-    }
-
     if (timeError) {
       setSubmitError(timeError);
       resetStatus();

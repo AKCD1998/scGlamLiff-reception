@@ -185,7 +185,7 @@ export default function BookingFormPanel({
                 type="button"
                 className="booking-save-btn"
                 onClick={onSave}
-                disabled={saving || isPastBooking || Boolean(timeError)}
+                disabled={saving || Boolean(timeError)}
               >
                 {saving ? "กำลังบันทึก..." : "บันทึกข้อมูลการจอง"}
               </button>
@@ -202,4 +202,3 @@ export default function BookingFormPanel({
     </section>
   );
 }
-
