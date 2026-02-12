@@ -8,6 +8,17 @@
   padding: 20px;
   background: rgba(16, 12, 8, 0.28);
   backdrop-filter: blur(2px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 180ms ease, visibility 0s linear 180ms;
+}
+
+.loading-overlay.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: all;
+  transition: opacity 120ms ease;
 }
 
 .loading-overlay-card {

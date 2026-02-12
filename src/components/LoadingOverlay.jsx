@@ -6,12 +6,21 @@ export default function LoadingOverlay({
   subtext = "โปรดรอสักครู่",
   className = "",
 }) {
-  if (!open) return null;
-
-  const overlayClassName = ["loading-overlay", className].filter(Boolean).join(" ");
+  const overlayClassName = [
+    "loading-overlay",
+    open ? "is-open" : "is-closed",
+    className,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
-    <div className={overlayClassName} role="status" aria-live="polite">
+    <div
+      className={overlayClassName}
+      role={open ? "status" : undefined}
+      aria-live={open ? "polite" : undefined}
+      aria-hidden={open ? undefined : "true"}
+    >
       <div className="loading-overlay-card">
         <div className="loading-overlay-spinner" aria-hidden="true" />
         <div className="loading-overlay-label">{label}</div>
