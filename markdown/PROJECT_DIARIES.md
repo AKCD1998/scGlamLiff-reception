@@ -1,5 +1,45 @@
 # Project Diaries
 
+## 2026-02-12 17:34 ICT — Fix recurrence: Bookingpage showed empty state during initial load
+
+### What bug happened
+- หน้า `Bookingpage` ยังมีจังหวะขึ้น `ไม่มีข้อมูล` ระหว่าง initial fetch ของแท็บ Queue/Customers
+- พฤติกรรมนี้เป็น pattern เดียวกับที่เคยเกิดใน `Homepage` (empty state โผล่ก่อนโหลดเสร็จจริง)
+
+### Why it recurred
+- ข้อมูลตั้งต้นเป็น array ว่าง (`rows=[]`, `customers=[]`) อยู่แล้ว
+- เดิม gating ฝั่ง panel ใช้ `loading && hasLoadedOnce` ทำให้ช่วงที่ `hasLoadedOnce=false` แต่ `loading` ยังไม่ขึ้น/มีจังหวะตกลงชั่วคราว (เช่น effect replay/abort ใน StrictMode) panel ไม่ถือว่า loading
+- เมื่อ `loading=false` และ `error=null` เงื่อนไขใน table ตกไปที่ `rows.length === 0` จึงแสดง `ไม่มีข้อมูล` เร็วเกินไป
+- สรุปคือขาด guard ว่า “ต้องโหลดครั้งแรกเสร็จแล้ว” ก่อนอนุญาต empty state
+
+### Fix
+- คงแนวทาง `hasLoadedOnce` และทำให้ lifecycle ชัดเจน:
+  - `queueHasLoadedOnce`
+  - `customersHasLoadedOnce`
+- ตั้ง `hasLoadedOnce=true` เมื่อ fetch จบจริง (success/error) และไม่ตั้งตอน abort
+- ปรับ loading ที่ส่งให้ panel:
+  - `queuePanelLoading = loading || !queueHasLoadedOnce`
+  - `customerPanelLoading = customersLoading || !customersHasLoadedOnce`
+- ปรับ full-page initial overlay ให้ยึด first-load-per-tab:
+  - `isQueueInitialLoading = activeTab === "queue" && !queueHasLoadedOnce`
+  - `isCustomersInitialLoading = activeTab !== "queue" && !customersHasLoadedOnce`
+- ผลคือระหว่าง first load จะเห็น loading UI เสมอ และ `ไม่มีข้อมูล` จะแสดงได้ต่อเมื่อโหลดรอบแรกจบแล้วเท่านั้น
+
+### Files changed
+- `src/pages/Bookingpage.jsx`
+
+### How to test
+1. เข้า `Bookingpage` ครั้งแรก:
+   - ต้องเห็น loading UI และต้องไม่เห็น `ไม่มีข้อมูล` ระหว่างโหลด
+2. หลังโหลดเสร็จ:
+   - มีข้อมูล -> แสดงแถวข้อมูล
+   - ไม่มีข้อมูล -> แสดง `ไม่มีข้อมูล`
+3. จำลอง error ตอนโหลด:
+   - loading ต้องหาย และแสดง error state
+   - ต้องไม่ fallback เป็น `ไม่มีข้อมูล` ระหว่างยังโหลด
+4. สลับแท็บไป `Customers` ครั้งแรก:
+   - ใช้กติกาเดียวกัน (loading ก่อน, empty หลัง first load จบ)
+
 ## 2026-02-12 17:27 ICT — Add Bookingpage full-page loading overlay (queue + customers) with hasLoadedOnce gating; prevent double overlay
 
 ### Summary

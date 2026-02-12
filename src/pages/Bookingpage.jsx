@@ -131,17 +131,21 @@ export default function Bookingpage() {
   const loadAppointments = useCallback(async (signal) => {
     setLoading(true);
     setError(null);
+    let completed = false;
     try {
       const data = await getAppointmentsQueue({ limit: 200 }, signal);
       const normalized = (data.rows || []).map(normalizeRow);
       setRows(normalized);
-      setQueueHasLoadedOnce(true);
+      completed = true;
     } catch (err) {
       if (err?.name === "AbortError") return;
       setError(err?.message || "Error loading appointments");
       setRows([]);
-      setQueueHasLoadedOnce(true);
+      completed = true;
     } finally {
+      if (completed) {
+        setQueueHasLoadedOnce(true);
+      }
       setLoading(false);
     }
   }, []);
@@ -224,19 +228,22 @@ export default function Bookingpage() {
   const loadCustomers = useCallback(async (signal) => {
     setCustomersLoading(true);
     setCustomersError(null);
+    let completed = false;
     try {
       const data = await getCustomers(signal);
       const normalized = (data.rows || []).map(normalizeCustomerRow);
       setCustomers(normalized);
-      setCustomersLoaded(true);
-      setCustomersHasLoadedOnce(true);
+      completed = true;
     } catch (err) {
       if (err?.name === "AbortError") return;
       setCustomersError(err?.message || "Error loading customers");
       setCustomers([]);
-      setCustomersLoaded(true);
-      setCustomersHasLoadedOnce(true);
+      completed = true;
     } finally {
+      if (completed) {
+        setCustomersLoaded(true);
+        setCustomersHasLoadedOnce(true);
+      }
       setCustomersLoading(false);
     }
   }, []);
@@ -634,12 +641,11 @@ export default function Bookingpage() {
   }, []);
 
   const isQueueTab = activeTab === "queue";
-  const isQueueInitialLoading = isQueueTab && loading && !queueHasLoadedOnce;
-  const isCustomersInitialLoading =
-    !isQueueTab && !customersHasLoadedOnce && (customersLoading || !customersLoaded);
+  const isQueueInitialLoading = isQueueTab && !queueHasLoadedOnce;
+  const isCustomersInitialLoading = !isQueueTab && !customersHasLoadedOnce;
   const isPageOverlayOpen = isQueueInitialLoading || isCustomersInitialLoading;
-  const queuePanelLoading = loading && queueHasLoadedOnce;
-  const customerPanelLoading = customersLoading && customersHasLoadedOnce;
+  const queuePanelLoading = loading || !queueHasLoadedOnce;
+  const customerPanelLoading = customersLoading || !customersHasLoadedOnce;
 
   return (
     <section className="booking-page">
