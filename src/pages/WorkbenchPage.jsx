@@ -102,8 +102,8 @@ export default function WorkbenchPage() {
     <div className="workbench-page">
       <header className="workbench-header">
         <div className="header-left">
-          <h1>Workbench</h1>
-          <p>Clinic operations dashboard</p>
+          <h1>หน้าแรก</h1>
+          <p>แดชบอร์ดการดำเนินงาน</p>
         </div>
         <ProfileBar
           user={userLabel}

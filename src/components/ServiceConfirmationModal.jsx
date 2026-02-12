@@ -353,12 +353,12 @@ export default function ServiceConfirmationModal({
       >
         <div className="scm-header">
           <div className="scm-title" id="service-confirmation-title">
-            Service Confirmation
+            ยืนยันการให้บริการ
           </div>
           <button
             type="button"
             className="booking-modal-close"
-            aria-label="Close service confirmation"
+            aria-label="ปิดการยืนยันการให้บริการ"
             onClick={onClose}
             ref={closeButtonRef}
           >
@@ -368,30 +368,30 @@ export default function ServiceConfirmationModal({
 
         <div className="scm-body">
           <section className="scm-section">
-            <div className="scm-section__title">1) Appointment Summary</div>
+            <div className="scm-section__title">1) สรุปการนัดหมาย</div>
             <div className="scm-summary">
               <div>
-                <div className="scm-label">Customer</div>
+                <div className="scm-label">ลูกค้า</div>
                 <div className="scm-value">{booking?.customerName || "-"}</div>
               </div>
               <div>
-                <div className="scm-label">Booking time</div>
+                <div className="scm-label">เวลาการจอง</div>
                 <div className="scm-value">{`${booking?.date || "-"} ${booking?.bookingTime || ""}`}</div>
               </div>
               <div>
-                <div className="scm-label">Treatment</div>
+                <div className="scm-label">การรักษา</div>
                 <div className="scm-value">{booking?.treatmentItem || "-"}</div>
               </div>
               <div>
-                <div className="scm-label">Provider</div>
+                <div className="scm-label">ผู้ให้บริการ</div>
                 <div className="scm-value">{booking?.staffName || "-"}</div>
               </div>
               <div>
-                <div className="scm-label">Operator</div>
+                <div className="scm-label">ผู้รับบริการ</div>
                 <div className="scm-value">{currentUser?.display_name || currentUser?.username || "-"}</div>
               </div>
               <div>
-                <div className="scm-label">Current status</div>
+                <div className="scm-label">สถานะปัจจุบัน</div>
                 <div className="scm-value">{statusLabel(appointmentStatus)}</div>
               </div>
             </div>
@@ -403,7 +403,7 @@ export default function ServiceConfirmationModal({
           </section>
 
           <section className="scm-section">
-            <div className="scm-section__title">2) Service Selection</div>
+            <div className="scm-section__title">2) โปรดเลือกบริการ</div>
             {packagesLoading ? (
               <div className="scm-state">กำลังโหลดคอร์ส...</div>
             ) : packagesError ? (
@@ -424,7 +424,7 @@ export default function ServiceConfirmationModal({
                       <div className="scm-package__top">
                         <div>
                           <div className="scm-package__title">บริการแบบครั้งเดียว</div>
-                          <div className="scm-package__code">NO COURSE DEDUCTION</div>
+                          <div className="scm-package__code"></div>
                         </div>
                         <div className="scm-package__meta">
                           <div>ไม่ตัดจำนวนครั้ง / Mask</div>
@@ -516,7 +516,7 @@ export default function ServiceConfirmationModal({
           </section>
 
           <section className="scm-section">
-            <div className="scm-section__title">3) Usage Options</div>
+            <div className="scm-section__title">3) ตัวเลือกการใช้งาน</div>
             {actionStatus !== "completed" ? (
               <div className="scm-state">เลือกสถานะ “completed” เพื่อเปิดตัวเลือกการตัดคอร์ส</div>
             ) : completingWithoutCourse ? (
@@ -532,17 +532,17 @@ export default function ServiceConfirmationModal({
                     onChange={(e) => setUseMask(e.target.checked)}
                     disabled={selectedPkg._computed.maskRemaining <= 0}
                   />
-                  <span>Use mask for this session?</span>
+                  <span>ใช้ Mask สำหรับการให้บริการครั้งนี้?</span>
                 </label>
                 <div className="scm-preview">
                   <div>
-                    <div className="scm-label">After confirm</div>
+                    <div className="scm-label">ยืนยัน</div>
                     <div className="scm-value">
-                      Sessions remaining: {preview?.nextSessions ?? "-"}
+                      จำนวนการให้บริการที่เหลือ: {preview?.nextSessions ?? "-"}
                     </div>
                     {selectedPkg._computed.maskTotal > 0 ? (
                       <div className="scm-value">
-                        Masks remaining: {preview?.nextMask ?? "-"}
+                        จำนวน Mask ที่เหลือ: {preview?.nextMask ?? "-"}
                       </div>
                     ) : null}
                   </div>
@@ -552,7 +552,7 @@ export default function ServiceConfirmationModal({
           </section>
 
           <section className="scm-section">
-            <div className="scm-section__title">4) Status Action</div>
+            <div className="scm-section__title">4) สถานะการดำเนินการ</div>
             <div className="scm-status-grid" role="radiogroup" aria-label="Select status">
               <label className="scm-radio">
                 <input type="radio" checked readOnly disabled />
@@ -567,7 +567,7 @@ export default function ServiceConfirmationModal({
                   onChange={() => setActionStatus("completed")}
                   disabled={!canMutate}
                 />
-                <span>completed</span>
+                <span>เสร็จสิ้นการให้บริการ</span>
               </label>
               <label className="scm-radio">
                 <input
@@ -578,7 +578,7 @@ export default function ServiceConfirmationModal({
                   onChange={() => setActionStatus("cancelled")}
                   disabled={!canMutate}
                 />
-                <span>cancelled</span>
+                <span>ยกเลิกการให้บริการ</span>
               </label>
               <label className="scm-radio">
                 <input
@@ -589,7 +589,7 @@ export default function ServiceConfirmationModal({
                   onChange={() => setActionStatus("no_show")}
                   disabled={!canMutate}
                 />
-                <span>no_show</span>
+                <span>ไม่มารับบริการ</span>
               </label>
             </div>
 
@@ -605,7 +605,7 @@ export default function ServiceConfirmationModal({
                   onClick={handleRevert}
                   disabled={submitting}
                 >
-                  Revert service usage
+                  ยกเลิกการใช้บริการ
                 </button>
               ) : null}
 

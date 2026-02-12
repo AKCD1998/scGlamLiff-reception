@@ -55,12 +55,12 @@ export default function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <h1 className="login-title">Welcome Back</h1>
-        <p className="login-subtitle">Please sign in to continue</p>
+        <h1 className="login-title">ยินดีต้อนรับ</h1>
+        <p className="login-subtitle">กรุณาเข้าสู่ระบบเพื่อดำเนินการต่อ</p>
 
         <form className="login-form" onSubmit={handleSubmit}>
           <label className="field">
-            <span className="field-label">Username</span>
+            <span className="field-label">ชื่อผู้ใช้(Username)</span>
             <input
               type="text"
               value={username}
@@ -73,7 +73,7 @@ export default function LoginPage() {
           </label>
 
           <label className="field">
-            <span className="field-label">Password</span>
+            <span className="field-label">รหัสผ่าน(Password)</span>
             <div className="password-field">
               <input
                 type={showPassword ? "text" : "password"}
