@@ -390,6 +390,38 @@ body[data-theme="dark"] .booking-page input[type="time"]::-webkit-calendar-picke
   filter: invert(0.84) sepia(0.24) saturate(0.72) hue-rotate(350deg) brightness(0.92);
 }
 
+/* Keep the queue filter date input visually aligned with dark-mode form fields. */
+body[data-theme="dark"] .booking-field input#queue-filter-date[type="date"] {
+  color-scheme: dark;
+  background: var(--booking-panel);
+  color: var(--booking-text);
+  border-color: var(--booking-border);
+  -webkit-text-fill-color: var(--booking-text);
+}
+
+body[data-theme="dark"] .booking-field input#queue-filter-date[type="date"]:focus-visible {
+  outline: 2px solid var(--booking-focus);
+  outline-offset: 2px;
+}
+
+body[data-theme="dark"] .booking-field input#queue-filter-date[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.84) sepia(0.24) saturate(0.72) hue-rotate(350deg) brightness(0.92);
+  opacity: 0.92;
+}
+
+body[data-theme="dark"] .booking-field input#queue-filter-date[type="date"]::-webkit-datetime-edit,
+body[data-theme="dark"] .booking-field input#queue-filter-date[type="date"]::-webkit-datetime-edit-fields-wrapper,
+body[data-theme="dark"] .booking-field input#queue-filter-date[type="date"]::-webkit-datetime-edit-year-field,
+body[data-theme="dark"] .booking-field input#queue-filter-date[type="date"]::-webkit-datetime-edit-month-field,
+body[data-theme="dark"] .booking-field input#queue-filter-date[type="date"]::-webkit-datetime-edit-day-field {
+  color: var(--booking-text);
+}
+
+body[data-theme="dark"] .booking-field input#queue-filter-date[type="date"]::-webkit-datetime-edit-text {
+  color: var(--booking-muted);
+  opacity: 0.95;
+}
+
 body[data-theme="dark"] .booking-field input::placeholder {
   color: var(--text-muted);
   opacity: 0.95;
