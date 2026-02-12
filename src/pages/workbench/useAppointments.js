@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { cancelAppointment, getAppointmentsQueue } from "../../utils/appointmentsApi";
 import { normalizeRow, getRowTimestamp } from "./workbenchRow";
 
@@ -15,9 +15,13 @@ export function useAppointments({ limit = 50, selectedDate = null, branchId = ""
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const requestIdRef = useRef(0);
 
   const reloadAppointments = useCallback(
     async (signal) => {
+      const requestId = requestIdRef.current + 1;
+      requestIdRef.current = requestId;
       setLoading(true);
       setError(null);
       try {
@@ -26,15 +30,21 @@ export function useAppointments({ limit = 50, selectedDate = null, branchId = ""
           { date: dateKey || undefined, branchId: branchId || undefined, limit },
           signal
         );
+        if (requestId !== requestIdRef.current) return;
         const normalized = (data.rows || []).map(normalizeRow);
         normalized.sort((a, b) => getRowTimestamp(b) - getRowTimestamp(a));
         setRows(normalized);
+        setHasLoadedOnce(true);
       } catch (err) {
         if (err?.name === "AbortError") return;
+        if (requestId !== requestIdRef.current) return;
         setError(err?.message || "Error loading appointments");
         setRows([]);
+        setHasLoadedOnce(true);
       } finally {
-        setLoading(false);
+        if (requestId === requestIdRef.current) {
+          setLoading(false);
+        }
       }
     },
     [branchId, limit, selectedDate]
@@ -54,5 +64,5 @@ export function useAppointments({ limit = 50, selectedDate = null, branchId = ""
     [reloadAppointments]
   );
 
-  return { rows, loading, error, reloadAppointments, deleteAppointment };
+  return { rows, loading, error, hasLoadedOnce, reloadAppointments, deleteAppointment };
 }

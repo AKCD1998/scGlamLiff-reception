@@ -20,7 +20,7 @@ import { useMe } from "./workbench/useMe";
 export default function WorkbenchPage() {
   const [activeTab, setActiveTab] = useState("home");
   const homePicker = useHomePickerState();
-  const { rows, loading, error, deleteAppointment } = useAppointments({
+  const { rows, loading, error, hasLoadedOnce, deleteAppointment } = useAppointments({
     limit: 50,
     selectedDate: homePicker.selectedDate,
   });
@@ -90,6 +90,7 @@ export default function WorkbenchPage() {
             rows={rows}
             loading={loading}
             error={error}
+            hasLoadedOnce={hasLoadedOnce}
             onAddAppointment={() => setActiveTab("booking")}
             onDeleteAppointment={handleDeleteAppointment}
           />

@@ -1,5 +1,6 @@
 export default function AppointmentsTablePanel({
   loading,
+  hasLoadedOnce = false,
   error,
   selectedDate,
   activeFilterKey,
@@ -48,6 +49,8 @@ export default function AppointmentsTablePanel({
               <tr><td colSpan="9">กำลังโหลด...</td></tr>
             ) : error ? (
               <tr><td colSpan="9" style={{ color: "var(--text-muted)" }}>เกิดข้อผิดพลาด: {error}</td></tr>
+            ) : !hasLoadedOnce ? (
+              <tr><td colSpan="9">กำลังโหลด...</td></tr>
             ) : filteredRows.length === 0 ? (
               <tr><td colSpan="9">ไม่มีข้อมูล</td></tr>
             ) : (

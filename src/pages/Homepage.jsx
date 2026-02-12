@@ -16,7 +16,7 @@ export default function Homepage(props) {
     isPickerOpen, setIsPickerOpen,
     pickerMonth, setPickerMonth,
     pickerYear, setPickerYear,
-    rows, loading, error,
+    rows, loading, error, hasLoadedOnce,
     onAddAppointment,
     onDeleteAppointment,
   } = props;
@@ -27,7 +27,7 @@ export default function Homepage(props) {
     useAppointmentsFilter(rows, selectedDate);
 
   const del = useDeleteAppointment(onDeleteAppointment, setToast);
-  const isDataLoading = Boolean(loading);
+  const isDataLoading = Boolean(loading || !hasLoadedOnce);
 
   useEffect(() => {
     if (!toast) return;
@@ -60,7 +60,8 @@ export default function Homepage(props) {
       />
 
       <AppointmentsTablePanel
-        loading={loading}
+        loading={isDataLoading}
+        hasLoadedOnce={hasLoadedOnce}
         error={error}
         selectedDate={selectedDate}
         activeFilterKey={activeFilterKey}
