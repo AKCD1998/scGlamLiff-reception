@@ -16,6 +16,13 @@
 
 body[data-theme="dark"] {
   --booking-focus: rgba(209, 176, 122, 0.45);
+  --booking-panel: var(--panel, #141318);
+  --booking-border: var(--border, #8e6b3b);
+  --booking-text: var(--text-strong, #f2e6d2);
+  --booking-soft: var(--text-soft, #d6c1a1);
+  --booking-muted: var(--text-muted, #b39b78);
+  --booking-tab-bg: var(--tab-bg, #1a1713);
+  --booking-tab-hover: var(--tab-hover, #221d17);
 }
 
 .booking-page {
@@ -393,10 +400,11 @@ body[data-theme="dark"] .booking-page input[type="time"]::-webkit-calendar-picke
 /* Keep the queue filter date input visually aligned with dark-mode form fields. */
 body[data-theme="dark"] .booking-field input#queue-filter-date[type="date"] {
   color-scheme: dark;
-  background: var(--booking-panel);
-  color: var(--booking-text);
-  border-color: var(--booking-border);
-  -webkit-text-fill-color: var(--booking-text);
+  background: var(--panel, #141318);
+  color: var(--text-strong, #f2e6d2);
+  border-color: var(--border, #8e6b3b);
+  -webkit-text-fill-color: var(--text-strong, #f2e6d2);
+  caret-color: var(--text-strong, #f2e6d2);
 }
 
 body[data-theme="dark"] .booking-field input#queue-filter-date[type="date"]:focus-visible {
@@ -414,12 +422,17 @@ body[data-theme="dark"] .booking-field input#queue-filter-date[type="date"]::-we
 body[data-theme="dark"] .booking-field input#queue-filter-date[type="date"]::-webkit-datetime-edit-year-field,
 body[data-theme="dark"] .booking-field input#queue-filter-date[type="date"]::-webkit-datetime-edit-month-field,
 body[data-theme="dark"] .booking-field input#queue-filter-date[type="date"]::-webkit-datetime-edit-day-field {
-  color: var(--booking-text);
+  color: var(--text-strong, #f2e6d2);
+  background: transparent;
 }
 
 body[data-theme="dark"] .booking-field input#queue-filter-date[type="date"]::-webkit-datetime-edit-text {
-  color: var(--booking-muted);
+  color: var(--text-muted, #b39b78);
   opacity: 0.95;
+}
+
+body[data-theme="dark"] .booking-field input#queue-filter-date[type="date"]::-webkit-date-and-time-value {
+  color: var(--text-strong, #f2e6d2);
 }
 
 body[data-theme="dark"] .booking-field input::placeholder {
