@@ -50,34 +50,60 @@ export const LINE_ID_PATTERN = /^[a-zA-Z0-9._-]{1,50}$/;
 
 export const SELECT_STYLES = {
   container: (base) => ({ ...base, width: "100%" }),
-  control: (base) => ({
+  control: (base, state) => ({
     ...base,
-    backgroundColor: "#fffaf6",
-    borderColor: "var(--booking-border)",
-    boxShadow: "none",
+    backgroundColor: "var(--panel, #fff7f0)",
+    borderColor: "var(--border, #2a1206)",
+    boxShadow: state.isFocused
+      ? "0 0 0 2px var(--booking-focus, rgba(42, 18, 6, 0.35))"
+      : "none",
     minHeight: "42px",
     "&:hover": {
-      borderColor: "var(--booking-border)",
+      borderColor: "var(--border, #2a1206)",
     },
   }),
-  singleValue: (base) => ({ ...base, color: "#000" }),
-  input: (base) => ({ ...base, color: "#000" }),
-  placeholder: (base) => ({ ...base, color: "#000" }),
+  singleValue: (base) => ({ ...base, color: "var(--text-strong, #2a1206)" }),
+  input: (base) => ({ ...base, color: "var(--text-strong, #2a1206)" }),
+  placeholder: (base) => ({ ...base, color: "var(--text-muted, #7a5a43)" }),
+  indicatorSeparator: (base) => ({
+    ...base,
+    backgroundColor: "var(--border, #2a1206)",
+    opacity: 0.25,
+  }),
+  dropdownIndicator: (base) => ({
+    ...base,
+    color: "var(--text-muted, #7a5a43)",
+    "&:hover": {
+      color: "var(--text-strong, #2a1206)",
+    },
+  }),
+  clearIndicator: (base) => ({
+    ...base,
+    color: "var(--text-muted, #7a5a43)",
+    "&:hover": {
+      color: "var(--text-strong, #2a1206)",
+    },
+  }),
   option: (base, state) => ({
     ...base,
-    color: "#000",
+    color: "var(--text-strong, #2a1206)",
     backgroundColor: state.isSelected
-      ? "#f0e4d6"
+      ? "var(--tab-bg, #efe1d2)"
       : state.isFocused
-        ? "#f7efe6"
-        : "#fff",
+        ? "var(--tab-hover, #e0cbb7)"
+        : "var(--panel, #fff7f0)",
     ":active": {
       ...base[":active"],
-      backgroundColor: "#f0e4d6",
+      backgroundColor: "var(--tab-bg, #efe1d2)",
     },
   }),
   menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-  menu: (base) => ({ ...base, zIndex: 9999, backgroundColor: "#fff" }),
-  menuList: (base) => ({ ...base, backgroundColor: "#fff" }),
+  menu: (base) => ({
+    ...base,
+    zIndex: 9999,
+    backgroundColor: "var(--panel, #fff7f0)",
+    border: "1.5px solid var(--border, #2a1206)",
+    boxShadow: "0 12px 22px rgba(20, 12, 6, 0.22)",
+  }),
+  menuList: (base) => ({ ...base, backgroundColor: "var(--panel, #fff7f0)" }),
 };
-

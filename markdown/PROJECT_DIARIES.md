@@ -1,5 +1,90 @@
 # Project Diaries
 
+## 2026-02-12 18:27 ICT — Bookingpage dark-mode fix (native date/time + react-select tokenized)
+
+### Issue
+- ใน Booking page โหมดมืดยังมีบาง control หลุดโทน light:
+  - native `input[type=date]`, `input[type=time]`
+  - `react-select` ในช่องบริการที่เลือกใช้
+
+### Root cause
+- `react-select` ใช้ `SELECT_STYLES` ที่ hard-code สีขาว/ดำ (`#fff`, `#000`) จึงไม่ตาม theme variables
+- native date/time controls ต้องมี `color-scheme` และ picker indicator tuning แยกใน dark mode
+
+### Fix
+- ปรับ `SELECT_STYLES` ใน `src/pages/booking/utils/constants.js` ให้ใช้ tokens:
+  - `--panel`, `--border`, `--text-strong`, `--text-muted`, `--tab-bg`, `--tab-hover`, `--booking-focus`
+- เพิ่ม dark-mode CSS ใน `src/pages/Bookingpage.css`:
+  - `color-scheme: dark` สำหรับ date/time/select
+  - ปรับ `::-webkit-calendar-picker-indicator` ให้ไม่ขาวโดด
+  - ปรับ placeholder ใน dark ให้คอนทราสต์อ่านง่าย
+
+### Files changed
+- `src/pages/booking/utils/constants.js`
+- `src/pages/Bookingpage.css`
+
+### Verification
+1. สลับไป Dark mode
+2. ตรวจ `queue-filter-date`, `booking-date`, `booking-time` ต้องไม่ขาวหลุดธีม
+3. เปิด select บริการ ต้องได้เมนู/control โทนเดียวกับ dark theme
+4. behavior เดิมของฟอร์มไม่เปลี่ยน
+
+## 2026-02-12 18:22 ICT — Bookingpage dark-theme follow-up: force queue/tabs/table block to dark tokens
+
+### Issue
+- บล็อก `booking-panel` (tabs + queue filter + table) บางส่วนยังค้างโทนใกล้ Light mode ตอนอยู่ Dark mode
+
+### Fix (CSS-only)
+- เพิ่ม explicit `body[data-theme="dark"]` overrides ให้ block หลัก:
+  - `.booking-panel`, `.booking-panel-header`, `.booking-tabs`, `.booking-tab`, `.booking-panel-body`
+  - `.booking-table th`, `.booking-table td`
+  - `.booking-queue-filter-clear`, `.booking-edit-button`
+- เพิ่ม `color-scheme: dark` สำหรับ `.booking-field input/select` ใน dark mode เพื่อให้ native controls ไม่ขาวหลุดธีม
+
+### Files changed
+- `src/pages/Bookingpage.css`
+
+### Verification
+1. สลับธีมเป็น Dark
+2. ตรวจ tabs/header/table ใน Booking queue ต้องไม่เป็นโทน light
+3. ตรวจ date/input/select ไม่ขาวหลุดธีม
+4. functionality เดิมไม่เปลี่ยน (style-only)
+
+## 2026-02-12 18:14 ICT — Bookingpage visual parity pass (Light/Dark) to match Homepage baseline (CSS-only)
+
+### Scope
+- ปรับโทน UI ของ `Bookingpage` ให้สอดคล้องกับ baseline ของ `Homepage` ทั้ง Light/Dark โดยแก้เฉพาะ CSS
+- ไม่มีการแตะ JS/React logic, state, props, event handlers, API calls
+
+### What was improved
+- Rebased สีหลักของ Bookingpage ไปใช้ theme tokens เดียวกับหน้า Home (`--panel`, `--border`, `--text-*`, `--tab-*`, `--button-bg`)
+- ปรับ panel/header/tabs ให้คอนทราสต์และความลึกใกล้เคียงหน้า Home:
+  - ลด hard-coded gradient/white overlays ที่ทำให้ dark mode แฟลตหรือสว่างเกิน
+  - ใช้ border/shadow แบบเดียวกับ Home panel feel
+- ปรับตาราง:
+  - header/background/เส้น grid ให้ยึด token เดียวกับ Home
+  - dark mode ไม่บังคับหัวตารางเป็นสีสว่างขัดธีมอีก
+  - เพิ่ม hover state ให้อ่านง่ายขึ้น
+- ปรับฟอร์ม:
+  - input/select/time controls ให้ใช้ surface เดียวกับธีม
+  - focus ring ให้สม่ำเสมอ (accent เดียวกับระบบ)
+  - ปุ่ม action/ปุ่มย่อยมี border + depth ใกล้เคียงหน้า Home
+- ปรับ modal/status cards ในไฟล์เดียวกันให้ surface และเงาเข้าธีม
+
+### Files changed
+- `src/pages/Bookingpage.css`
+
+### Manual test checklist
+1. เปิดหน้า `Homepage` และ `Bookingpage` ใน Light mode:
+   - panel depth, border weight, text contrast, accent gold ต้องไปทางเดียวกัน
+2. toggle เป็น Dark mode:
+   - ไม่มี header/table ที่หลุดเป็นโทนสว่างจ้า
+   - panel/input/table ยังอ่านง่ายและคอนทราสต์ถูกต้อง
+3. ตรวจ tabs/buttons/inputs focus:
+   - focus outline เห็นชัดและคงที่
+4. ทดสอบการใช้งานเดิม (กรอกฟอร์ม/บันทึก/สลับแท็บ):
+   - behavior ต้องเหมือนเดิมทุกจุด (เพราะ CSS-only)
+
 ## 2026-02-12 17:57 ICT — Standardize initial-fetch guard in CustomerProfileModal (prevent empty-state flash)
 
 ### What happened
