@@ -4,7 +4,7 @@ export default function ProfileBar({ user, loading, theme, onToggleTheme, onLogo
   return (
     <div className="profile-bar">
       <div className="profile-info">
-        <span className="profile-label">Profile</span>
+        <span className="profile-label">ผู้ใช้งาน</span>
         <span className="profile-user">
           {loading ? "Loading..." : user}
         </span>
@@ -21,7 +21,7 @@ export default function ProfileBar({ user, loading, theme, onToggleTheme, onLogo
       </label>
 
       <button type="button" className="logout-btn" onClick={onLogout}>
-        Log out
+        ออกจากระบบ
       </button>
     </div>
   );

@@ -112,7 +112,7 @@ export default function CustomerProfileModal({
       >
         <div className="customer-profile-modal__header">
           <div className="customer-profile-modal__title" id="customer-profile-title">
-            Customer Profile
+            ข้อมูลผู้รับบริการ
           </div>
           <button
             type="button"
@@ -127,14 +127,14 @@ export default function CustomerProfileModal({
 
         <div className="customer-profile-modal__body">
           <section className="cpm-section cpm-profile">
-            <div className="customer-profile-section__title">Customer Info</div>
+            <div className="customer-profile-section__title">ข้อมูลผู้รับบริการ</div>
             <div className="customer-profile-info">
               <div>
-                <div className="customer-profile-label">Full name</div>
+                <div className="customer-profile-label">ชื่อ-นามสกุล</div>
                 <div className="customer-profile-value">{displayName}</div>
               </div>
               <div>
-                <div className="customer-profile-label">Customer ID</div>
+                <div className="customer-profile-label">รหัสผู้รับบริการ</div>
                 <div className="customer-profile-value">{displayId}</div>
               </div>
             </div>
@@ -142,7 +142,7 @@ export default function CustomerProfileModal({
 
           <section className="cpm-section cpm-courses">
             <div className="cpm-courses-head">
-              <h3>Active / Owned Courses</h3>
+              <h3>คอร์สที่ซื้อไว้</h3>
               <div className="cpm-carousel-controls">
                 <button
                   type="button"
@@ -229,7 +229,7 @@ export default function CustomerProfileModal({
                         {maskTotal > 0 ? (
                           <div className="customer-profile-mask">
                             <div className="customer-profile-mask-label">
-                              Mask
+                              มาสก์หน้า
                             </div>
                             <ProgressDots
                               total={maskTotal}
@@ -253,7 +253,7 @@ export default function CustomerProfileModal({
           <section className="cpm-section cpm-history">
             <h3>ประวัติการตัดคอร์ส</h3>
             <div className="customer-profile-muted">
-              Course Usage History (deducted sessions only)
+              ประวัติการใช้บริการ (จำนวนครั้งของคอร์ส)
             </div>
             {loading ? (
               <div className="customer-profile-state">กำลังโหลดประวัติ...</div>
@@ -268,12 +268,12 @@ export default function CustomerProfileModal({
                 <table className="booking-table customer-profile-table">
                   <thead>
                     <tr>
-                      <th className="cpm-col-date">Used at</th>
-                      <th className="cpm-col-course">Course</th>
-                      <th className="cpm-col-session">Session</th>
-                      <th className="cpm-col-mask">Mask</th>
-                      <th className="cpm-col-staff">Staff</th>
-                      <th className="cpm-col-appointment">Appointment</th>
+                      <th className="cpm-col-date">วันที่ใช้</th>
+                      <th className="cpm-col-course">คอร์ส</th>
+                      <th className="cpm-col-session">ครั้งที่</th>
+                      <th className="cpm-col-mask">มาสก์</th>
+                      <th className="cpm-col-staff">พนักงาน</th>
+                      <th className="cpm-col-appointment">การนัดหมาย</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -310,7 +310,7 @@ export default function CustomerProfileModal({
           <section className="cpm-section cpm-appointments">
             <h3>ประวัติการจอง/การมารับบริการ</h3>
             <div className="customer-profile-muted">
-              Appointment History (all bookings/visits, including one-off)
+              ประวัติการจอง/การมารับบริการ (รวมการจองและการมาใช้บริการทั้งหมด รวมถึงบริการครั้งเดียว)
             </div>
             {loading ? (
               <div className="customer-profile-state">กำลังโหลดประวัติการจอง...</div>
@@ -325,11 +325,11 @@ export default function CustomerProfileModal({
                 <table className="booking-table customer-profile-table">
                   <thead>
                     <tr>
-                      <th className="cpm-col-date">Scheduled</th>
-                      <th className="cpm-col-treatment">Treatment</th>
-                      <th className="cpm-col-status">Status</th>
-                      <th className="cpm-col-branch">Branch</th>
-                      <th className="cpm-col-id">ID</th>
+                      <th className="cpm-col-date">วันที่นัด</th>
+                      <th className="cpm-col-treatment">บริการ</th>
+                      <th className="cpm-col-status">สถานะ</th>
+                      <th className="cpm-col-branch">สาขา</th>
+                      <th className="cpm-col-id">รหัส</th>
                     </tr>
                   </thead>
                   <tbody>

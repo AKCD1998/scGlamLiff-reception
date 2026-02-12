@@ -19,7 +19,7 @@ export default function AppointmentsTablePanel({
       )}
 
       <div className="panel-title">
-        <span>Appointments</span>
+        <span>ตารางนัดหมาย</span>
         <strong>ล่าสุด</strong>
         <button type="button" className="add-appointment-btn" onClick={onAddAppointment}>
           +เพิ่มรายการจองคิว
@@ -37,9 +37,9 @@ export default function AppointmentsTablePanel({
               <th>ชื่อ-นามสกุล ลูกค้า</th>
               <th>โทรศัพท์</th>
               <th>อีเมล / line ID</th>
-              <th>Treatment item</th>
-              <th>Staff Name</th>
-              <th>ID</th>
+              <th>บริการ</th>
+              <th>พนักงาน</th>
+              <th>รหัส</th>
               <th>ลบ</th>
             </tr>
           </thead>

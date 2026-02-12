@@ -516,7 +516,7 @@ export default function ServiceConfirmationModal({
           </section>
 
           <section className="scm-section">
-            <div className="scm-section__title">3) ตัวเลือกการใช้งาน</div>
+            <div className="scm-section__title">3) ตัวเลือกการใช้บริการเสริม</div>
             {actionStatus !== "completed" ? (
               <div className="scm-state">เลือกสถานะ “completed” เพื่อเปิดตัวเลือกการตัดคอร์ส</div>
             ) : completingWithoutCourse ? (
