@@ -1,5 +1,45 @@
 # Project Diaries
 
+## 2026-02-12 17:57 ICT — Standardize initial-fetch guard in CustomerProfileModal (prevent empty-state flash)
+
+### What happened
+- ตอนเปิด `CustomerProfileModal` มีบางจังหวะที่เห็น state ว่าง (`ยังไม่มีคอร์ส`, ประวัติว่าง, ตารางว่าง) ก่อนที่ profile fetch จะจบจริง
+
+### Why it recurred
+- pattern เดิมยังเหมือนเคสก่อนหน้า:
+  - ค่าเริ่มต้นของข้อมูลเป็น array ว่าง
+  - loading flag ใน React fetch lifecycle อาจยังไม่ขึ้นทัน render แรก หรือมีจังหวะ flip ระหว่าง transition
+  - UI branch ของ empty state จึงยิงเร็วกว่า “initial fetch resolved”
+- นี่เป็นปัญหาเชิงระบบของ flow ที่อิง `loading` ตรงๆ โดยไม่มี guard สำหรับการ resolve รอบแรก
+
+### Standardized pattern applied
+- ใช้ `hasResolvedOnce` gating สำหรับ initial fetch
+- ใช้ `fetchCompletedRef` + `sawLoadingRef` ป้องกันปิด overlay ก่อนเวลา
+- overlay เปิดทันทีเมื่อ modal เปิด และจะปิดเมื่อ:
+  - fetch lifecycle ถูกมองว่าจบจริง
+  - และ state commit แล้ว (ผ่าน `requestAnimationFrame`)
+- empty state ทุกจุดถูก gate ด้วย `hasResolvedOnce`
+- reset guard ตอน modal ปิด/เปิดใหม่ และตอนสลับ customer
+
+### Coverage status
+- หน้า/โมดอลหลักที่ใช้ pattern เดียวกันแล้ว:
+  - `Homepage`
+  - `Bookingpage`
+  - `ServiceConfirmationModal`
+  - `CustomerProfileModal`
+
+### Files changed
+- `src/components/CustomerProfileModal.jsx`
+- `src/components/CustomerProfileModal.css`
+
+### How to test
+1. เปิด Customer Profile modal
+2. throttle network (เช่น Slow 3G)
+3. ยืนยันว่า overlay แสดงทันที
+4. ยืนยันว่าไม่มี empty-state flash ระหว่างโหลด
+5. overlay ต้องหายเมื่อ UI data นิ่งแล้วเท่านั้น
+6. ปิดแล้วเปิดใหม่ ต้อง reset overlay guard ถูกต้อง
+
 ## 2026-02-12 17:45 ICT — Fix: Prevent empty-state flash in ServiceConfirmationModal (third occurrence of loading bug)
 
 ### What bug happened

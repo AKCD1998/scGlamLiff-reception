@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./CustomerProfileModal.css";
 import ProgressDots from "./ProgressDots";
 
@@ -50,6 +50,9 @@ export default function CustomerProfileModal({
   onRetry,
 }) {
   const closeButtonRef = useRef(null);
+  const fetchCompletedRef = useRef(false);
+  const sawLoadingRef = useRef(false);
+  const [hasResolvedOnce, setHasResolvedOnce] = useState(false);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -62,6 +65,53 @@ export default function CustomerProfileModal({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose, open]);
+
+  const currentCustomerKey = `${customer?.id || ""}:${customer?.fullName || ""}`;
+  const hasProfilePayload = useMemo(() => {
+    if (!profileData || typeof profileData !== "object") return false;
+
+    const expectedId = customer?.id ? String(customer.id) : "";
+    const payloadId = profileData?.customer?.id ? String(profileData.customer.id) : "";
+    if (expectedId && payloadId && expectedId !== payloadId) return false;
+
+    if (profileData.customer && typeof profileData.customer === "object") return true;
+    if (Array.isArray(profileData.packages)) return true;
+    if (Array.isArray(profileData.usage_history)) return true;
+    if (Array.isArray(profileData.appointment_history)) return true;
+    return Object.keys(profileData).length > 0;
+  }, [customer?.id, profileData]);
+
+  useEffect(() => {
+    if (!open) {
+      fetchCompletedRef.current = false;
+      sawLoadingRef.current = false;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHasResolvedOnce(false);
+      return;
+    }
+
+    fetchCompletedRef.current = false;
+    sawLoadingRef.current = false;
+    setHasResolvedOnce(false);
+  }, [currentCustomerKey, open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    if (loading) {
+      sawLoadingRef.current = true;
+      return;
+    }
+
+    const canResolve = Boolean(error) || hasProfilePayload || sawLoadingRef.current;
+    if (!canResolve) return;
+
+    fetchCompletedRef.current = true;
+    const raf = requestAnimationFrame(() => {
+      setHasResolvedOnce(true);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [error, hasProfilePayload, loading, open]);
 
   const customerInfo = profileData?.customer || {};
   const displayName = customerInfo.full_name || customer?.fullName || "-";
@@ -96,6 +146,11 @@ export default function CustomerProfileModal({
     el.scrollBy({ left: delta, behavior: "smooth" });
   }, []);
 
+  const isInitialLoading =
+    open &&
+    !hasResolvedOnce &&
+    (loading || !hasResolvedOnce);
+
   if (!open) return null;
 
   return (
@@ -108,8 +163,19 @@ export default function CustomerProfileModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="customer-profile-title"
+        aria-busy={isInitialLoading ? "true" : undefined}
         onClick={(event) => event.stopPropagation()}
       >
+        {isInitialLoading ? (
+          <div className="modal-loading-overlay" role="status" aria-live="polite">
+            <div className="workbench-loading-card">
+              <div className="workbench-loading-spinner" aria-hidden="true" />
+              <div className="workbench-loading-text">กำลังโหลดข้อมูลลูกค้า...</div>
+              <div className="workbench-loading-subtext">โปรดรอสักครู่</div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="customer-profile-modal__header">
           <div className="customer-profile-modal__title" id="customer-profile-title">
             ข้อมูลผู้รับบริการ
@@ -173,6 +239,8 @@ export default function CustomerProfileModal({
                   </button>
                 ) : null}
               </div>
+            ) : !hasResolvedOnce ? (
+              <div className="customer-profile-state">กำลังโหลดข้อมูล...</div>
             ) : orderedPackages.length === 0 ? (
               <div className="customer-profile-state">ยังไม่มีคอร์ส</div>
             ) : (
@@ -261,6 +329,8 @@ export default function CustomerProfileModal({
               <div className="customer-profile-state customer-profile-state--error">
                 โหลดข้อมูลไม่สำเร็จ: {error}
               </div>
+            ) : !hasResolvedOnce ? (
+              <div className="customer-profile-state">กำลังโหลดข้อมูล...</div>
             ) : usageHistory.length === 0 ? (
               <div className="customer-profile-state">ยังไม่มีประวัติการใช้</div>
             ) : (
@@ -318,6 +388,8 @@ export default function CustomerProfileModal({
               <div className="customer-profile-state customer-profile-state--error">
                 โหลดข้อมูลไม่สำเร็จ: {error}
               </div>
+            ) : !hasResolvedOnce ? (
+              <div className="customer-profile-state">กำลังโหลดข้อมูล...</div>
             ) : appointmentHistory.length === 0 ? (
               <div className="customer-profile-state">ยังไม่มีประวัติการจอง</div>
             ) : (
