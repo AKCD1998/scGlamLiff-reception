@@ -1,10 +1,59 @@
 .booking-modal-card.service-confirmation-modal {
+  position: relative;
   width: min(980px, 94vw);
   max-height: 88vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+}
+
+.modal-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  border-radius: inherit;
+  background: rgba(16, 12, 8, 0.28);
+  backdrop-filter: blur(2px);
+  pointer-events: all;
+}
+
+.modal-loading-overlay .workbench-loading-card {
+  width: min(320px, 90vw);
+  border: 2px solid var(--booking-border);
+  border-radius: 16px;
+  padding: 18px 20px;
+  background: #fffaf6;
+  box-shadow: 0 16px 30px rgba(20, 12, 6, 0.25);
+  color: var(--booking-text);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modal-loading-overlay .workbench-loading-spinner {
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 4px;
+  border-radius: 50%;
+  border: 4px solid rgba(138, 63, 22, 0.2);
+  border-top-color: var(--booking-brown);
+  animation: scm-overlay-spin 0.9s linear infinite;
+}
+
+.modal-loading-overlay .workbench-loading-text {
+  font-weight: 700;
+  color: var(--booking-soft);
+}
+
+.modal-loading-overlay .workbench-loading-subtext {
+  font-size: 0.9rem;
+  color: var(--booking-muted);
 }
 
 .scm-header {
@@ -240,5 +289,11 @@
 
   .scm-status-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@keyframes scm-overlay-spin {
+  to {
+    transform: rotate(360deg);
   }
 }

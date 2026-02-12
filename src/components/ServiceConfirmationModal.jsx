@@ -20,6 +20,7 @@ function statusLabel(status) {
   return "จองแล้ว";
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function buildActivePackages(packages = []) {
   return packages
     .filter((pkg) => String(pkg?.status || "").toLowerCase() === "active")
@@ -86,9 +87,11 @@ export default function ServiceConfirmationModal({
   onAfterAction,
 }) {
   const closeButtonRef = useRef(null);
+  const fetchCompletedRef = useRef(false);
   const [appointment, setAppointment] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [hasResolvedOnce, setHasResolvedOnce] = useState(false);
 
   const [packages, setPackages] = useState([]);
   const [packagesLoading, setPackagesLoading] = useState(false);
@@ -121,8 +124,27 @@ export default function ServiceConfirmationModal({
   }, [onClose, open]);
 
   useEffect(() => {
+    if (!open) {
+      fetchCompletedRef.current = false;
+      setHasResolvedOnce(false);
+      return;
+    }
+
+    if (fetchCompletedRef.current && !loading && !packagesLoading) {
+      const raf = requestAnimationFrame(() => {
+        setHasResolvedOnce(true);
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+
+    return undefined;
+  }, [loading, open, packagesLoading]);
+
+  useEffect(() => {
     if (!open) return;
 
+    fetchCompletedRef.current = false;
+    setHasResolvedOnce(false);
     setAppointment(null);
     setError("");
     setLoading(true);
@@ -138,6 +160,7 @@ export default function ServiceConfirmationModal({
     const controller = new AbortController();
 
     const run = async () => {
+      let shouldFinalize = true;
       try {
         const appointmentId = booking?.appointmentId || booking?.appointment_id || booking?.id || "";
         const customerId = booking?.customerId || booking?.customer_id || null;
@@ -179,14 +202,25 @@ export default function ServiceConfirmationModal({
 
           setPackages(list);
         } catch (pkgErr) {
+          if (pkgErr?.name === "AbortError") {
+            shouldFinalize = false;
+            return;
+          }
           setPackages([]);
           setPackagesError(pkgErr?.message || "โหลดคอร์สไม่สำเร็จ");
         }
       } catch (e) {
+        if (e?.name === "AbortError") {
+          shouldFinalize = false;
+          return;
+        }
         setError(e?.message || "Server error");
       } finally {
-        setPackagesLoading(false);
-        setLoading(false);
+        if (shouldFinalize) {
+          setPackagesLoading(false);
+          setLoading(false);
+          fetchCompletedRef.current = true;
+        }
       }
     };
 
@@ -203,6 +237,11 @@ export default function ServiceConfirmationModal({
     booking?.status,
     open,
   ]);
+
+  const isInitialLoading =
+    open &&
+    !hasResolvedOnce &&
+    (!fetchCompletedRef.current || loading || packagesLoading);
 
   const appointmentStatus = appointment?.status || booking?.status || "booked";
   const canMutate = useMemo(() => {
@@ -351,6 +390,16 @@ export default function ServiceConfirmationModal({
         aria-labelledby="service-confirmation-title"
         onClick={(event) => event.stopPropagation()}
       >
+        {isInitialLoading ? (
+          <div className="modal-loading-overlay" role="status" aria-live="polite">
+            <div className="workbench-loading-card">
+              <div className="workbench-loading-spinner" aria-hidden="true" />
+              <div className="workbench-loading-text">กำลังโหลดข้อมูลลูกค้า...</div>
+              <div className="workbench-loading-subtext">โปรดรอสักครู่</div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="scm-header">
           <div className="scm-title" id="service-confirmation-title">
             ยืนยันการให้บริการ
@@ -434,7 +483,7 @@ export default function ServiceConfirmationModal({
                   </div>
                 ) : null}
               </>
-            ) : activePackages.length === 0 && !allowNoCourseCompletion ? (
+            ) : hasResolvedOnce && activePackages.length === 0 && !allowNoCourseCompletion ? (
               <div className="scm-state scm-state--row">
                 <span>ไม่พบคอร์สที่ใช้งานได้</span>
                 <button
@@ -505,7 +554,7 @@ export default function ServiceConfirmationModal({
                     );
                   })}
                 </div>
-                {activePackages.length === 0 && allowNoCourseCompletion ? (
+                {hasResolvedOnce && activePackages.length === 0 && allowNoCourseCompletion ? (
                   <div className="scm-state">บริการแบบครั้งเดียว: สามารถกด Confirm ได้โดยไม่ตัดคอร์ส</div>
                 ) : null}
               </>

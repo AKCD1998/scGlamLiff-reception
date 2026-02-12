@@ -1,5 +1,35 @@
 # Project Diaries
 
+## 2026-02-12 17:45 ICT — Fix: Prevent empty-state flash in ServiceConfirmationModal (third occurrence of loading bug)
+
+### What bug happened
+- ตอนเปิด `ServiceConfirmationModal` มีบางจังหวะที่ขึ้น empty state เช่น `ไม่พบคอร์สที่ใช้งานได้` ทั้งที่ข้อมูลยังโหลดไม่จบ
+
+### Why it recurred
+- รูปแบบเดิมเหมือนที่เคยเจอใน `Homepage` และ `Bookingpage`:
+  - ค่าเริ่มต้น `packages=[]`
+  - `packagesLoading`/`loading` มีจังหวะยังไม่เป็น true ใน render แรก หรือ flip false ก่อน UI settle
+  - เงื่อนไข empty state (`activePackages.length === 0`) จึงถูก render เร็วเกินไป
+- overlay เดิมอิง loading flag ตรงๆ ทำให้ปิดเร็วตาม state transition ไม่ได้ผูกกับ “initial fetch resolved แล้วจริง”
+
+### Standardized fix pattern
+- ใช้ `hasResolvedOnce` gating สำหรับ initial fetch
+- ใช้ `fetchCompletedRef` เพื่อระบุว่า lifecycle fetch รอบเปิด modal จบจริง
+- ตั้ง `hasResolvedOnce=true` ใน `useEffect` หลัง `loading===false` และ `packagesLoading===false` เท่านั้น
+- reset `hasResolvedOnce` ทุกครั้งที่ modal ปิด/เปิดใหม่
+- guard empty state ให้แสดงได้เฉพาะหลัง `hasResolvedOnce` แล้ว
+
+### Files changed
+- `src/components/ServiceConfirmationModal.jsx`
+- `src/components/ServiceConfirmationModal.css`
+
+### How to test
+1. เปิด Service modal จากหน้า Booking
+2. จำลอง network ช้า (DevTools Slow 3G / throttling)
+3. ยืนยันว่าไม่มี empty state flash ระหว่างโหลด (`ไม่พบคอร์ส...` ต้องไม่โผล่ก่อนเวลา)
+4. overlay ต้องหายเมื่อข้อมูลนิ่งแล้วเท่านั้น
+5. กรณี error: overlay หายแล้วแสดง error state; ไม่เด้งไป empty state ระหว่างโหลด
+
 ## 2026-02-12 17:34 ICT — Fix recurrence: Bookingpage showed empty state during initial load
 
 ### What bug happened
