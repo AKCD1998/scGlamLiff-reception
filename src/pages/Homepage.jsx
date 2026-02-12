@@ -27,7 +27,8 @@ export default function Homepage(props) {
     useAppointmentsFilter(rows, selectedDate);
 
   const del = useDeleteAppointment(onDeleteAppointment, setToast);
-  const isDataLoading = Boolean(loading || !hasLoadedOnce);
+  const pageInitialLoading = Boolean(loading && !hasLoadedOnce);
+  const tableLoading = Boolean(loading && hasLoadedOnce);
 
   useEffect(() => {
     if (!toast) return;
@@ -43,7 +44,7 @@ export default function Homepage(props) {
   return (
     <section
       className="workbench-body homepage-content"
-      aria-busy={isDataLoading ? "true" : undefined}
+      aria-busy={loading ? "true" : undefined}
     >
       <ScheduleCalendarPanel
         selectedDate={selectedDate}
@@ -60,7 +61,7 @@ export default function Homepage(props) {
       />
 
       <AppointmentsTablePanel
-        loading={isDataLoading}
+        loading={tableLoading}
         hasLoadedOnce={hasLoadedOnce}
         error={error}
         selectedDate={selectedDate}
@@ -83,7 +84,7 @@ export default function Homepage(props) {
 
       <Toast toast={toast} />
       <LoadingOverlay
-        open={isDataLoading}
+        open={pageInitialLoading}
         label="กำลังโหลดข้อมูล..."
         subtext="โปรดรอสักครู่"
       />

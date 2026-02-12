@@ -1,5 +1,84 @@
 # Project Diaries
 
+## 2026-02-12 17:27 ICT — Add Bookingpage full-page loading overlay (queue + customers) with hasLoadedOnce gating; prevent double overlay
+
+### Summary
+- เพิ่ม full-page loading overlay บน `Bookingpage` สำหรับโหลดครั้งแรกของแต่ละแท็บ (Queue / Customers)
+- กัน overlay ซ้อน โดยแยกเงื่อนไข:
+  - initial load ต่อแท็บ = ใช้ full-page overlay
+  - โหลดรอบถัดไป = ใช้ panel/table-level loading เดิม
+- ปรับให้ error ยังแสดงใน panel ได้ตามปกติ (overlay ปิดเมื่อโหลดจบ แม้จบด้วย error)
+
+### Files changed
+- `src/pages/Bookingpage.jsx`
+- `src/pages/Bookingpage.css`
+
+### Implementation notes
+- เพิ่ม state:
+  - `queueHasLoadedOnce`
+  - `customersHasLoadedOnce`
+- เพิ่ม computed loading:
+  - `isQueueInitialLoading = activeTab === "queue" && loading && !queueHasLoadedOnce`
+  - `isCustomersInitialLoading = activeTab !== "queue" && customersLoading && !customersHasLoadedOnce` (ครอบกรณี first open ก่อน fetch เริ่มด้วย `!customersLoaded`)
+  - `isPageOverlayOpen = isQueueInitialLoading || isCustomersInitialLoading`
+- ปรับ prop ลง panel:
+  - `QueuePanel.loading = loading && queueHasLoadedOnce`
+  - `CustomerPanel.customersLoading = customersLoading && customersHasLoadedOnce`
+- เพิ่ม `LoadingOverlay` ใน `booking-grid` และใส่ `aria-busy` ตอน overlay เปิด
+- เพิ่ม `position: relative` ให้ `.booking-grid` เพื่อให้ overlay ครอบเฉพาะพื้นที่ grid
+
+### Regression risk
+- หากมี flow ที่พึ่งพา `loading=true` ของ panel ตั้งแต่รอบแรก อาจเปลี่ยน behavior เล็กน้อย (รอบแรกจะถูกบังด้วย page overlay แทน)
+- ในโหมด StrictMode ที่ abort/replay effect เร็วมาก อาจมีจังหวะเปลี่ยน state ถี่ แต่ overlay/empty-state ถูกกันไว้ด้วย hasLoadedOnce gating
+
+### How to test
+1. เปิดหน้า Booking ครั้งแรก:
+   - เห็น full-page overlay (`กำลังโหลดข้อมูล...`) แล้วหายเมื่อคิวโหลดเสร็จ
+2. เปลี่ยนไปแท็บ Customers ครั้งแรก:
+   - หากกำลังโหลดลูกค้า ให้เห็น full-page overlay ครั้งเดียว แล้วหาย
+3. หลังแท็บนั้นโหลดครบแล้ว:
+   - เปลี่ยน filter/รีโหลดข้อมูล ต้องไม่ขึ้น full-page overlay อีก
+   - เห็นเฉพาะ panel-level loading (`กำลังโหลด...`) ได้
+4. จำลอง error:
+   - overlay ต้องหายเมื่อโหลดจบด้วย error
+   - ข้อความ error ในตารางยังแสดง
+
+## 2026-02-12 — Homepage loading UX: initial-load overlay + no double overlay
+
+### Problem observed
+- หน้า Home/Workbench เคยมี 2 ปัญหา:
+  - บางจังหวะขึ้น `ไม่มีข้อมูล` ระหว่างที่ request แรกยังไม่จบ
+  - มี overlay ซ้อนกัน 2 ชั้น (full-page + table overlay) ตอนโหลด
+
+### What changed
+- เพิ่ม reusable full-page overlay component:
+  - `src/components/LoadingOverlay.jsx`
+  - `src/components/LoadingOverlay.css`
+- ผูก full-page overlay กับ `Homepage` และเพิ่ม accessibility:
+  - `aria-busy` ที่ container หลัก
+  - `role="status"` / `aria-live="polite"` ที่ overlay
+  - ไฟล์: `src/pages/Homepage.jsx`, `src/pages/Homepage.css`
+- ทำให้ fetch state ใน `useAppointments` แข็งแรงขึ้นด้วย request guard + `hasLoadedOnce`:
+  - ป้องกัน stale/aborted request มากด `loading=false` ก่อน request ล่าสุดจบ
+  - ไฟล์: `src/pages/workbench/useAppointments.js`
+- ส่ง `hasLoadedOnce` จาก parent ลงหน้า Home/Table:
+  - `src/pages/WorkbenchPage.jsx`
+  - `src/pages/Homepage.jsx`
+  - `src/components/appointments/AppointmentsTablePanel.jsx`
+- ปรับกติกาการแสดง loading ให้ไม่ซ้อนกัน:
+  - `pageInitialLoading = loading && !hasLoadedOnce` (ใช้ full-page overlay เฉพาะ initial load)
+  - `tableLoading = loading && hasLoadedOnce` (ใช้ table overlay เฉพาะ reload รอบถัดไป)
+  - Empty state `ไม่มีข้อมูล` จะแสดงเมื่อโหลดเสร็จแล้วเท่านั้น
+
+### Result
+- เข้า Home ครั้งแรกหลัง login: เห็น full-page loading ชัดเจน
+- โหลดรอบถัดไป (เช่นเปลี่ยนวัน/รีโหลด): เห็นเฉพาะ table-level loading
+- ไม่เกิด overlay ซ้อนสองชั้น และ error state ยังแสดงได้ตามปกติเมื่อโหลดล้มเหลว
+
+### Verification
+- `npx eslint src/pages/workbench/useAppointments.js src/pages/WorkbenchPage.jsx src/pages/Homepage.jsx src/components/appointments/AppointmentsTablePanel.jsx`
+- `npm run build`
+
 ## 2026-02-11 — Refactor: Bookingpage Step 1 (extract helpers/constants)
 
 ### What changed

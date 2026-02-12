@@ -25,6 +25,7 @@ import BookingFormPanel from "./booking/components/BookingFormPanel";
 import CustomerPanel from "./booking/components/CustomerPanel";
 import QueuePanel from "./booking/components/QueuePanel";
 import StatusOverlay from "./booking/components/StatusOverlay";
+import LoadingOverlay from "../components/LoadingOverlay";
 import {
   formatAppointmentStatus,
   getRowTimestamp,
@@ -54,6 +55,8 @@ export default function Bookingpage() {
   const [customersLoading, setCustomersLoading] = useState(false);
   const [customersError, setCustomersError] = useState(null);
   const [customersLoaded, setCustomersLoaded] = useState(false);
+  const [queueHasLoadedOnce, setQueueHasLoadedOnce] = useState(false);
+  const [customersHasLoadedOnce, setCustomersHasLoadedOnce] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [customerProfile, setCustomerProfile] = useState(null);
@@ -132,10 +135,12 @@ export default function Bookingpage() {
       const data = await getAppointmentsQueue({ limit: 200 }, signal);
       const normalized = (data.rows || []).map(normalizeRow);
       setRows(normalized);
+      setQueueHasLoadedOnce(true);
     } catch (err) {
       if (err?.name === "AbortError") return;
       setError(err?.message || "Error loading appointments");
       setRows([]);
+      setQueueHasLoadedOnce(true);
     } finally {
       setLoading(false);
     }
@@ -224,11 +229,13 @@ export default function Bookingpage() {
       const normalized = (data.rows || []).map(normalizeCustomerRow);
       setCustomers(normalized);
       setCustomersLoaded(true);
+      setCustomersHasLoadedOnce(true);
     } catch (err) {
       if (err?.name === "AbortError") return;
       setCustomersError(err?.message || "Error loading customers");
       setCustomers([]);
       setCustomersLoaded(true);
+      setCustomersHasLoadedOnce(true);
     } finally {
       setCustomersLoading(false);
     }
@@ -626,9 +633,17 @@ export default function Bookingpage() {
     setStaffName(value);
   }, []);
 
+  const isQueueTab = activeTab === "queue";
+  const isQueueInitialLoading = isQueueTab && loading && !queueHasLoadedOnce;
+  const isCustomersInitialLoading =
+    !isQueueTab && !customersHasLoadedOnce && (customersLoading || !customersLoaded);
+  const isPageOverlayOpen = isQueueInitialLoading || isCustomersInitialLoading;
+  const queuePanelLoading = loading && queueHasLoadedOnce;
+  const customerPanelLoading = customersLoading && customersHasLoadedOnce;
+
   return (
     <section className="booking-page">
-      <div className="booking-grid">
+      <div className="booking-grid" aria-busy={isPageOverlayOpen ? "true" : undefined}>
         <section className="booking-panel">
           <BookingTabs activeTab={activeTab} onSelectTab={setActiveTab} />
           <div className="booking-panel-body">
@@ -637,7 +652,7 @@ export default function Bookingpage() {
                 queueDateFilter={queueDateFilter}
                 onChangeQueueDateFilter={setQueueDateFilter}
                 onClearQueueDateFilter={() => setQueueDateFilter("")}
-                loading={loading}
+                loading={queuePanelLoading}
                 error={error}
                 rows={filteredRows}
                 onOpenServiceModal={handleOpenServiceModal}
@@ -645,7 +660,7 @@ export default function Bookingpage() {
               />
             ) : (
               <CustomerPanel
-                customersLoading={customersLoading}
+                customersLoading={customerPanelLoading}
                 customersError={customersError}
                 customers={customers}
                 shortenId={shortenId}
@@ -683,6 +698,11 @@ export default function Bookingpage() {
           submitSuccess={submitSuccess}
           onSave={handleSaveClick}
           SELECT_STYLES={SELECT_STYLES}
+        />
+        <LoadingOverlay
+          open={isPageOverlayOpen}
+          label="กำลังโหลดข้อมูล..."
+          subtext="โปรดรอสักครู่"
         />
       </div>
       <AdminOverrideModal
