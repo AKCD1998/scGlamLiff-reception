@@ -10,7 +10,6 @@ import AdminEditAppointment from "./AdminEditAppointment";
 import AdminUsersPage from "./AdminUsersPage";
 import "./WorkbenchPage.css";
 import TabPlaceholder from "../components/TabPlaceholder";
-import WorkbenchLoadingOverlay from "../components/WorkbenchLoadingOverlay";
 import { useAppointments } from "./workbench/useAppointments";
 import { useHomePickerState } from "./workbench/useHomePickerState";
 import { useTheme } from "./workbench/useTheme";
@@ -117,9 +116,6 @@ export default function WorkbenchPage() {
       <TopTabs activeTab={activeTab} onChange={setActiveTab} tabs={tabs} />
 
       {renderTabContent()}
-
-      
-      <WorkbenchLoadingOverlay open={activeTab === "home" && loading} />
     </div>
   );
 }

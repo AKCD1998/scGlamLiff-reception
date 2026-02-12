@@ -6,6 +6,8 @@ import ScheduleCalendarPanel from "../components/calendar/ScheduleCalendarPanel"
 import AppointmentsTablePanel from "../components/appointments/AppointmentsTablePanel";
 import DeleteAppointmentModal from "../components/appointments/DeleteAppointmentModal";
 import Toast from "../components/appointments/Toast";
+import LoadingOverlay from "../components/LoadingOverlay";
+import "./Homepage.css";
 
 export default function Homepage(props) {
   const {
@@ -25,6 +27,7 @@ export default function Homepage(props) {
     useAppointmentsFilter(rows, selectedDate);
 
   const del = useDeleteAppointment(onDeleteAppointment, setToast);
+  const isDataLoading = Boolean(loading);
 
   useEffect(() => {
     if (!toast) return;
@@ -38,7 +41,10 @@ export default function Homepage(props) {
   };
 
   return (
-    <section className="workbench-body">
+    <section
+      className="workbench-body homepage-content"
+      aria-busy={isDataLoading ? "true" : undefined}
+    >
       <ScheduleCalendarPanel
         selectedDate={selectedDate}
         setSelectedDate={setSelectedDate}
@@ -75,6 +81,11 @@ export default function Homepage(props) {
       />
 
       <Toast toast={toast} />
+      <LoadingOverlay
+        open={isDataLoading}
+        label="กำลังโหลดข้อมูล..."
+        subtext="โปรดรอสักครู่"
+      />
     </section>
   );
 }
