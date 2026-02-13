@@ -21,6 +21,8 @@ export default function Homepage(props) {
     onAddAppointment,
     onDeleteAppointment,
     canManageTestRecords = false,
+    glowDays,
+    glowError,
   } = props;
 
   const [toast, setToast] = useState(null);
@@ -39,7 +41,7 @@ export default function Homepage(props) {
     return Math.max((rows?.length || 0) - visibleRows.length, 0);
   }, [rows, effectiveShowTestRecords, visibleRows.length]);
 
-  const { activeFilterKey, filteredRows, bookingDates } =
+  const { activeFilterKey, filteredRows } =
     useAppointmentsFilter(visibleRows, selectedDate);
 
   const del = useDeleteAppointment(onDeleteAppointment, setToast);
@@ -73,7 +75,8 @@ export default function Homepage(props) {
         setPickerMonth={setPickerMonth}
         pickerYear={pickerYear}
         setPickerYear={setPickerYear}
-        bookingDates={bookingDates}
+        glowDays={glowDays}
+        glowError={glowError}
       />
 
       <AppointmentsTablePanel

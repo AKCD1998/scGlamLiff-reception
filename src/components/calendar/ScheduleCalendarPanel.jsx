@@ -2,6 +2,7 @@ import { DayPicker } from "react-day-picker";
 import "react-day-picker/dist/style.css";
 import MonthYearPopover from "./MonthYearPopover";
 import { useThaiCalendar } from "../../hooks/useThaiCalendar";
+import { formatDateKey } from "../../utils/dateFormat";
 
 export default function ScheduleCalendarPanel({
   selectedDate,
@@ -14,7 +15,8 @@ export default function ScheduleCalendarPanel({
   setPickerMonth,
   pickerYear,
   setPickerYear,
-  bookingDates,
+  glowDays,
+  glowError,
 }) {
   const { monthLabel, yearRange, addMonths } = useThaiCalendar(displayMonth);
 
@@ -97,10 +99,19 @@ export default function ScheduleCalendarPanel({
         weekStartsOn={1}
         showOutsideDays={false}
         fixedWeeks
-        modifiers={{ hasBooking: bookingDates }}
+        modifiers={{
+          hasBooking: (day) =>
+            glowDays instanceof Set && glowDays.has(formatDateKey(day)),
+        }}
         modifiersClassNames={{ hasBooking: "rdp-day-hasBooking" }}
         className="calendar-picker"
       />
+
+      <div className="calendar-legend" aria-live="polite">
+        <span className="calendar-legend-dot" aria-hidden="true" />
+        <span>มีคิว</span>
+        {glowError ? <em>โหลดวันนัดหมายไม่สำเร็จ</em> : null}
+      </div>
     </div>
   );
 }

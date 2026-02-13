@@ -403,6 +403,28 @@ body[data-theme="dark"] {
   filter: blur(8px);
 }
 
+.calendar-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.calendar-legend-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(255, 215, 0, 0.45);
+  box-shadow: 0 0 10px rgba(255, 200, 0, 0.45);
+}
+
+.calendar-legend em {
+  font-style: normal;
+  color: #b65a2a;
+}
+
 .week-header {
   display: grid;
   grid-template-columns: repeat(7, 1fr);

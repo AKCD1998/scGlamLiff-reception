@@ -802,3 +802,83 @@ export async function listAppointmentsQueue(req, res) {
   }
 }
 
+export async function listAppointmentCalendarDays(req, res) {
+  const from = normalizeText(req.query?.from);
+  const to = normalizeText(req.query?.to);
+  const branchId = normalizeText(req.query?.branch_id);
+
+  if (!from || !to) {
+    return badRequest(res, 'Missing query parameters: from/to', {
+      required: ['from', 'to'],
+    });
+  }
+
+  if (!DATE_PATTERN.test(from) || !DATE_PATTERN.test(to)) {
+    return badRequest(res, 'Invalid query parameter: from/to', {
+      from,
+      to,
+      expected: 'YYYY-MM-DD',
+    });
+  }
+
+  if (from > to) {
+    return badRequest(res, 'Invalid date range: from is after to', { from, to });
+  }
+
+  if (branchId && !BRANCH_ID_PATTERN.test(branchId)) {
+    return badRequest(res, 'Invalid query parameter: branch_id', {
+      param: 'branch_id',
+      provided: branchId,
+      expected: 'uuid',
+    });
+  }
+
+  try {
+    const params = [from, to];
+    const whereParts = [
+      `DATE(a.scheduled_at AT TIME ZONE 'Asia/Bangkok') BETWEEN $1 AND $2`,
+    ];
+
+    if (branchId) {
+      params.push(branchId);
+      whereParts.push(`a.branch_id = $${params.length}`);
+    }
+
+    const { rows } = await query(
+      `
+        SELECT
+          TO_CHAR(
+            DATE(a.scheduled_at AT TIME ZONE 'Asia/Bangkok'),
+            'YYYY-MM-DD'
+          ) AS date,
+          COUNT(*)::int AS count,
+          SUM(CASE WHEN LOWER(COALESCE(a.status, '')) = 'booked' THEN 1 ELSE 0 END)::int AS booked_count,
+          SUM(CASE WHEN LOWER(COALESCE(a.status, '')) = 'completed' THEN 1 ELSE 0 END)::int AS completed_count,
+          SUM(CASE WHEN LOWER(COALESCE(a.status, '')) IN ('no_show', 'no-show', 'noshow') THEN 1 ELSE 0 END)::int AS no_show_count,
+          SUM(CASE WHEN LOWER(COALESCE(a.status, '')) IN ('cancelled', 'canceled') THEN 1 ELSE 0 END)::int AS cancelled_count
+        FROM appointments a
+        WHERE ${whereParts.join(' AND ')}
+        GROUP BY DATE(a.scheduled_at AT TIME ZONE 'Asia/Bangkok')
+        ORDER BY DATE(a.scheduled_at AT TIME ZONE 'Asia/Bangkok') ASC
+      `,
+      params
+    );
+
+    const days = (rows || []).map((row) => ({
+      date: normalizeText(row.date),
+      count: Number(row.count) || 0,
+      status_counts: {
+        booked: Number(row.booked_count) || 0,
+        completed: Number(row.completed_count) || 0,
+        no_show: Number(row.no_show_count) || 0,
+        cancelled: Number(row.cancelled_count) || 0,
+      },
+    }));
+
+    return res.json({ ok: true, from, to, days });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ ok: false, error: 'Server error' });
+  }
+}
+

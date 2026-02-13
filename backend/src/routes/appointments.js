@@ -16,6 +16,7 @@ import {
 } from '../controllers/appointmentServiceController.js';
 import { adminBackdateAppointment } from '../controllers/adminAppointmentsController.js';
 import {
+  listAppointmentCalendarDays,
   listAppointmentsQueue,
   listBookingTreatmentOptions,
 } from '../controllers/appointmentsQueueController.js';
@@ -32,6 +33,7 @@ router.post('/admin/backdate', requireAuth, requireAdmin, adminBackdateAppointme
 // Appointments-first queue (for replacing /api/visits?source=sheet later).
 router.get('/queue', requireAuth, listAppointmentsQueue);
 router.get('/booking-options', requireAuth, listBookingTreatmentOptions);
+router.get('/calendar-days', requireAuth, listAppointmentCalendarDays);
 
 router.get('/', listAppointments);
 router.post('/', requireAuth, createStaffAppointment);

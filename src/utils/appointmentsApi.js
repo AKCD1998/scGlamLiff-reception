@@ -311,3 +311,25 @@ export async function getBookingTreatmentOptions(signal) {
   }
   return data;
 }
+
+export async function getCalendarDays({ from, to, branchId } = {}, signal) {
+  ensureConfig();
+  if (!from || !to) {
+    throw new Error("Missing required params: from/to");
+  }
+  const params = new URLSearchParams();
+  params.set("from", from);
+  params.set("to", to);
+  if (branchId) params.set("branch_id", branchId);
+  const url = `${base}/api/appointments/calendar-days?${params.toString()}`;
+  const res = await fetch(url, {
+    method: "GET",
+    credentials: "include",
+    signal,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) {
+    throw buildApiError(res, data, "Calendar days request failed");
+  }
+  return data;
+}

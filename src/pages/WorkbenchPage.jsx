@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import TopTabs from "../components/TopTabs";
 import ProfileBar from "../components/ProfileBar";
 import { logout } from "../utils/authClient";
+import { getCalendarDays } from "../utils/appointmentsApi";
+import { buildCalendarDaySet } from "../utils/appointmentCalendarUtils";
+import { formatDateKey } from "../utils/dateFormat";
 import Homepage from "./Homepage";
 import Bookingpage from "./Bookingpage";
 import AdminBackdate from "./AdminBackdate";
@@ -20,9 +23,45 @@ import { useMe } from "./workbench/useMe";
 export default function WorkbenchPage() {
   const [activeTab, setActiveTab] = useState("home");
   const homePicker = useHomePickerState();
+  const [glowDays, setGlowDays] = useState(() => new Set());
+  const [glowError, setGlowError] = useState("");
+  const glowRequestIdRef = useRef(0);
+
+  const monthRange = useMemo(() => {
+    const month = homePicker.displayMonth;
+    if (!(month instanceof Date) || Number.isNaN(month.getTime())) {
+      return { from: "", to: "" };
+    }
+    const start = new Date(month.getFullYear(), month.getMonth(), 1);
+    const end = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+    return { from: formatDateKey(start), to: formatDateKey(end) };
+  }, [homePicker.displayMonth]);
+
+  const refreshGlow = useCallback(async () => {
+    const { from, to } = monthRange;
+    if (!from || !to) return;
+
+    const requestId = glowRequestIdRef.current + 1;
+    glowRequestIdRef.current = requestId;
+    setGlowError("");
+
+    try {
+      const data = await getCalendarDays({ from, to });
+      if (requestId !== glowRequestIdRef.current) return;
+
+      const days = data?.days || [];
+      setGlowDays(buildCalendarDaySet(days));
+    } catch (err) {
+      if (requestId !== glowRequestIdRef.current) return;
+      setGlowError(err?.message || "โหลดวันนัดหมายไม่สำเร็จ");
+      setGlowDays(new Set());
+    }
+  }, [monthRange]);
+
   const { rows, loading, error, hasLoadedOnce, deleteAppointment, refetch } = useAppointments({
     limit: 50,
     selectedDate: homePicker.selectedDate,
+    onAfterMutation: refreshGlow,
   });
   const { theme, toggleTheme } = useTheme();
   const { me, userLabel, loadingUser } = useMe();
@@ -67,6 +106,11 @@ export default function WorkbenchPage() {
     void refetch();
   }, [activeTab, refetch]);
 
+  useEffect(() => {
+    if (activeTab !== "home") return;
+    void refreshGlow();
+  }, [activeTab, refreshGlow]);
+
   const renderTabContent = () => {
     switch (activeTab) {
       case "booking":
@@ -103,6 +147,8 @@ export default function WorkbenchPage() {
             onAddAppointment={() => setActiveTab("booking")}
             onDeleteAppointment={handleDeleteAppointment}
             canManageTestRecords={canManageTestRecords}
+            glowDays={glowDays}
+            glowError={glowError}
           />
         );
     }
