@@ -166,6 +166,107 @@ function mapTreatmentToOption(row) {
   };
 }
 
+function buildQueueFilters({ date, branchId }) {
+  const params = [];
+  const whereParts = [];
+  const excluded = [...DEFAULT_EXCLUDED_STATUSES];
+
+  whereParts.push(
+    `LOWER(COALESCE(a.status, '')) NOT IN (${excluded.map((_, i) => `$${i + 1}`).join(', ')})`
+  );
+  params.push(...excluded);
+
+  if (branchId) {
+    params.push(branchId);
+    whereParts.push(`a.branch_id = $${params.length}`);
+  }
+
+  if (date) {
+    params.push(date);
+    whereParts.push(`DATE(a.scheduled_at AT TIME ZONE 'Asia/Bangkok') = $${params.length}`);
+  }
+
+  return { params, whereParts };
+}
+
+function shouldFallbackToLegacyQueue(error) {
+  const code = normalizeText(error?.code);
+  if (code === '42P01' || code === '42703') return true; // undefined table/column
+
+  const message = normalizeText(error?.message).toLowerCase();
+  return message.includes('does not exist');
+}
+
+function normalizeLegacyQueueRows(rows) {
+  return rows.map((row) => {
+    const rawLineUserId = normalizeText(row.raw_line_user_id);
+    const phoneFromLine = rawLineUserId.toLowerCase().startsWith('phone:')
+      ? rawLineUserId.slice(6)
+      : '';
+    const normalizedPhone = sanitizeThaiPhone(phoneFromLine);
+    const { raw_line_user_id: _ignored, ...rest } = row;
+
+    return {
+      ...rest,
+      phone: normalizedPhone,
+      lineId: sanitizeDisplayLineId(rawLineUserId),
+      staffName: sanitizeDisplayStaffName(row.staffName),
+      treatmentItemDisplay: normalizeText(row.treatmentItem),
+    };
+  });
+}
+
+async function queryLegacyQueueRows({ date, branchId, limit }) {
+  const { params, whereParts } = buildQueueFilters({ date, branchId });
+  params.push(limit);
+  const limitParam = `$${params.length}`;
+  const orderBy = date ? 'a.scheduled_at ASC' : 'a.scheduled_at DESC';
+
+  const { rows } = await query(
+    `
+      SELECT
+        a.id,
+        a.id AS appointment_id,
+        a.scheduled_at AS scheduled_at,
+        a.status AS status,
+        a.branch_id AS branch_id,
+        a.treatment_id AS treatment_id,
+        a.customer_id AS customer_id,
+        a.raw_sheet_uuid AS raw_sheet_uuid,
+        COALESCE(NULLIF(t.code, ''), '') AS treatment_code,
+        COALESCE(NULLIF(t.title_en, ''), '') AS treatment_title_en,
+        COALESCE(TO_CHAR(a.scheduled_at AT TIME ZONE 'Asia/Bangkok', 'YYYY-MM-DD'), '') AS date,
+        COALESCE(TO_CHAR(a.scheduled_at AT TIME ZONE 'Asia/Bangkok', 'HH24:MI'), '') AS "bookingTime",
+        COALESCE(c.full_name, '') AS customer_full_name,
+        COALESCE(c.full_name, '') AS "customerName",
+        COALESCE(NULLIF(a.line_user_id, ''), '') AS raw_line_user_id,
+        COALESCE(
+          NULLIF(t.title_th, ''),
+          NULLIF(t.title_en, ''),
+          NULLIF(t.code, ''),
+          ''
+        ) AS treatment_name,
+        COALESCE(
+          NULLIF(t.title_th, ''),
+          NULLIF(t.title_en, ''),
+          NULLIF(t.code, ''),
+          ''
+        ) AS "treatmentItem",
+        COALESCE(NULLIF(svr.staff_name, ''), '-') AS "staffName"
+      FROM appointments a
+      LEFT JOIN customers c ON a.customer_id = c.id
+      LEFT JOIN treatments t ON a.treatment_id = t.id
+      LEFT JOIN sheet_visits_raw svr ON svr.sheet_uuid = a.raw_sheet_uuid
+      ${whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : ''}
+      ORDER BY ${orderBy}
+      LIMIT ${limitParam}
+    `,
+    params
+  );
+
+  return normalizeLegacyQueueRows(rows || []);
+}
+
 export async function listBookingTreatmentOptions(req, res) {
   try {
     const treatmentResult = await query(
@@ -262,26 +363,7 @@ export async function listAppointmentsQueue(req, res) {
   }
 
   try {
-    const params = [];
-    const whereParts = [];
-
-    // Default: hide cancelled/no_show from the operational queue.
-    const excluded = [...DEFAULT_EXCLUDED_STATUSES];
-    whereParts.push(
-      `LOWER(COALESCE(a.status, '')) NOT IN (${excluded.map((_, i) => `$${i + 1}`).join(', ')})`
-    );
-    params.push(...excluded);
-
-    if (branchId) {
-      params.push(branchId);
-      whereParts.push(`a.branch_id = $${params.length}`);
-    }
-
-    if (date) {
-      params.push(date);
-      whereParts.push(`DATE(a.scheduled_at AT TIME ZONE 'Asia/Bangkok') = $${params.length}`);
-    }
-
+    const { params, whereParts } = buildQueueFilters({ date, branchId });
     params.push(limit);
     const limitParam = `$${params.length}`;
 
@@ -596,8 +678,47 @@ export async function listAppointmentsQueue(req, res) {
 
     return res.json(responseBody);
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ ok: false, error: 'Server error' });
+    const errorCode = normalizeText(error?.code);
+    const errorMessage = normalizeText(error?.message) || 'Queue query failed';
+    console.error('[appointmentsQueue] queue query failed', {
+      code: errorCode || null,
+      message: errorMessage,
+    });
+
+    if (shouldFallbackToLegacyQueue(error)) {
+      try {
+        const legacyRows = await queryLegacyQueueRows({ date, branchId, limit });
+        const warnings = [];
+        if (limitWarning) warnings.push(limitWarning);
+        warnings.push({
+          type: 'fallback',
+          reason:
+            'Queue served via legacy schema fallback because backend schema is missing queue dependencies.',
+          code: errorCode || null,
+        });
+
+        return res.json({
+          ok: true,
+          rows: legacyRows,
+          meta: { warnings },
+        });
+      } catch (legacyError) {
+        console.error('[appointmentsQueue] legacy fallback failed', {
+          code: normalizeText(legacyError?.code) || null,
+          message: normalizeText(legacyError?.message) || 'Legacy fallback failed',
+        });
+      }
+    }
+
+    const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+    return res.status(500).json({
+      ok: false,
+      error: 'Queue query failed',
+      message: isProd
+        ? 'Backend queue query failed. Check Render logs for SQL/schema mismatch.'
+        : errorMessage,
+      code: errorCode || null,
+    });
   }
 }
 
