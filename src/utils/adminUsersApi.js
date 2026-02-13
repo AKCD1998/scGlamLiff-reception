@@ -1,9 +1,11 @@
 import { getApiBaseUrl } from "./runtimeEnv";
 
 const base = getApiBaseUrl();
+const isDev = Boolean(import.meta.env.DEV);
 
 function ensureConfig() {
-  if (!base) {
+  // Allow relative /api only in local dev (for Vite proxy scenarios).
+  if (!base && !isDev) {
     throw new Error("Missing VITE_API_BASE_URL (or legacy VITE_API_BASE)");
   }
 }

@@ -1,6 +1,7 @@
 import { query } from '../db.js';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const BRANCH_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const UUID_PATTERN =
   '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$';
 const DEFAULT_LIMIT = 200;
@@ -15,9 +16,46 @@ function normalizeText(value) {
 }
 
 function parseLimit(value) {
+  const raw = normalizeText(value);
+  if (!raw) {
+    return { limit: DEFAULT_LIMIT, warning: null };
+  }
+
   const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_LIMIT;
-  return Math.min(parsed, MAX_LIMIT);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return {
+      limit: DEFAULT_LIMIT,
+      warning: {
+        param: 'limit',
+        provided: raw,
+        applied: DEFAULT_LIMIT,
+        reason: 'must be a positive integer',
+      },
+    };
+  }
+
+  if (parsed > MAX_LIMIT) {
+    return {
+      limit: MAX_LIMIT,
+      warning: {
+        param: 'limit',
+        provided: raw,
+        applied: MAX_LIMIT,
+        reason: `exceeds max ${MAX_LIMIT}; capped to maximum`,
+      },
+    };
+  }
+
+  return { limit: parsed, warning: null };
+}
+
+function badRequest(res, message, details = {}) {
+  return res.status(400).json({
+    ok: false,
+    error: 'Bad Request',
+    message,
+    details,
+  });
 }
 
 function toInt(value) {
@@ -205,10 +243,22 @@ export async function listBookingTreatmentOptions(req, res) {
 export async function listAppointmentsQueue(req, res) {
   const date = normalizeText(req.query?.date);
   const branchId = normalizeText(req.query?.branch_id);
-  const limit = parseLimit(req.query?.limit);
+  const { limit, warning: limitWarning } = parseLimit(req.query?.limit);
 
   if (date && !DATE_PATTERN.test(date)) {
-    return res.status(400).json({ ok: false, error: 'Invalid date format. Use YYYY-MM-DD' });
+    return badRequest(res, 'Invalid query parameter: date', {
+      param: 'date',
+      provided: date,
+      expected: 'YYYY-MM-DD',
+    });
+  }
+
+  if (branchId && !BRANCH_ID_PATTERN.test(branchId)) {
+    return badRequest(res, 'Invalid query parameter: branch_id', {
+      param: 'branch_id',
+      provided: branchId,
+      expected: 'uuid',
+    });
   }
 
   try {
@@ -539,7 +589,12 @@ export async function listAppointmentsQueue(req, res) {
       };
     });
 
-    return res.json({ ok: true, rows: normalizedRows });
+    const responseBody = { ok: true, rows: normalizedRows };
+    if (limitWarning) {
+      responseBody.meta = { warnings: [limitWarning] };
+    }
+
+    return res.json(responseBody);
   } catch (error) {
     console.error(error);
     return res.status(500).json({ ok: false, error: 'Server error' });

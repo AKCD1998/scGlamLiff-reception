@@ -1,6 +1,7 @@
 import { getApiBaseUrl } from "./runtimeEnv";
 
 const base = getApiBaseUrl();
+const isDev = Boolean(import.meta.env.DEV);
 const shouldLogApiBase =
   import.meta.env.DEV ||
   String(import.meta.env.VITE_LOG_API_BASE || "").trim().toLowerCase() === "true";
@@ -10,7 +11,8 @@ if (typeof window !== "undefined" && shouldLogApiBase) {
 }
 
 function ensureConfig() {
-  if (!base) {
+  // Allow relative /api only in local dev (for Vite proxy scenarios).
+  if (!base && !isDev) {
     throw new Error("Missing VITE_API_BASE_URL (or legacy VITE_API_BASE)");
   }
 }
@@ -261,7 +263,22 @@ export async function getAppointmentsQueue({ date, branchId, limit = 200 } = {},
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) {
-    throw new Error(data.error || "Server returned error");
+    if (typeof window !== "undefined") {
+      console.error("[appointmentsApi] queue request failed", {
+        status: res.status,
+        url,
+        response: data,
+      });
+    }
+
+    const message =
+      data.message ||
+      data.error ||
+      `Queue request failed with status ${res.status}`;
+    const error = new Error(message);
+    error.status = res.status;
+    error.details = data.details || null;
+    throw error;
   }
   return data;
 }

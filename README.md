@@ -14,6 +14,7 @@ npm ci
 ## Environment
 This project uses `VITE_API_BASE_URL` as the primary frontend API base.
 Legacy `VITE_API_BASE` is still supported as fallback for compatibility.
+In production, the static frontend URL must not be used as API base unless `/api` rewrite is intentionally configured.
 
 ### Env files
 - `.env.example`: variable names only (template)
@@ -24,9 +25,18 @@ Legacy `VITE_API_BASE` is still supported as fallback for compatibility.
 ### Frontend env vars
 - `VITE_API_BASE_URL`: backend base URL used by frontend API clients
 - `VITE_API_BASE`: legacy alias (optional)
+- `VITE_ALLOW_SAME_ORIGIN_API`: set `true` only if static-site `/api/*` rewrite to backend is intentionally configured
 - `VITE_LOG_API_BASE`: optional API base logging in browser console
 - `VITE_APPOINTMENTS_GAS_URL`: optional integration URL
 - `VITE_APPOINTMENTS_GAS_KEY`: optional integration key
+
+### Render production rule
+- Static site URL (example): `https://<frontend>.onrender.com`
+- Backend web service URL (example): `https://<backend>.onrender.com`
+- Set `VITE_API_BASE_URL` to the backend URL, not the static URL.
+- If you intentionally use single-domain `/api` through Render Rewrite, set:
+  - Rewrite: `/api/*` -> `https://<backend>.onrender.com/api/:splat`
+  - `VITE_ALLOW_SAME_ORIGIN_API=true`
 
 ## Local Development (FE + BE)
 1. Prepare backend env locally in `backend/.env` (do not commit secrets).
@@ -55,6 +65,12 @@ Default local FE/BE pairing from `.env.development`:
 - Production build: `npm run build -- --mode production`
 
 Set environment values in CI/hosting platform instead of hardcoding URLs in source.
+
+## Queue endpoint notes
+- Endpoint: `GET /api/appointments/queue?limit=50`
+- Auth required: request uses cookie/session and returns `401` when not logged in.
+- Invalid query params now return structured `400` JSON:
+  - `{ error: "Bad Request", message: "...", details: { ... } }`
 
 ## Tests
 - Unit: `npm run test:run`
