@@ -19,6 +19,10 @@ function normalizePlanMode(value) {
   return "";
 }
 
+function normalizePackageId(value) {
+  return String(value || "").trim();
+}
+
 function statusLabel(status) {
   const s = String(status || "").toLowerCase();
   if (s === "completed") return "ให้บริการเรียบร้อย";
@@ -116,11 +120,27 @@ export default function ServiceConfirmationModal({
     () => normalizePlanMode(booking?.treatmentPlanMode ?? booking?.treatment_plan_mode),
     [booking?.treatmentPlanMode, booking?.treatment_plan_mode]
   );
+  const bookingPlanPackageId = useMemo(
+    () =>
+      normalizePackageId(
+        booking?.treatmentPlanPackageId ?? booking?.treatment_plan_package_id
+      ),
+    [booking?.treatmentPlanPackageId, booking?.treatment_plan_package_id]
+  );
+  const bookingTreatmentText = useMemo(
+    () => String(booking?.treatmentItem || "").trim(),
+    [booking?.treatmentItem]
+  );
+  const looksLikeOneOffByText = useMemo(() => {
+    const text = bookingTreatmentText.toLowerCase();
+    return /\b1\s*\/\s*1\b/.test(text) && /\bmask\s*0\s*\/\s*0\b/.test(text);
+  }, [bookingTreatmentText]);
   const allowNoCourseCompletion = useMemo(() => {
     if (bookingPlanMode === "one_off") return true;
     if (bookingPlanMode === "package") return false;
+    if (bookingPlanPackageId) return false;
 
-    const text = String(booking?.treatmentItem || "").toLowerCase();
+    const text = bookingTreatmentText.toLowerCase();
     // Fallback heuristic for older rows without treatment plan mode metadata.
     if (/\b1\s*\/\s*1\b/.test(text) && /\bmask\s*0\s*\/\s*0\b/.test(text)) {
       return true;
@@ -129,9 +149,9 @@ export default function ServiceConfirmationModal({
     // Sheet/course strings look like "1/3 ..." or "2/10 ..." etc. If it's not a progress string,
     // allow completing without deducting any package (one-off services like "smooth 399 free").
     return !/\b\d+\s*\/\s*\d+\b/.test(text);
-  }, [booking?.treatmentItem, bookingPlanMode]);
+  }, [bookingPlanMode, bookingPlanPackageId, bookingTreatmentText]);
 
-  const showOnlyOneOffOption = bookingPlanMode === "one_off";
+  const showOnlyOneOffOption = bookingPlanMode === "one_off" || looksLikeOneOffByText;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -261,6 +281,9 @@ export default function ServiceConfirmationModal({
     booking?.customer_id,
     booking?.id,
     booking?.status,
+    booking?.treatmentItem,
+    bookingPlanMode,
+    bookingPlanPackageId,
     open,
   ]);
 
@@ -278,7 +301,15 @@ export default function ServiceConfirmationModal({
   const activePackages = useMemo(() => {
     return buildActivePackages(packages);
   }, [packages]);
-  const packageChoices = showOnlyOneOffOption ? [] : activePackages;
+  const packageChoices = useMemo(() => {
+    if (showOnlyOneOffOption) return [];
+    if (!bookingPlanPackageId) return activePackages;
+
+    const matched = activePackages.filter(
+      (pkg) => String(pkg?.customer_package_id || "") === bookingPlanPackageId
+    );
+    return matched.length > 0 ? matched : activePackages;
+  }, [activePackages, bookingPlanPackageId, showOnlyOneOffOption]);
 
   const selectedPkg = useMemo(
     () => packageChoices.find((pkg) => pkg.customer_package_id === selectedPackageId) || null,
@@ -286,6 +317,40 @@ export default function ServiceConfirmationModal({
   );
 
   const completingWithoutCourse = allowNoCourseCompletion && selectedPackageId === NO_COURSE_ID;
+
+  useEffect(() => {
+    if (!open) return;
+
+    if (showOnlyOneOffOption) {
+      if (selectedPackageId !== NO_COURSE_ID) {
+        setSelectedPackageId(NO_COURSE_ID);
+      }
+      return;
+    }
+
+    if (bookingPlanPackageId) {
+      const matched = packageChoices.some(
+        (pkg) => String(pkg?.customer_package_id || "") === bookingPlanPackageId
+      );
+      if (matched && selectedPackageId !== bookingPlanPackageId) {
+        setSelectedPackageId(bookingPlanPackageId);
+        return;
+      }
+    }
+
+    if (!selectedPackageId && packageChoices.length === 1) {
+      const onlyId = String(packageChoices[0]?.customer_package_id || "");
+      if (onlyId) {
+        setSelectedPackageId(onlyId);
+      }
+    }
+  }, [
+    bookingPlanPackageId,
+    open,
+    packageChoices,
+    selectedPackageId,
+    showOnlyOneOffOption,
+  ]);
 
   const syncCourses = async () => {
     const appointmentId = appointment?.id || booking?.appointmentId || booking?.appointment_id || booking?.id || "";
