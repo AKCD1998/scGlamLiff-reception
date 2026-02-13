@@ -34,12 +34,22 @@ export function shortenId(value) {
 }
 
 export function formatAppointmentStatus(status) {
-  const s = String(status || "booked").toLowerCase();
+  const raw = String(status ?? "").trim();
+  const s = raw.toLowerCase();
+
+  if (!s || s === "booked") return "จองแล้ว";
   if (s === "completed") return "ให้บริการแล้ว";
-  if (s === "cancelled" || s === "canceled") return "ยกเลิก";
-  if (s === "no_show") return "ไม่มา";
+  if (s === "no_show" || s === "no-show" || s === "noshow") {
+    return "ลูกค้าไม่มารับบริการ";
+  }
+  if (s === "cancelled" || s === "canceled") return "ยกเลิกการจอง";
+  if (s === "ensured" || s === "confirmed") return "ยืนยันแล้ว";
+  if (s === "pending") return "รอยืนยัน";
+  if (s === "in_progress" || s === "in-progress") return "กำลังให้บริการ";
   if (s === "rescheduled") return "เลื่อนนัด";
-  return "จองแล้ว";
+  if (s === "check_in" || s === "checked_in") return "เช็กอินแล้ว";
+
+  return raw ? `ไม่ทราบสถานะ (${raw})` : "ไม่ทราบสถานะ";
 }
 
 export function getRowTimestamp(row) {

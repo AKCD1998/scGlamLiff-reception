@@ -6,7 +6,6 @@ const UUID_PATTERN =
   '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$';
 const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 500;
-const DEFAULT_EXCLUDED_STATUSES = new Set(['cancelled', 'canceled', 'no_show']);
 const DEBUG_PHONE_FRAGMENT = String(process.env.DEBUG_QUEUE_PHONE_FRAGMENT || '').replace(/\D+/g, '');
 const SMOOTH_CODE = 'smooth';
 
@@ -169,12 +168,7 @@ function mapTreatmentToOption(row) {
 function buildQueueFilters({ date, branchId }) {
   const params = [];
   const whereParts = [];
-  const excluded = [...DEFAULT_EXCLUDED_STATUSES];
-
-  whereParts.push(
-    `LOWER(COALESCE(a.status, '')) NOT IN (${excluded.map((_, i) => `$${i + 1}`).join(', ')})`
-  );
-  params.push(...excluded);
+  // Policy: queue table must show all statuses; do not hide rows by status here.
 
   if (branchId) {
     params.push(branchId);

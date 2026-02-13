@@ -834,6 +834,9 @@ export async function completeAppointment(req, res) {
 }
 
 async function setAppointmentStatus({ req, res, nextStatus, eventType }) {
+  // Course-deduction policy:
+  // - completed: handled in completeAppointment() and can create package_usages.
+  // - no_show / cancelled: status-only update here (no package usage deduction).
   const appointmentId = String(req.params?.id || '').trim();
   const noteRaw = typeof req.body?.note === 'string'
     ? req.body.note.trim()

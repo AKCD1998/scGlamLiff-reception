@@ -121,3 +121,43 @@ curl -i "https://<your-backend-service>.onrender.com/api/appointments/queue?date
 - `npm run build` (repo root) failed with:
   - `'vite' is not recognized as an internal or external command`
 - Interpretation: local dependencies are not currently installed in this shell session; run `npm ci` before build verification.
+
+## 2026-02-13 16:26:32 +07:00 — Queue status visibility + Thai labels + deduction policy
+
+### Change summary
+- Queue rows are now never filtered out by status on backend.
+- Queue status labels were made explicit in Thai to prevent accidental collapse into "ยกเลิก".
+- Course deduction policy is documented in backend status handler:
+  - `completed` => deducts course via package usage flow
+  - `no_show` => status only, no deduction
+  - `cancelled` => status only, no deduction
+
+### Files changed
+- `backend/src/controllers/appointmentsQueueController.js`
+  - Removed status-based exclusion filter in queue query builder.
+- `backend/src/controllers/appointmentServiceController.js`
+  - Added policy comment near status-only mutation function.
+- `src/pages/booking/utils/bookingPageFormatters.js`
+  - Updated `formatAppointmentStatus` mapping:
+    - `completed` -> `ให้บริการแล้ว`
+    - `no_show` -> `ลูกค้าไม่มารับบริการ`
+    - `cancelled/canceled` -> `ยกเลิกการจอง`
+    - `ensured/confirmed` -> `ยืนยันแล้ว`
+    - `pending` -> `รอยืนยัน`
+    - unknown -> `ไม่ทราบสถานะ (<raw>)`
+- `src/pages/booking/utils/bookingPageFormatters.test.js`
+  - Added unit tests for status mapping.
+
+### Test execution note
+- Attempted to run:
+  - `npm run test:run -- src/pages/booking/utils/bookingPageFormatters.test.js`
+- Local run failed in this shell because `vitest` binary is not currently available (`'vitest' is not recognized...`), consistent with earlier local dependency-install issues.
+
+### Verification steps
+1. Open queue table.
+2. Mark one row as `no_show`.
+3. Confirm row still visible with label `ลูกค้าไม่มารับบริการ`.
+4. Mark one row as `cancelled`.
+5. Confirm row still visible with label `ยกเลิกการจอง`.
+6. Mark one row as `completed`.
+7. Confirm row still visible with label `ให้บริการแล้ว` and package usage/course deduction follows completed flow.
