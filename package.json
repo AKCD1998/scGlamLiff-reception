@@ -13,7 +13,8 @@
     "test:e2e": "playwright test --config=tests/e2e/playwright.config.ts",
     "test:e2e:ui": "playwright test --config=tests/e2e/playwright.config.ts --headed",
     "test:e2e:debug": "playwright test --config=tests/e2e/playwright.config.ts --debug",
-    "test:all": "npm run test:run && npm run test:e2e"
+    "test:suite": "npm run test:run && npm run test:e2e",
+    "test:all": "npm run test:suite"
   },
   "dependencies": {
     "react": "^19.2.0",
