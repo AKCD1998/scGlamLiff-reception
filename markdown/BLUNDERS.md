@@ -226,3 +226,27 @@ git push -u origin deploy-mvp
 - หลีกเลี่ยงเงื่อนไข gate แบบ “sync เฉพาะ list ว่าง” ใน flow ที่ต้อง ensure consistency ราย appointment
 - แยก test ให้ครอบเคส mix-package (`1+3`, `3+10`) เสมอ
 - ใช้ sorting deterministic แทน dedupe เงียบ ๆ ในชั้น UI
+
+## 2026-02-13T04:54:20.153Z — E2E: build + backend prod boot + localhost scan + preview sanity
+
+- Title: build + backend prod boot + localhost scan + preview sanity
+- Failing step: 07_prod_like.spec.ts > 07 Production-like check > build + backend prod boot + localhost scan + preview sanity
+- Expected: E2E flow should complete with expected UI and API assertions.
+- Actual: Error: [PROD_LIKE_FAILURE] step=dist-localhost-scan command="grep dist for "localhost|127.0.0.1"" expected="built dist has no hardcoded localhost/127.0.0.1 URLs" actual="found 1 localhost references" artifact="tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-localhost-hits.json"
+- Artifact paths: screenshot: `tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-retry-0.png`, metadata: `tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-retry-0--failure-meta.json`
+
+## 2026-02-13T04:55:28.618Z — E2E: build + backend prod boot + localhost scan + preview sanity
+
+- Title: build + backend prod boot + localhost scan + preview sanity
+- Failing step: 07_prod_like.spec.ts > 07 Production-like check > build + backend prod boot + localhost scan + preview sanity
+- Expected: E2E flow should complete with expected UI and API assertions.
+- Actual: Error: [PROD_LIKE_FAILURE] step=backend-endpoint-probe command="npm run start && probe /api/admin/staff-users, /api/appointments/queue, /api/visits" expected="base URL responds and required API routes are not 404" actual="missing routes: /api/admin/staff-users, /api/appointments/queue, /api/visits" artifact="tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-backend-probe-failure.json"
+- Artifact paths: screenshot: `tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-retry-0.png`, metadata: `tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-retry-0--failure-meta.json`
+
+## 2026-02-13T04:57:49.141Z — E2E: build + backend prod boot + localhost scan + preview sanity
+
+- Title: build + backend prod boot + localhost scan + preview sanity
+- Failing step: 07_prod_like.spec.ts > 07 Production-like check > build + backend prod boot + localhost scan + preview sanity
+- Expected: E2E flow should complete with expected UI and API assertions.
+- Actual: Error: [PROD_LIKE_FAILURE] step=preview-boot command="npm run preview -- --host 127.0.0.1 --port 4173 --strictPort" expected="vite preview boots and serves dist" actual="vite preview process did not report ready state within 30000ms" artifact="tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-preview-boot-failure.json"
+- Artifact paths: screenshot: `tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-retry-0.png`, metadata: `tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-retry-0--failure-meta.json`

@@ -769,3 +769,86 @@ Invoke-WebRequest -Method OPTIONS http://localhost:5050/api/health -Headers @{ O
 ### Notes
 - ระหว่างเขียนเทสต์มี issue selector ปุ่ม submit กว้างเกินไป (ชนปุ่ม Reset Password หลายแถว) ใน run แรก และได้แก้ให้เลือกเฉพาะ `.admin-users-form button[type="submit"]` แล้ว rerun ผ่านครบ
 - รอบนี้ **ไม่ได้ append `markdown/BLUNDERS.md`** เพราะไม่มี blunder ฝั่งแอปที่ยังค้างหลังแก้ไข
+
+## 2026-02-13T04:54:19.982Z — E2E Prod-like Check (Prompt 8)
+
+- Spec: `07_prod_like.spec.ts > 07 Production-like check > build + backend prod boot + localhost scan + preview sanity`
+- Result: FAIL
+- Build: PASS (exit=0)
+- Missing env vars: (none)
+- Backend check: SKIPPED
+- Localhost scan: FAIL (1 hits)
+- Preview console check: SKIPPED
+- Summary artifact: `tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-localhost-hits.json`
+
+### Commands
+- `npm run build` (cwd: `.`) -> exit=0, timeout=false | stderr: [33m (!) Some chunks are larger than 500 kB after minification. Consider: - Using dynamic import() to code-split the application - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+
+## 2026-02-13T04:54:20.153Z — E2E Failure: 07_prod_like.spec.ts > 07 Production-like check > build + backend prod boot + localhost scan + preview sanity
+
+- Spec: `07_prod_like.spec.ts > 07 Production-like check > build + backend prod boot + localhost scan + preview sanity`
+- Reproduction: `npm run test:e2e -- tests/e2e/specs/07_prod_like.spec.ts --grep "build + backend prod boot + localhost scan + preview sanity"`
+- Error: Error: [PROD_LIKE_FAILURE] step=dist-localhost-scan command="grep dist for "localhost|127.0.0.1"" expected="built dist has no hardcoded localhost/127.0.0.1 URLs" actual="found 1 localhost references" artifact="tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-localhost-hits.json"
+- Artifacts: screenshot: `tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-retry-0.png`, metadata: `tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-retry-0--failure-meta.json`
+
+<!-- e2e-log-index: 2026-02-13T04:54:20.153Z diary=markdown/PROJECT_DIARIES.md blunder=markdown/BLUNDERS.md -->
+
+## 2026-02-13T04:55:28.511Z — E2E Prod-like Check (Prompt 8)
+
+- Spec: `07_prod_like.spec.ts > 07 Production-like check > build + backend prod boot + localhost scan + preview sanity`
+- Result: FAIL
+- Build: PASS (exit=0)
+- Missing env vars: (none)
+- Backend check: FAIL (npm run start)
+- Localhost scan: PASS
+- Preview console check: SKIPPED
+- Summary artifact: `tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-backend-probe-failure.json`
+
+### Commands
+- `npm run build` (cwd: `.`) -> exit=0, timeout=false | stderr: [33m (!) Some chunks are larger than 500 kB after minification. Consider: - Using dynamic import() to code-split the application - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+
+## 2026-02-13T04:55:28.618Z — E2E Failure: 07_prod_like.spec.ts > 07 Production-like check > build + backend prod boot + localhost scan + preview sanity
+
+- Spec: `07_prod_like.spec.ts > 07 Production-like check > build + backend prod boot + localhost scan + preview sanity`
+- Reproduction: `npm run test:e2e -- tests/e2e/specs/07_prod_like.spec.ts --grep "build + backend prod boot + localhost scan + preview sanity"`
+- Error: Error: [PROD_LIKE_FAILURE] step=backend-endpoint-probe command="npm run start && probe /api/admin/staff-users, /api/appointments/queue, /api/visits" expected="base URL responds and required API routes are not 404" actual="missing routes: /api/admin/staff-users, /api/appointments/queue, /api/visits" artifact="tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-backend-probe-failure.json"
+- Artifacts: screenshot: `tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-retry-0.png`, metadata: `tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-retry-0--failure-meta.json`
+
+<!-- e2e-log-index: 2026-02-13T04:55:28.618Z diary=markdown/PROJECT_DIARIES.md blunder=markdown/BLUNDERS.md -->
+
+## 2026-02-13T04:57:48.987Z — E2E Prod-like Check (Prompt 8)
+
+- Spec: `07_prod_like.spec.ts > 07 Production-like check > build + backend prod boot + localhost scan + preview sanity`
+- Result: FAIL
+- Build: PASS (exit=0)
+- Missing env vars: (none)
+- Backend check: PASS (npm run start)
+- Localhost scan: PASS
+- Preview console check: FAIL
+- Summary artifact: `tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-preview-boot-failure.json`
+
+### Commands
+- `npm run build` (cwd: `.`) -> exit=0, timeout=false | stderr: [33m (!) Some chunks are larger than 500 kB after minification. Consider: - Using dynamic import() to code-split the application - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+
+## 2026-02-13T04:57:49.141Z — E2E Failure: 07_prod_like.spec.ts > 07 Production-like check > build + backend prod boot + localhost scan + preview sanity
+
+- Spec: `07_prod_like.spec.ts > 07 Production-like check > build + backend prod boot + localhost scan + preview sanity`
+- Reproduction: `npm run test:e2e -- tests/e2e/specs/07_prod_like.spec.ts --grep "build + backend prod boot + localhost scan + preview sanity"`
+- Error: Error: [PROD_LIKE_FAILURE] step=preview-boot command="npm run preview -- --host 127.0.0.1 --port 4173 --strictPort" expected="vite preview boots and serves dist" actual="vite preview process did not report ready state within 30000ms" artifact="tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-preview-boot-failure.json"
+- Artifacts: screenshot: `tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-retry-0.png`, metadata: `tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-retry-0--failure-meta.json`
+
+<!-- e2e-log-index: 2026-02-13T04:57:49.141Z diary=markdown/PROJECT_DIARIES.md blunder=markdown/BLUNDERS.md -->
+
+## 2026-02-13T04:58:38.038Z — E2E Prod-like Check (Prompt 8)
+
+- Spec: `07_prod_like.spec.ts > 07 Production-like check > build + backend prod boot + localhost scan + preview sanity`
+- Result: PASS
+- Build: PASS (exit=0)
+- Missing env vars: (none)
+- Backend check: PASS (npm run start)
+- Localhost scan: PASS
+- Preview console check: PASS
+- Summary artifact: `tests/e2e/artifacts/2026-02-13/07_prod_like.spec.ts-07-Production-like-check-build-+-backend-prod-boot-+-localhost-scan-+-preview-sanity-prod-like-summary.json`
+
+### Commands
+- `npm run build` (cwd: `.`) -> exit=0, timeout=false | stderr: (!) Some chunks are larger than 500 kB after minification. Consider: - Using dynamic import() to code-split the application - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
