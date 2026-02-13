@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAppointmentsFilter } from "../pages/Homepage/useAppointmentsFilters";
 import { useDeleteAppointment } from "../pages/Homepage/useDeleteAppointment";
+import { isTestRecord, shouldHideTestRecordsByDefault } from "../utils/isTestRecord";
 
 import ScheduleCalendarPanel from "../components/calendar/ScheduleCalendarPanel";
 import AppointmentsTablePanel from "../components/appointments/AppointmentsTablePanel";
@@ -22,9 +23,22 @@ export default function Homepage(props) {
   } = props;
 
   const [toast, setToast] = useState(null);
+  const [showTestRecords, setShowTestRecords] = useState(
+    () => !shouldHideTestRecordsByDefault()
+  );
+
+  const visibleRows = useMemo(() => {
+    if (showTestRecords) return rows;
+    return rows.filter((row) => !isTestRecord(row));
+  }, [rows, showTestRecords]);
+
+  const hiddenTestCount = useMemo(() => {
+    if (showTestRecords) return 0;
+    return Math.max((rows?.length || 0) - visibleRows.length, 0);
+  }, [rows, showTestRecords, visibleRows.length]);
 
   const { activeFilterKey, filteredRows, bookingDates } =
-    useAppointmentsFilter(rows, selectedDate);
+    useAppointmentsFilter(visibleRows, selectedDate);
 
   const del = useDeleteAppointment(onDeleteAppointment, setToast);
   const pageInitialLoading = Boolean(loading && !hasLoadedOnce);
@@ -67,6 +81,9 @@ export default function Homepage(props) {
         selectedDate={selectedDate}
         activeFilterKey={activeFilterKey}
         filteredRows={filteredRows}
+        showTestRecords={showTestRecords}
+        hiddenTestCount={hiddenTestCount}
+        onToggleShowTestRecords={setShowTestRecords}
         onAddAppointment={handleAdd}
         onOpenDelete={del.openDelete}
       />

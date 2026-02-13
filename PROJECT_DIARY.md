@@ -244,3 +244,14 @@ CLEANUP_E2E_CONFIRM=true node scripts/cleanup-e2e-data.js
 
 ### Safety note
 - Tool never performs broad deletes; it only acts on records matched by the allowlist prefixes above.
+
+## 2026-02-13 17:27:07 +07:00 — Homepage E2E visibility filter applied
+
+- Added the same E2E visibility control to `Homepage` table view (workbench home).
+- `Homepage.jsx` now filters rows through `isTestRecord` with the same default policy:
+  - hide in production by default
+  - toggle available to show test data when needed
+- Added a compact toggle UI in `AppointmentsTablePanel`:
+  - `แสดงข้อมูลทดสอบ (E2E)`
+  - shows hidden count when test data is hidden.
+- Styling added in `WorkbenchPage.css` under `.table-e2e-toggle`.

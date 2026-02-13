@@ -523,6 +523,32 @@ body[data-theme="dark"] {
   font-weight: 600;
 }
 
+.table-e2e-toggle {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-soft);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.table-e2e-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #8b5320;
+}
+
+.table-e2e-toggle input[type="checkbox"]:focus-visible {
+  outline: 2px solid rgba(42, 18, 6, 0.35);
+  outline-offset: 2px;
+}
+
+.table-e2e-toggle em {
+  font-style: normal;
+  color: var(--text-muted);
+}
+
 .table-panel table {
   width: 100%;
   border-collapse: collapse;
