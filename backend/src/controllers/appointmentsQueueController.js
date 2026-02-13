@@ -8,6 +8,7 @@ const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 500;
 const DEBUG_PHONE_FRAGMENT = String(process.env.DEBUG_QUEUE_PHONE_FRAGMENT || '').replace(/\D+/g, '');
 const SMOOTH_CODE = 'smooth';
+const E2E_MARKER_REGEX_SQL = '^(e2e_|e2e_workflow_|verify-)';
 
 function normalizeText(value) {
   if (value === null || value === undefined) return '';
@@ -838,6 +839,14 @@ export async function listAppointmentCalendarDays(req, res) {
     const whereParts = [
       `DATE(a.scheduled_at AT TIME ZONE 'Asia/Bangkok') BETWEEN $1 AND $2`,
     ];
+    params.push(E2E_MARKER_REGEX_SQL);
+    const e2eRegexParam = `$${params.length}`;
+    whereParts.push(
+      `NOT (
+        COALESCE(c.full_name, '') ~* ${e2eRegexParam}
+        OR COALESCE(a.line_user_id, '') ~* ${e2eRegexParam}
+      )`
+    );
 
     if (branchId) {
       params.push(branchId);
@@ -857,6 +866,7 @@ export async function listAppointmentCalendarDays(req, res) {
           SUM(CASE WHEN LOWER(COALESCE(a.status, '')) IN ('no_show', 'no-show', 'noshow') THEN 1 ELSE 0 END)::int AS no_show_count,
           SUM(CASE WHEN LOWER(COALESCE(a.status, '')) IN ('cancelled', 'canceled') THEN 1 ELSE 0 END)::int AS cancelled_count
         FROM appointments a
+        LEFT JOIN customers c ON a.customer_id = c.id
         WHERE ${whereParts.join(' AND ')}
         GROUP BY DATE(a.scheduled_at AT TIME ZONE 'Asia/Bangkok')
         ORDER BY DATE(a.scheduled_at AT TIME ZONE 'Asia/Bangkok') ASC
@@ -881,4 +891,3 @@ export async function listAppointmentCalendarDays(req, res) {
     return res.status(500).json({ ok: false, error: 'Server error' });
   }
 }
-
