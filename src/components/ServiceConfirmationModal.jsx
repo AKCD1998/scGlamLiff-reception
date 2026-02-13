@@ -135,6 +135,10 @@ export default function ServiceConfirmationModal({
     const text = bookingTreatmentText.toLowerCase();
     return /\b1\s*\/\s*1\b/.test(text) && /\bmask\s*0\s*\/\s*0\b/.test(text);
   }, [bookingTreatmentText]);
+  const oneOffCardCode = useMemo(
+    () => bookingTreatmentText || "NO COURSE DEDUCTION",
+    [bookingTreatmentText]
+  );
   const allowNoCourseCompletion = useMemo(() => {
     if (bookingPlanMode === "one_off") return true;
     if (bookingPlanMode === "package") return false;
@@ -152,6 +156,7 @@ export default function ServiceConfirmationModal({
   }, [bookingPlanMode, bookingPlanPackageId, bookingTreatmentText]);
 
   const showOnlyOneOffOption = bookingPlanMode === "one_off" || looksLikeOneOffByText;
+  const effectiveNoCourseCompletion = allowNoCourseCompletion || showOnlyOneOffOption;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -193,7 +198,7 @@ export default function ServiceConfirmationModal({
     setPackages([]);
     setPackagesError("");
     setPackagesLoading(false);
-    setSelectedPackageId(allowNoCourseCompletion || showOnlyOneOffOption ? NO_COURSE_ID : "");
+    setSelectedPackageId(effectiveNoCourseCompletion ? NO_COURSE_ID : "");
     setUseMask(false);
     setSubmitError("");
     setSubmitting(false);
@@ -228,7 +233,7 @@ export default function ServiceConfirmationModal({
         setPackagesError("");
         try {
           let syncErrorMessage = "";
-          if (!allowNoCourseCompletion) {
+          if (!effectiveNoCourseCompletion) {
             try {
               await syncAppointmentCourse(appointmentId, controller.signal);
             } catch (syncErr) {
@@ -241,7 +246,7 @@ export default function ServiceConfirmationModal({
           if (showOnlyOneOffOption) {
             list = [];
           }
-          if (list.length === 0 && !allowNoCourseCompletion && syncErrorMessage) {
+          if (list.length === 0 && !effectiveNoCourseCompletion && syncErrorMessage) {
             setPackagesError(syncErrorMessage);
           }
 
@@ -274,6 +279,7 @@ export default function ServiceConfirmationModal({
     return () => controller.abort();
   }, [
     allowNoCourseCompletion,
+    effectiveNoCourseCompletion,
     showOnlyOneOffOption,
     booking?.appointmentId,
     booking?.appointment_id,
@@ -316,7 +322,8 @@ export default function ServiceConfirmationModal({
     [packageChoices, selectedPackageId]
   );
 
-  const completingWithoutCourse = allowNoCourseCompletion && selectedPackageId === NO_COURSE_ID;
+  const completingWithoutCourse =
+    effectiveNoCourseCompletion && selectedPackageId === NO_COURSE_ID;
 
   useEffect(() => {
     if (!open) return;
@@ -405,7 +412,7 @@ export default function ServiceConfirmationModal({
         setSubmitError("กรุณาเลือกคอร์สที่ต้องการตัด");
         return;
       } else if (selectedPackageId === NO_COURSE_ID) {
-        if (!allowNoCourseCompletion) {
+        if (!effectiveNoCourseCompletion) {
           setSubmitError("รายการนี้ต้องเลือกคอร์สเพื่อทำรายการ");
           return;
         }
@@ -550,7 +557,7 @@ export default function ServiceConfirmationModal({
             ) : packagesError ? (
               <>
                 <div className="scm-state scm-state--error">{packagesError}</div>
-                {allowNoCourseCompletion ? (
+                {effectiveNoCourseCompletion ? (
                   <div className="scm-packages" role="radiogroup" aria-label="Select package">
                     <button
                       type="button"
@@ -565,7 +572,7 @@ export default function ServiceConfirmationModal({
                       <div className="scm-package__top">
                         <div>
                           <div className="scm-package__title">บริการแบบครั้งเดียว</div>
-                          <div className="scm-package__code"></div>
+                          <div className="scm-package__code">{oneOffCardCode}</div>
                         </div>
                         <div className="scm-package__meta">
                           <div>ไม่ตัดจำนวนครั้ง / Mask</div>
@@ -575,7 +582,7 @@ export default function ServiceConfirmationModal({
                   </div>
                 ) : null}
               </>
-            ) : hasResolvedOnce && packageChoices.length === 0 && !allowNoCourseCompletion ? (
+            ) : hasResolvedOnce && packageChoices.length === 0 && !effectiveNoCourseCompletion ? (
               <div className="scm-state scm-state--row">
                 <span>ไม่พบคอร์สที่ใช้งานได้</span>
                 <button
@@ -590,7 +597,7 @@ export default function ServiceConfirmationModal({
             ) : (
               <>
                 <div className="scm-packages" role="radiogroup" aria-label="Select package">
-                  {allowNoCourseCompletion ? (
+                  {effectiveNoCourseCompletion ? (
                     <button
                       type="button"
                       className={`scm-package${completingWithoutCourse ? " is-selected" : ""}`}
@@ -604,7 +611,7 @@ export default function ServiceConfirmationModal({
                       <div className="scm-package__top">
                         <div>
                           <div className="scm-package__title">บริการแบบครั้งเดียว</div>
-                          <div className="scm-package__code">NO COURSE DEDUCTION</div>
+                          <div className="scm-package__code">{oneOffCardCode}</div>
                         </div>
                         <div className="scm-package__meta">
                           <div>ไม่ตัดจำนวนครั้ง / Mask</div>
@@ -646,7 +653,7 @@ export default function ServiceConfirmationModal({
                     );
                   })}
                 </div>
-                {hasResolvedOnce && packageChoices.length === 0 && allowNoCourseCompletion ? (
+                {hasResolvedOnce && packageChoices.length === 0 && effectiveNoCourseCompletion ? (
                   <div className="scm-state">บริการแบบครั้งเดียว: สามารถกด Confirm ได้โดยไม่ตัดคอร์ส</div>
                 ) : null}
               </>
