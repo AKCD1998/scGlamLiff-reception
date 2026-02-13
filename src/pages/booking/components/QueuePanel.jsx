@@ -11,14 +11,16 @@ export default function QueuePanel({
   rows,
   onOpenServiceModal,
   formatAppointmentStatus,
+  canManageTestRecords = false,
 }) {
   const [showTestRecords, setShowTestRecords] = useState(
     () => !shouldHideTestRecordsByDefault()
   );
+  const effectiveShowTestRecords = canManageTestRecords ? showTestRecords : false;
   const visibleRows = useMemo(() => {
-    if (showTestRecords) return rows;
+    if (effectiveShowTestRecords) return rows;
     return rows.filter((row) => !isTestRecord(row));
-  }, [rows, showTestRecords]);
+  }, [rows, effectiveShowTestRecords]);
 
   return (
     <div
@@ -44,15 +46,17 @@ export default function QueuePanel({
         >
           แสดงทั้งหมด
         </button>
-        <label className="booking-test-filter" htmlFor="queue-show-e2e">
-          <input
-            id="queue-show-e2e"
-            type="checkbox"
-            checked={showTestRecords}
-            onChange={(event) => setShowTestRecords(event.target.checked)}
-          />
-          <span>แสดงข้อมูลทดสอบ (E2E)</span>
-        </label>
+        {canManageTestRecords ? (
+          <label className="booking-test-filter" htmlFor="queue-show-e2e">
+            <input
+              id="queue-show-e2e"
+              type="checkbox"
+              checked={showTestRecords}
+              onChange={(event) => setShowTestRecords(event.target.checked)}
+            />
+            <span>แสดงข้อมูลทดสอบ (E2E)</span>
+          </label>
+        ) : null}
       </div>
       <QueueTable
         loading={loading}

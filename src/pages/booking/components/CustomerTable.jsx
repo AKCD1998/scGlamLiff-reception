@@ -7,28 +7,32 @@ export default function CustomerTable({
   customers,
   shortenId,
   onOpenEditModal,
+  canManageTestRecords = false,
 }) {
   const [showTestRecords, setShowTestRecords] = useState(
     () => !shouldHideTestRecordsByDefault()
   );
+  const effectiveShowTestRecords = canManageTestRecords ? showTestRecords : false;
   const visibleCustomers = useMemo(() => {
-    if (showTestRecords) return customers;
+    if (effectiveShowTestRecords) return customers;
     return customers.filter((customer) => !isTestRecord(customer));
-  }, [customers, showTestRecords]);
+  }, [customers, effectiveShowTestRecords]);
 
   return (
     <>
-      <div className="booking-queue-filter booking-queue-filter--customer">
-        <label className="booking-test-filter" htmlFor="customer-show-e2e">
-          <input
-            id="customer-show-e2e"
-            type="checkbox"
-            checked={showTestRecords}
-            onChange={(event) => setShowTestRecords(event.target.checked)}
-          />
-          <span>แสดงข้อมูลทดสอบ (E2E)</span>
-        </label>
-      </div>
+      {canManageTestRecords ? (
+        <div className="booking-queue-filter booking-queue-filter--customer">
+          <label className="booking-test-filter" htmlFor="customer-show-e2e">
+            <input
+              id="customer-show-e2e"
+              type="checkbox"
+              checked={showTestRecords}
+              onChange={(event) => setShowTestRecords(event.target.checked)}
+            />
+            <span>แสดงข้อมูลทดสอบ (E2E)</span>
+          </label>
+        </div>
+      ) : null}
       <table className="booking-table">
         <thead>
           <tr>

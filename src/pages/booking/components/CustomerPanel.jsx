@@ -6,6 +6,7 @@ export default function CustomerPanel({
   customers,
   shortenId,
   onOpenEditModal,
+  canManageTestRecords = false,
 }) {
   return (
     <div
@@ -19,8 +20,8 @@ export default function CustomerPanel({
         customers={customers}
         shortenId={shortenId}
         onOpenEditModal={onOpenEditModal}
+        canManageTestRecords={canManageTestRecords}
       />
     </div>
   );
 }
-

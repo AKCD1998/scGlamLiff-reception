@@ -8,6 +8,7 @@ export default function AppointmentsTablePanel({
   showTestRecords = true,
   hiddenTestCount = 0,
   onToggleShowTestRecords,
+  canManageTestRecords = false,
   onAddAppointment,
   onOpenDelete,
 }) {
@@ -30,18 +31,20 @@ export default function AppointmentsTablePanel({
         </button>
       </div>
 
-      <label className="table-e2e-toggle" htmlFor="home-show-e2e-toggle">
-        <input
-          id="home-show-e2e-toggle"
-          type="checkbox"
-          checked={showTestRecords}
-          onChange={(event) => onToggleShowTestRecords?.(event.target.checked)}
-        />
-        <span>แสดงข้อมูลทดสอบ (E2E)</span>
-        {!showTestRecords && hiddenTestCount > 0 ? (
-          <em>{`ซ่อนอยู่ ${hiddenTestCount} รายการ`}</em>
-        ) : null}
-      </label>
+      {canManageTestRecords ? (
+        <label className="table-e2e-toggle" htmlFor="home-show-e2e-toggle">
+          <input
+            id="home-show-e2e-toggle"
+            type="checkbox"
+            checked={showTestRecords}
+            onChange={(event) => onToggleShowTestRecords?.(event.target.checked)}
+          />
+          <span>แสดงข้อมูลทดสอบ (E2E)</span>
+          {!showTestRecords && hiddenTestCount > 0 ? (
+            <em>{`ซ่อนอยู่ ${hiddenTestCount} รายการ`}</em>
+          ) : null}
+        </label>
+      ) : null}
 
       {selectedDate && <div className="table-filter-badge">กำลังกรอง: {activeFilterKey}</div>}
 

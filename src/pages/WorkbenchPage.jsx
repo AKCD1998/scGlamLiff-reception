@@ -26,6 +26,10 @@ export default function WorkbenchPage() {
   });
   const { theme, toggleTheme } = useTheme();
   const { me, userLabel, loadingUser } = useMe();
+  const canManageTestRecords = useMemo(() => {
+    const role = String(me?.role_name || "").toLowerCase();
+    return role === "admin" || role === "owner";
+  }, [me?.role_name]);
   const navigate = useNavigate();
   const handleLogout = async () => {
     await logout();
@@ -93,6 +97,7 @@ export default function WorkbenchPage() {
             hasLoadedOnce={hasLoadedOnce}
             onAddAppointment={() => setActiveTab("booking")}
             onDeleteAppointment={handleDeleteAppointment}
+            canManageTestRecords={canManageTestRecords}
           />
         );
     }

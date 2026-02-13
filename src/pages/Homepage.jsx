@@ -20,22 +20,24 @@ export default function Homepage(props) {
     rows, loading, error, hasLoadedOnce,
     onAddAppointment,
     onDeleteAppointment,
+    canManageTestRecords = false,
   } = props;
 
   const [toast, setToast] = useState(null);
   const [showTestRecords, setShowTestRecords] = useState(
     () => !shouldHideTestRecordsByDefault()
   );
+  const effectiveShowTestRecords = canManageTestRecords ? showTestRecords : false;
 
   const visibleRows = useMemo(() => {
-    if (showTestRecords) return rows;
+    if (effectiveShowTestRecords) return rows;
     return rows.filter((row) => !isTestRecord(row));
-  }, [rows, showTestRecords]);
+  }, [rows, effectiveShowTestRecords]);
 
   const hiddenTestCount = useMemo(() => {
-    if (showTestRecords) return 0;
+    if (effectiveShowTestRecords) return 0;
     return Math.max((rows?.length || 0) - visibleRows.length, 0);
-  }, [rows, showTestRecords, visibleRows.length]);
+  }, [rows, effectiveShowTestRecords, visibleRows.length]);
 
   const { activeFilterKey, filteredRows, bookingDates } =
     useAppointmentsFilter(visibleRows, selectedDate);
@@ -84,6 +86,7 @@ export default function Homepage(props) {
         showTestRecords={showTestRecords}
         hiddenTestCount={hiddenTestCount}
         onToggleShowTestRecords={setShowTestRecords}
+        canManageTestRecords={canManageTestRecords}
         onAddAppointment={handleAdd}
         onOpenDelete={del.openDelete}
       />

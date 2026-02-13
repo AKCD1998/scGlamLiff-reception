@@ -666,6 +666,7 @@ export default function Bookingpage() {
                 rows={filteredRows}
                 onOpenServiceModal={handleOpenServiceModal}
                 formatAppointmentStatus={formatAppointmentStatus}
+                canManageTestRecords={isAdmin}
               />
             ) : (
               <CustomerPanel
@@ -674,6 +675,7 @@ export default function Bookingpage() {
                 customers={customers}
                 shortenId={shortenId}
                 onOpenEditModal={handleOpenEditModal}
+                canManageTestRecords={isAdmin}
               />
             )}
           </div>
