@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import TopTabs from "../components/TopTabs";
 import ProfileBar from "../components/ProfileBar";
@@ -20,7 +20,7 @@ import { useMe } from "./workbench/useMe";
 export default function WorkbenchPage() {
   const [activeTab, setActiveTab] = useState("home");
   const homePicker = useHomePickerState();
-  const { rows, loading, error, hasLoadedOnce, deleteAppointment } = useAppointments({
+  const { rows, loading, error, hasLoadedOnce, deleteAppointment, refetch } = useAppointments({
     limit: 50,
     selectedDate: homePicker.selectedDate,
   });
@@ -61,6 +61,11 @@ export default function WorkbenchPage() {
     () => tabs.some((t) => t.id === "adminBackdate"),
     [tabs]
   );
+
+  useEffect(() => {
+    if (activeTab !== "home") return;
+    void refetch();
+  }, [activeTab, refetch]);
 
   const renderTabContent = () => {
     switch (activeTab) {

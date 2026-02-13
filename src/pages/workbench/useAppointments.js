@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cancelAppointment, getAppointmentsQueue } from "../../utils/appointmentsApi";
 import { normalizeRow, getRowTimestamp } from "./workbenchRow";
 
+const AUTO_REFETCH_THROTTLE_MS = 2500;
+
 function pad2(value) {
   return String(value).padStart(2, "0");
 }
@@ -17,6 +19,7 @@ export function useAppointments({ limit = 50, selectedDate = null, branchId = ""
   const [error, setError] = useState(null);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const requestIdRef = useRef(0);
+  const lastAutoRefetchAtRef = useRef(0);
 
   const reloadAppointments = useCallback(
     async (signal) => {
@@ -52,17 +55,49 @@ export function useAppointments({ limit = 50, selectedDate = null, branchId = ""
 
   useEffect(() => {
     const controller = new AbortController();
+    lastAutoRefetchAtRef.current = Date.now();
     reloadAppointments(controller.signal);
     return () => controller.abort();
   }, [reloadAppointments]);
 
-  const deleteAppointment = useCallback(
-    async (id, reason) => {
-      await cancelAppointment(id, reason);
+  const refetch = useCallback(
+    async ({ force = false } = {}) => {
+      const now = Date.now();
+      if (!force && now - lastAutoRefetchAtRef.current < AUTO_REFETCH_THROTTLE_MS) {
+        return false;
+      }
+      lastAutoRefetchAtRef.current = now;
       await reloadAppointments();
+      return true;
     },
     [reloadAppointments]
   );
 
-  return { rows, loading, error, hasLoadedOnce, reloadAppointments, deleteAppointment };
+  useEffect(() => {
+    const onFocus = () => {
+      void refetch();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      void refetch();
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [refetch]);
+
+  const deleteAppointment = useCallback(
+    async (id, reason) => {
+      await cancelAppointment(id, reason);
+      await refetch({ force: true });
+    },
+    [refetch]
+  );
+
+  return { rows, loading, error, hasLoadedOnce, reloadAppointments, refetch, deleteAppointment };
 }

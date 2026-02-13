@@ -255,3 +255,25 @@ CLEANUP_E2E_CONFIRM=true node scripts/cleanup-e2e-data.js
   - `แสดงข้อมูลทดสอบ (E2E)`
   - shows hidden count when test data is hidden.
 - Styling added in `WorkbenchPage.css` under `.table-e2e-toggle`.
+
+## 2026-02-13 17:59:49 +07:00 — Home auto-sync on focus/visibility + return to Home tab
+
+### What changed
+- Updated `src/pages/workbench/useAppointments.js` to auto-refetch queue data when:
+  - window gains focus
+  - document becomes visible (`visibilitychange` -> `visible`)
+- Added throttle guard (2.5s) to prevent spam refetch from repeated focus/visibility events.
+- Kept race safety via existing request-id stale-response protection in `reloadAppointments`.
+- Added `refetch()` return from `useAppointments` for on-demand refresh.
+- Updated `src/pages/WorkbenchPage.jsx` to call `refetch()` when user switches back to Home tab.
+
+### Behavior kept intentionally
+- Existing fetch-on-mount and fetch-on-dependency-change behavior remains.
+- Home query limit remains `50` (no change).
+
+### How to verify
+1. Open Home tab and note a row/status.
+2. Switch to Booking tab; perform an action (complete/no_show/cancel/revert or create/update booking).
+3. Switch back to Home tab.
+4. Expected: Home refetches automatically and shows updated rows/status within ~0–1s.
+5. Optional: switch browser tab away and back (focus/visibility); Home should refetch again (throttled to avoid rapid repeats).
