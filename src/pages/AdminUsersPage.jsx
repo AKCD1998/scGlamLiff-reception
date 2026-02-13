@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { createStaffUser, listStaffUsers, patchStaffUser } from "../utils/adminUsersApi";
+import "./AdminUsersPage.css";
 
 const ROLE_OPTIONS = ["staff", "admin", "owner"];
 
@@ -122,7 +123,7 @@ export default function AdminUsersPage() {
 
   const handleToggleActive = useCallback(async (user) => {
     if (!user?.id) return;
-    const nextValue = !Boolean(user.is_active);
+    const nextValue = user.is_active !== true;
     setRowBusy(user.id, true);
     setMessage({ type: "", text: "" });
     try {
@@ -163,69 +164,71 @@ export default function AdminUsersPage() {
   }, [handleApiError, setRowBusy]);
 
   return (
-    <section className="panel">
+    <section className="panel admin-users-page">
       <div className="panel-title">
         <strong>จัดการผู้ใช้ (Admin)</strong>
       </div>
-      <p>สร้างบัญชีผู้ใช้สำหรับทีมงาน</p>
+      <div className="admin-users-page__content">
+        <p className="admin-users-page__intro">สร้างบัญชีผู้ใช้สำหรับทีมงาน</p>
 
-      <form onSubmit={handleSubmit}>
-        <p>
-          <label htmlFor="admin-users-username">Username</label>
-          <br />
-          <input
-            id="admin-users-username"
-            type="text"
-            placeholder="เช่น staff004"
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            disabled={loading}
-          />
-        </p>
+        <form className="admin-users-form" onSubmit={handleSubmit}>
+          <div className="admin-users-form__grid">
+            <div className="admin-users-field">
+              <label htmlFor="admin-users-username">Username</label>
+              <input
+                id="admin-users-username"
+                className="admin-users-input"
+                type="text"
+                placeholder="เช่น staff004"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                disabled={loading}
+              />
+            </div>
 
-        <p>
-          <label htmlFor="admin-users-password">Password</label>
-          <br />
-          <input
-            id="admin-users-password"
-            type="password"
-            placeholder="อย่างน้อย 6 ตัวอักษร"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            disabled={loading}
-          />
-        </p>
+            <div className="admin-users-field">
+              <label htmlFor="admin-users-password">Password</label>
+              <input
+                id="admin-users-password"
+                className="admin-users-input"
+                type="password"
+                placeholder="อย่างน้อย 6 ตัวอักษร"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                disabled={loading}
+              />
+            </div>
 
-        <p>
-          <label htmlFor="admin-users-display-name">Display name</label>
-          <br />
-          <input
-            id="admin-users-display-name"
-            type="text"
-            placeholder="ชื่อที่แสดง (ไม่บังคับ)"
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-            disabled={loading}
-          />
-        </p>
+            <div className="admin-users-field">
+              <label htmlFor="admin-users-display-name">Display name</label>
+              <input
+                id="admin-users-display-name"
+                className="admin-users-input"
+                type="text"
+                placeholder="ชื่อที่แสดง (ไม่บังคับ)"
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                disabled={loading}
+              />
+            </div>
 
-        <p>
-          <label htmlFor="admin-users-role">Role</label>
-          <br />
-          <select
-            id="admin-users-role"
-            value={roleName}
-            onChange={(event) => setRoleName(event.target.value)}
-            disabled={loading}
-          >
-            <option value="staff">staff</option>
-            <option value="admin">admin</option>
-            <option value="owner">owner</option>
-          </select>
-        </p>
+            <div className="admin-users-field">
+              <label htmlFor="admin-users-role">Role</label>
+              <select
+                id="admin-users-role"
+                className="admin-users-select"
+                value={roleName}
+                onChange={(event) => setRoleName(event.target.value)}
+                disabled={loading}
+              >
+                <option value="staff">staff</option>
+                <option value="admin">admin</option>
+                <option value="owner">owner</option>
+              </select>
+            </div>
+          </div>
 
-        <p>
-          <label htmlFor="admin-users-active">
+          <label className="admin-users-check" htmlFor="admin-users-active">
             <input
               id="admin-users-active"
               type="checkbox"
@@ -233,80 +236,96 @@ export default function AdminUsersPage() {
               onChange={(event) => setIsActive(event.target.checked)}
               disabled={loading}
             />
-            {" "}
-            is_active
+            <span>is_active</span>
           </label>
-        </p>
 
-        <p>
-          <button type="submit" disabled={loading}>
-            {loading ? "กำลังบันทึก..." : "บันทึกผู้ใช้"}
-          </button>
-        </p>
-        <p role="status" aria-live="polite">
-          {message.text ? message.text : ""}
-        </p>
-      </form>
+          <div className="admin-users-form__actions">
+            <button
+              type="submit"
+              className="admin-users-btn admin-users-btn--brown"
+              disabled={loading}
+            >
+              {loading ? "กำลังบันทึก..." : "บันทึกผู้ใช้"}
+            </button>
+          </div>
 
-      <h3>รายชื่อผู้ใช้</h3>
-      {loadingList ? (
-        <p>กำลังโหลด...</p>
-      ) : (
-        <table className="booking-table">
-          <thead>
-            <tr>
-              <th>Username</th>
-              <th>Display name</th>
-              <th>Role</th>
-              <th>is_active</th>
-              <th>Created at</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.length === 0 ? (
-              <tr>
-                <td colSpan="6">ไม่มีข้อมูล</td>
-              </tr>
-            ) : (
-              users.map((user) => {
-                const rowBusy = Boolean(rowBusyMap[user.id]);
-                return (
-                  <tr key={user.id || user.username}>
-                    <td>{user.username}</td>
-                    <td>{user.display_name}</td>
-                    <td>{user.role_name}</td>
-                    <td>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={Boolean(user.is_active)}
-                          disabled={rowBusy}
-                          onChange={() => handleToggleActive(user)}
-                        />
-                        {" "}
-                        {Boolean(user.is_active) ? "active" : "inactive"}
-                      </label>
-                    </td>
-                    <td>
-                      {user.created_at ? new Date(user.created_at).toLocaleString() : "-"}
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        disabled={rowBusy}
-                        onClick={() => handleResetPassword(user)}
-                      >
-                        Reset Password
-                      </button>
-                    </td>
+          {message.text ? (
+            <p
+              role="status"
+              aria-live="polite"
+              className={`admin-users-message ${
+                message.type === "success"
+                  ? "admin-users-message--success"
+                  : "admin-users-message--error"
+              }`}
+            >
+              {message.text}
+            </p>
+          ) : null}
+        </form>
+
+        <h3 className="admin-users-list-title">รายชื่อผู้ใช้</h3>
+        {loadingList ? (
+          <p className="admin-users-list-state">กำลังโหลด...</p>
+        ) : (
+          <div className="admin-users-table-wrap">
+            <table className="booking-table admin-users-table">
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Display name</th>
+                  <th>Role</th>
+                  <th>is_active</th>
+                  <th>Created at</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.length === 0 ? (
+                  <tr>
+                    <td colSpan="6">ไม่มีข้อมูล</td>
                   </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      )}
+                ) : (
+                  users.map((user) => {
+                    const rowBusy = rowBusyMap[user.id] === true;
+                    return (
+                      <tr key={user.id || user.username}>
+                        <td>{user.username}</td>
+                        <td>{user.display_name}</td>
+                        <td>{user.role_name}</td>
+                        <td>
+                          <label className="admin-users-row-check">
+                            <input
+                              type="checkbox"
+                              checked={user.is_active === true}
+                              disabled={rowBusy}
+                              onChange={() => handleToggleActive(user)}
+                            />
+                            <span>{user.is_active === true ? "active" : "inactive"}</span>
+                          </label>
+                        </td>
+                        <td>
+                          {user.created_at ? new Date(user.created_at).toLocaleString() : "-"}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="admin-users-btn admin-users-btn--brown admin-users-btn--compact"
+                            disabled={rowBusy}
+                            onClick={() => handleResetPassword(user)}
+                          >
+                            Reset Password
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </section>
   );
 }

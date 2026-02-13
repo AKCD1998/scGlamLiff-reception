@@ -60,7 +60,7 @@ export default function LoginPage() {
 
         <form className="login-form" onSubmit={handleSubmit}>
           <label className="field">
-            <span className="field-label">ชื่อผู้ใช้(Username)</span>
+            <span className="field-label">ชื่อผู้ใช้ (Username)</span>
             <input
               type="text"
               value={username}
@@ -73,7 +73,7 @@ export default function LoginPage() {
           </label>
 
           <label className="field">
-            <span className="field-label">รหัสผ่าน(Password)</span>
+            <span className="field-label">รหัสผ่าน (Password)</span>
             <div className="password-field">
               <input
                 type={showPassword ? "text" : "password"}
