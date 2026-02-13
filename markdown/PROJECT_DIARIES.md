@@ -740,3 +740,32 @@ Invoke-WebRequest -Method OPTIONS http://localhost:5050/api/health -Headers @{ O
   - assert ว่าต้องเห็นทั้ง 2 package
 - `npm run test:run -- src/components/ServiceConfirmationModal.test.jsx`
 - `npm run build`
+
+## 2026-02-13 — E2E Error Handling Sweep (Prompt 7)
+
+### What was done
+- เพิ่มไฟล์ทดสอบใหม่ `tests/e2e/specs/06_error_handling.spec.ts`
+- ครอบคลุมสถานะ error ตามหัวข้อ:
+  - `400` invalid payload (create user missing username)
+  - `401` protected endpoint without token (new context, no storageState)
+  - `403` staff tries admin endpoint/page
+  - `404` patch non-existent id
+  - `409` duplicate username
+  - `500` simulated throw: ตรวจแล้วไม่มี safe toggle ที่รองรับ จึงบันทึกเป็น `not supported`
+- เพิ่ม assertion ฝั่ง FE ในสเปก:
+  - แสดงข้อความ error ที่คาดหวัง (Thai message/fallback ตามที่มีจริงในหน้า)
+  - หน้าไม่ crash หลังเจอ error
+  - ปุ่ม/คอนโทรลถูก disable ระหว่าง loading (เช่น submit/row controls)
+  - กรณี `400`, `404`, `409` ต้อง recover ได้ด้วย action ที่ถูกต้องรอบถัดไป
+
+### Verification
+- คำสั่งที่รัน:
+  - `npm run test:e2e -- tests/e2e/specs/06_error_handling.spec.ts`
+- ผลลัพธ์:
+  - `6 passed`
+  - matrix ผ่านครบสำหรับ `400/401/403/404/409`
+  - `500` ถูก mark เป็น `not supported` ตามเงื่อนไข safe toggle
+
+### Notes
+- ระหว่างเขียนเทสต์มี issue selector ปุ่ม submit กว้างเกินไป (ชนปุ่ม Reset Password หลายแถว) ใน run แรก และได้แก้ให้เลือกเฉพาะ `.admin-users-form button[type="submit"]` แล้ว rerun ผ่านครบ
+- รอบนี้ **ไม่ได้ append `markdown/BLUNDERS.md`** เพราะไม่มี blunder ฝั่งแอปที่ยังค้างหลังแก้ไข
