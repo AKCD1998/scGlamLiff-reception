@@ -1,16 +1,70 @@
-# React + Vite
+# scGlamLiff Reception
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Frontend (Vite + React) with backend API integration and E2E coverage.
 
-Currently, two official plugins are available:
+## Runtime and Install
+- Node is pinned via `.nvmrc`.
+- Install dependencies with lockfile for reproducibility:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+```bash
+nvm use
+npm ci
+```
 
-## React Compiler
+## Environment
+This project uses `VITE_API_BASE_URL` as the primary frontend API base.
+Legacy `VITE_API_BASE` is still supported as fallback for compatibility.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Env files
+- `.env.example`: variable names only (template)
+- `.env.development`: local-safe defaults
+- `.env.staging`: staging placeholders
+- `.env.production`: production placeholders
 
-## Expanding the ESLint configuration
+### Frontend env vars
+- `VITE_API_BASE_URL`: backend base URL used by frontend API clients
+- `VITE_API_BASE`: legacy alias (optional)
+- `VITE_LOG_API_BASE`: optional API base logging in browser console
+- `VITE_APPOINTMENTS_GAS_URL`: optional integration URL
+- `VITE_APPOINTMENTS_GAS_KEY`: optional integration key
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Local Development (FE + BE)
+1. Prepare backend env locally in `backend/.env` (do not commit secrets).
+2. Start backend:
+
+```bash
+cd backend
+npm ci
+npm run dev
+```
+
+3. Start frontend (repo root):
+
+```bash
+npm ci
+npm run dev
+```
+
+Default local FE/BE pairing from `.env.development`:
+- Frontend: `http://localhost:5173`
+- API base: `http://localhost:5050`
+
+## Choose env per stage (no hardcoding)
+- Dev: `npm run dev -- --mode development`
+- Staging build: `npm run build -- --mode staging`
+- Production build: `npm run build -- --mode production`
+
+Set environment values in CI/hosting platform instead of hardcoding URLs in source.
+
+## Tests
+- Unit: `npm run test:run`
+- E2E: `npm run test:e2e`
+- Full suite: `npm run test:suite`
+
+`test:suite` is the branch/PR standard command and exits non-zero on failures.
+
+## CI
+Workflow: `.github/workflows/ci.yml`
+- Node: from `.nvmrc`
+- Install: `npm ci`
+- Test command: `npm run test:suite`

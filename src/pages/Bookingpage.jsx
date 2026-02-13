@@ -105,7 +105,10 @@ export default function Bookingpage() {
   }, []);
 
   const hardReloadToWorkbench = useCallback(() => {
-    const target = "https://akcd1998.github.io/scGlamLiff-reception/#/workbench";
+    const basePath = window.location.pathname
+      .replace(/\/index\.html$/, "")
+      .replace(/\/$/, "");
+    const target = `${window.location.origin}${basePath}/#/workbench`;
     window.location.replace(target);
     window.location.reload();
   }, []);

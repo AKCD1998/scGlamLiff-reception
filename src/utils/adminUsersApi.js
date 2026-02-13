@@ -1,8 +1,10 @@
-const base = (import.meta.env.VITE_API_BASE || "").replace(/\/+$/, "");
+import { getApiBaseUrl } from "./runtimeEnv";
+
+const base = getApiBaseUrl();
 
 function ensureConfig() {
   if (!base) {
-    throw new Error("Missing VITE_API_BASE");
+    throw new Error("Missing VITE_API_BASE_URL (or legacy VITE_API_BASE)");
   }
 }
 

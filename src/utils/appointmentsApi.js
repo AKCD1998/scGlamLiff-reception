@@ -1,15 +1,17 @@
-const base = (import.meta.env.VITE_API_BASE || "").replace(/\/+$/, "");
+import { getApiBaseUrl } from "./runtimeEnv";
+
+const base = getApiBaseUrl();
 const shouldLogApiBase =
   import.meta.env.DEV ||
   String(import.meta.env.VITE_LOG_API_BASE || "").trim().toLowerCase() === "true";
 
 if (typeof window !== "undefined" && shouldLogApiBase) {
-  console.info(`[appointmentsApi] VITE_API_BASE=${base || "(missing)"}`);
+  console.info(`[appointmentsApi] VITE_API_BASE_URL=${base || "(missing)"}`);
 }
 
 function ensureConfig() {
   if (!base) {
-    throw new Error("Missing VITE_API_BASE");
+    throw new Error("Missing VITE_API_BASE_URL (or legacy VITE_API_BASE)");
   }
 }
 

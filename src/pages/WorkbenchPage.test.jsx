@@ -46,7 +46,7 @@ describe("WorkbenchPage", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByRole("heading", { name: /workbench/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /หน้าแรก/i })).toBeInTheDocument();
     expect(await screen.findByTestId("homepage")).toBeInTheDocument();
 
     await waitFor(() => {

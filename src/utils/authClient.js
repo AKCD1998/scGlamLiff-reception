@@ -1,4 +1,6 @@
-const apiBase = (import.meta.env.VITE_API_BASE || "").replace(/\/+$/, "");
+import { getApiBaseUrl } from "./runtimeEnv";
+
+const apiBase = getApiBaseUrl();
 
 export async function getMe() {
   const res = await fetch(`${apiBase}/api/auth/me`, {

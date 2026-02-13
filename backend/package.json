@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "description": "scGlamLiff reception backend",
   "main": "server.js",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0",
+    "npm": ">=10"
+  },
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js",

@@ -1,9 +1,10 @@
 ﻿import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { getApiBaseUrl } from "../utils/runtimeEnv";
 import "./LoginPage.css";
 
 export default function LoginPage() {
-  const apiBase = (import.meta.env.VITE_API_BASE || "").replace(/\/+$/, "");
+  const apiBase = getApiBaseUrl();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);

@@ -65,7 +65,9 @@ export function loadRuntimeEnv(): RuntimeEnv {
   );
   const apiBase = normalizeBaseUrl(
     process.env.E2E_API_BASE ||
+      process.env.VITE_API_BASE_URL ||
       process.env.VITE_API_BASE ||
+      feEnv.VITE_API_BASE_URL ||
       feEnv.VITE_API_BASE ||
       "http://localhost:5050"
   );
@@ -89,4 +91,3 @@ export function loadRuntimeEnv(): RuntimeEnv {
     staff,
   };
 }
-
