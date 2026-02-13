@@ -6,6 +6,31 @@
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  background: var(--cpm-bg, var(--booking-panel, #fff7f0));
+  color: var(--cpm-text, var(--booking-text, #2a1206));
+
+  --cpm-bg: var(--booking-panel, #fff7f0);
+  --cpm-card: #fffaf6;
+  --cpm-card-subtle: rgba(255, 250, 246, 0.92);
+  --cpm-border: var(--booking-border, #2a1206);
+  --cpm-section-bg: transparent;
+  --cpm-section-border: transparent;
+  --cpm-text: var(--booking-text, #2a1206);
+  --cpm-soft: var(--booking-soft, #5a2a12);
+  --cpm-muted: var(--booking-muted, #7a5a43);
+  --cpm-accent: #b3733b;
+  --cpm-accent-bg: rgba(179, 115, 59, 0.12);
+  --cpm-accent-border: rgba(179, 115, 59, 0.35);
+  --cpm-focus: var(--booking-focus, rgba(42, 18, 6, 0.35));
+  --cpm-overlay-bg: rgba(255, 255, 255, 0.6);
+  --cpm-loading-card-shadow: 0 16px 30px rgba(20, 12, 6, 0.25);
+  --cpm-hover-filter: brightness(0.985);
+  --cpm-disabled-bg: rgba(42, 18, 6, 0.05);
+  --cpm-disabled-border: rgba(42, 18, 6, 0.28);
+  --cpm-disabled-text: var(--cpm-muted);
+  --cpm-danger: #b23b2a;
+  --cpm-danger-bg: rgba(178, 59, 42, 0.12);
+  --cpm-danger-border: rgba(178, 59, 42, 0.35);
 }
 
 .customer-profile-modal .modal-loading-overlay {
@@ -17,19 +42,19 @@
   padding: 20px;
   border-radius: inherit;
   backdrop-filter: blur(3px);
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--cpm-overlay-bg);
   z-index: 20;
   pointer-events: all;
 }
 
 .customer-profile-modal .modal-loading-overlay .workbench-loading-card {
   width: min(320px, 90vw);
-  border: 2px solid var(--booking-border);
+  border: 2px solid var(--cpm-border);
   border-radius: 16px;
   padding: 18px 20px;
-  background: #fffaf6;
-  box-shadow: 0 16px 30px rgba(20, 12, 6, 0.25);
-  color: var(--booking-text);
+  background: var(--cpm-card);
+  box-shadow: var(--cpm-loading-card-shadow);
+  color: var(--cpm-text);
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -48,12 +73,12 @@
 
 .customer-profile-modal .modal-loading-overlay .workbench-loading-text {
   font-weight: 700;
-  color: var(--booking-soft);
+  color: var(--cpm-soft);
 }
 
 .customer-profile-modal .modal-loading-overlay .workbench-loading-subtext {
   font-size: 0.9rem;
-  color: var(--booking-muted);
+  color: var(--cpm-muted);
 }
 
 .customer-profile-modal__header {
@@ -67,7 +92,7 @@
 .customer-profile-modal__title {
   font-size: 1.1rem;
   font-weight: 700;
-  color: var(--booking-soft);
+  color: var(--cpm-soft);
 }
 
 .customer-profile-modal__body {
@@ -80,10 +105,16 @@
   flex: 1;
 }
 
+.cpm-section {
+  background: var(--cpm-section-bg);
+  box-shadow: inset 0 0 0 1px var(--cpm-section-border);
+  border-radius: 12px;
+}
+
 .cpm-section h3 {
   margin: 0;
   font-size: 1rem;
-  color: var(--booking-soft);
+  color: var(--cpm-soft);
 }
 
 .cpm-profile,
@@ -103,7 +134,7 @@
 
 .customer-profile-section__title {
   font-weight: 700;
-  color: var(--booking-soft);
+  color: var(--cpm-soft);
   font-size: 0.98rem;
 }
 
@@ -113,29 +144,33 @@
   gap: 16px;
   padding: 12px;
   border-radius: 12px;
-  border: 1.5px solid var(--booking-border);
-  background: #fffaf6;
+  border: 1.5px solid var(--cpm-border);
+  background: var(--cpm-card);
 }
 
 .customer-profile-label {
   font-size: 0.82rem;
-  color: var(--booking-muted);
+  color: var(--cpm-muted);
   margin-bottom: 4px;
 }
 
 .customer-profile-value {
   font-weight: 700;
-  color: var(--booking-text);
+  color: var(--cpm-text);
   word-break: break-word;
 }
 
 .customer-profile-state {
   font-size: 0.9rem;
-  color: var(--booking-muted);
+  color: var(--cpm-muted);
 }
 
 .customer-profile-state--error {
-  color: #b23b2a;
+  color: var(--cpm-danger);
+  border: 1px solid var(--cpm-danger-border);
+  background: var(--cpm-danger-bg);
+  border-radius: 10px;
+  padding: 8px 10px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -143,13 +178,22 @@
 }
 
 .customer-profile-state--error button {
-  border: 1px solid var(--booking-border);
+  border: 1px solid var(--cpm-border);
   border-radius: 10px;
   padding: 6px 12px;
-  background: #fffaf6;
-  color: var(--booking-text);
+  background: var(--cpm-card);
+  color: var(--cpm-text);
   font-weight: 700;
   cursor: pointer;
+}
+
+.customer-profile-state--error button:hover {
+  filter: var(--cpm-hover-filter);
+}
+
+.customer-profile-state--error button:focus-visible {
+  outline: 2px solid var(--cpm-focus);
+  outline-offset: 2px;
 }
 
 .customer-profile-table {
@@ -158,12 +202,12 @@
 
 .customer-profile-strong {
   font-weight: 700;
-  color: var(--booking-text);
+  color: var(--cpm-text);
 }
 
 .customer-profile-muted {
   font-size: 0.8rem;
-  color: var(--booking-muted);
+  color: var(--cpm-muted);
 }
 
 .cpm-courses-head {
@@ -179,9 +223,9 @@
 }
 
 .cpm-carousel-btn {
-  border: 1.5px solid var(--booking-border);
-  background: #fffaf6;
-  color: var(--booking-text);
+  border: 1.5px solid var(--cpm-border);
+  background: var(--cpm-card);
+  color: var(--cpm-text);
   width: 34px;
   height: 34px;
   border-radius: 10px;
@@ -190,11 +234,25 @@
   justify-content: center;
   cursor: pointer;
   font-weight: 700;
+  transition: filter 0.16s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.cpm-carousel-btn:hover {
+  filter: var(--cpm-hover-filter);
+}
+
+.cpm-carousel-btn:focus-visible {
+  outline: 2px solid var(--cpm-focus);
+  outline-offset: 2px;
 }
 
 .cpm-carousel-btn:disabled {
-  opacity: 0.5;
+  opacity: 1;
+  background: var(--cpm-disabled-bg);
+  border-color: var(--cpm-disabled-border);
+  color: var(--cpm-disabled-text);
   cursor: not-allowed;
+  filter: none;
 }
 
 .cpm-carousel {
@@ -211,9 +269,9 @@
 
 .cpm-course-card {
   scroll-snap-align: start;
-  border: 1.5px solid var(--booking-border);
+  border: 1.5px solid var(--cpm-border);
   border-radius: 14px;
-  background: #fffaf6;
+  background: var(--cpm-card);
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -231,9 +289,9 @@
 .customer-profile-status {
   font-size: 0.85rem;
   font-weight: 700;
-  color: var(--booking-brown-dark);
-  background: rgba(179, 115, 59, 0.12);
-  border: 1px solid rgba(179, 115, 59, 0.35);
+  color: var(--cpm-accent);
+  background: var(--cpm-accent-bg);
+  border: 1px solid var(--cpm-accent-border);
   padding: 4px 10px;
   border-radius: 999px;
   text-transform: uppercase;
@@ -244,7 +302,7 @@
   gap: 12px;
   flex-wrap: wrap;
   font-size: 0.82rem;
-  color: var(--booking-muted);
+  color: var(--cpm-muted);
 }
 
 .customer-profile-progress {
@@ -266,12 +324,12 @@
   gap: 8px;
   flex-wrap: wrap;
   font-size: 0.82rem;
-  color: var(--booking-muted);
+  color: var(--cpm-muted);
 }
 
 .customer-profile-mask-label {
   font-weight: 700;
-  color: var(--booking-soft);
+  color: var(--cpm-soft);
 }
 
 .cpm-history-scroll {
@@ -308,6 +366,60 @@
 .cpm-cell-wrap {
   white-space: normal;
   word-break: break-word;
+}
+
+body[data-theme="dark"] .customer-profile-modal,
+[data-theme="dark"] .customer-profile-modal,
+.dark .customer-profile-modal {
+  --cpm-bg: #121821;
+  --cpm-card: #1a2230;
+  --cpm-card-subtle: #1d2735;
+  --cpm-border: #344155;
+  --cpm-section-bg: #151d29;
+  --cpm-section-border: #2c3748;
+  --cpm-text: #ecf2fb;
+  --cpm-soft: #f4f8ff;
+  --cpm-muted: #a8b4c6;
+  --cpm-accent: #c08a47;
+  --cpm-accent-bg: rgba(192, 138, 71, 0.18);
+  --cpm-accent-border: rgba(192, 138, 71, 0.5);
+  --cpm-focus: rgba(192, 138, 71, 0.5);
+  --cpm-overlay-bg: rgba(6, 9, 13, 0.62);
+  --cpm-loading-card-shadow: 0 16px 30px rgba(1, 4, 8, 0.55);
+  --cpm-hover-filter: brightness(1.06);
+  --cpm-disabled-bg: #202a39;
+  --cpm-disabled-border: #2d3a4d;
+  --cpm-disabled-text: #8693a5;
+  --cpm-danger: #f0887a;
+  --cpm-danger-bg: rgba(240, 136, 122, 0.16);
+  --cpm-danger-border: rgba(240, 136, 122, 0.5);
+}
+
+@media (prefers-color-scheme: dark) {
+  body:not([data-theme]) .customer-profile-modal {
+    --cpm-bg: #121821;
+    --cpm-card: #1a2230;
+    --cpm-card-subtle: #1d2735;
+    --cpm-border: #344155;
+    --cpm-section-bg: #151d29;
+    --cpm-section-border: #2c3748;
+    --cpm-text: #ecf2fb;
+    --cpm-soft: #f4f8ff;
+    --cpm-muted: #a8b4c6;
+    --cpm-accent: #c08a47;
+    --cpm-accent-bg: rgba(192, 138, 71, 0.18);
+    --cpm-accent-border: rgba(192, 138, 71, 0.5);
+    --cpm-focus: rgba(192, 138, 71, 0.5);
+    --cpm-overlay-bg: rgba(6, 9, 13, 0.62);
+    --cpm-loading-card-shadow: 0 16px 30px rgba(1, 4, 8, 0.55);
+    --cpm-hover-filter: brightness(1.06);
+    --cpm-disabled-bg: #202a39;
+    --cpm-disabled-border: #2d3a4d;
+    --cpm-disabled-text: #8693a5;
+    --cpm-danger: #f0887a;
+    --cpm-danger-bg: rgba(240, 136, 122, 0.16);
+    --cpm-danger-border: rgba(240, 136, 122, 0.5);
+  }
 }
 
 @media (max-width: 720px) {
