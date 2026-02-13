@@ -19,6 +19,10 @@ export function normalizeRow(row = {}) {
     treatmentItemDisplay: row.treatmentItemDisplay ?? row.treatmentItem ?? "",
     staffName: row.staffName ?? row.staff_name ?? "",
     datetime: row.datetime ?? "", // backward compatibility for sorting fallback
+    treatmentPlanMode:
+      row.treatment_plan_mode ?? row.treatmentPlanMode ?? "",
+    treatmentPlanPackageId:
+      row.treatment_plan_package_id ?? row.treatmentPlanPackageId ?? "",
   };
 }
 

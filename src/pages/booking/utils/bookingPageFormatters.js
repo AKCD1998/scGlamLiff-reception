@@ -13,6 +13,10 @@ export function normalizeRow(row = {}) {
     status: row.status ?? "",
     appointmentId: row.appointment_id ?? row.appointmentId ?? "",
     customerId: row.customer_id ?? row.customerId ?? "",
+    treatmentPlanMode:
+      row.treatment_plan_mode ?? row.treatmentPlanMode ?? "",
+    treatmentPlanPackageId:
+      row.treatment_plan_package_id ?? row.treatmentPlanPackageId ?? "",
   };
 }
 
@@ -80,4 +84,3 @@ export function normalizeTreatmentOptionRow(row = {}) {
     priceThb: Number(row.price_thb ?? row.priceThb) || 0,
   };
 }
-

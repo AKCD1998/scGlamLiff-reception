@@ -11,6 +11,14 @@ import "./ServiceConfirmationModal.css";
 
 const NO_COURSE_ID = "__NO_COURSE__";
 
+function normalizePlanMode(value) {
+  const mode = String(value || "").trim().toLowerCase();
+  if (mode === "oneoff") return "one_off";
+  if (mode === "one_off") return "one_off";
+  if (mode === "package") return "package";
+  return "";
+}
+
 function statusLabel(status) {
   const s = String(status || "").toLowerCase();
   if (s === "completed") return "ให้บริการเรียบร้อย";
@@ -104,12 +112,26 @@ export default function ServiceConfirmationModal({
   const [submitError, setSubmitError] = useState("");
 
   const isAdmin = ["admin", "owner"].includes(String(currentUser?.role_name || "").toLowerCase());
+  const bookingPlanMode = useMemo(
+    () => normalizePlanMode(booking?.treatmentPlanMode ?? booking?.treatment_plan_mode),
+    [booking?.treatmentPlanMode, booking?.treatment_plan_mode]
+  );
   const allowNoCourseCompletion = useMemo(() => {
+    if (bookingPlanMode === "one_off") return true;
+    if (bookingPlanMode === "package") return false;
+
     const text = String(booking?.treatmentItem || "").toLowerCase();
+    // Fallback heuristic for older rows without treatment plan mode metadata.
+    if (/\b1\s*\/\s*1\b/.test(text) && /\bmask\s*0\s*\/\s*0\b/.test(text)) {
+      return true;
+    }
+
     // Sheet/course strings look like "1/3 ..." or "2/10 ..." etc. If it's not a progress string,
     // allow completing without deducting any package (one-off services like "smooth 399 free").
     return !/\b\d+\s*\/\s*\d+\b/.test(text);
-  }, [booking?.treatmentItem]);
+  }, [booking?.treatmentItem, bookingPlanMode]);
+
+  const showOnlyOneOffOption = bookingPlanMode === "one_off";
 
   useEffect(() => {
     if (!open) return undefined;
@@ -151,7 +173,7 @@ export default function ServiceConfirmationModal({
     setPackages([]);
     setPackagesError("");
     setPackagesLoading(false);
-    setSelectedPackageId(allowNoCourseCompletion ? NO_COURSE_ID : "");
+    setSelectedPackageId(allowNoCourseCompletion || showOnlyOneOffOption ? NO_COURSE_ID : "");
     setUseMask(false);
     setSubmitError("");
     setSubmitting(false);
@@ -196,6 +218,9 @@ export default function ServiceConfirmationModal({
 
           const profile = await getCustomerProfile(appt.customer_id, controller.signal);
           let list = Array.isArray(profile.packages) ? profile.packages : [];
+          if (showOnlyOneOffOption) {
+            list = [];
+          }
           if (list.length === 0 && !allowNoCourseCompletion && syncErrorMessage) {
             setPackagesError(syncErrorMessage);
           }
@@ -229,6 +254,7 @@ export default function ServiceConfirmationModal({
     return () => controller.abort();
   }, [
     allowNoCourseCompletion,
+    showOnlyOneOffOption,
     booking?.appointmentId,
     booking?.appointment_id,
     booking?.customerId,
@@ -252,10 +278,11 @@ export default function ServiceConfirmationModal({
   const activePackages = useMemo(() => {
     return buildActivePackages(packages);
   }, [packages]);
+  const packageChoices = showOnlyOneOffOption ? [] : activePackages;
 
   const selectedPkg = useMemo(
-    () => activePackages.find((pkg) => pkg.customer_package_id === selectedPackageId) || null,
-    [activePackages, selectedPackageId]
+    () => packageChoices.find((pkg) => pkg.customer_package_id === selectedPackageId) || null,
+    [packageChoices, selectedPackageId]
   );
 
   const completingWithoutCourse = allowNoCourseCompletion && selectedPackageId === NO_COURSE_ID;
@@ -483,7 +510,7 @@ export default function ServiceConfirmationModal({
                   </div>
                 ) : null}
               </>
-            ) : hasResolvedOnce && activePackages.length === 0 && !allowNoCourseCompletion ? (
+            ) : hasResolvedOnce && packageChoices.length === 0 && !allowNoCourseCompletion ? (
               <div className="scm-state scm-state--row">
                 <span>ไม่พบคอร์สที่ใช้งานได้</span>
                 <button
@@ -520,7 +547,7 @@ export default function ServiceConfirmationModal({
                       </div>
                     </button>
                   ) : null}
-                  {activePackages.map((pkg) => {
+                  {packageChoices.map((pkg) => {
                     const disabled = pkg._computed.sessionsRemaining <= 0;
                     const checked = selectedPackageId === pkg.customer_package_id;
                     return (
@@ -554,7 +581,7 @@ export default function ServiceConfirmationModal({
                     );
                   })}
                 </div>
-                {hasResolvedOnce && activePackages.length === 0 && allowNoCourseCompletion ? (
+                {hasResolvedOnce && packageChoices.length === 0 && allowNoCourseCompletion ? (
                   <div className="scm-state">บริการแบบครั้งเดียว: สามารถกด Confirm ได้โดยไม่ตัดคอร์ส</div>
                 ) : null}
               </>
