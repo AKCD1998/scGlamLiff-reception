@@ -216,7 +216,38 @@ function normalizeLegacyQueueRows(rows) {
   });
 }
 
-async function queryLegacyQueueRows({ date, branchId, limit }) {
+function mapSheetRowsToQueue(rows) {
+  return (rows || []).map((row) => {
+    const rawPhone = normalizeText(row.phone);
+    const normalizedPhone = sanitizeThaiPhone(rawPhone);
+    const treatmentItem = normalizeText(row.treatmentItem);
+
+    return {
+      id: row.id,
+      appointment_id: null,
+      scheduled_at: null,
+      status: normalizeText(row.status) || 'booked',
+      branch_id: null,
+      treatment_id: null,
+      customer_id: null,
+      raw_sheet_uuid: row.raw_sheet_uuid || row.id || null,
+      treatment_code: '',
+      treatment_title_en: '',
+      date: normalizeText(row.date),
+      bookingTime: normalizeText(row.bookingTime),
+      customer_full_name: normalizeText(row.customerName),
+      customerName: normalizeText(row.customerName),
+      phone: normalizedPhone,
+      lineId: sanitizeDisplayLineId(row.lineId),
+      treatment_name: treatmentItem,
+      treatmentItem,
+      staffName: sanitizeDisplayStaffName(row.staffName),
+      treatmentItemDisplay: treatmentItem,
+    };
+  });
+}
+
+async function queryLegacyQueueRowsFromAppointments({ date, branchId, limit }) {
   const { params, whereParts } = buildQueueFilters({ date, branchId });
   params.push(limit);
   const limitParam = `$${params.length}`;
@@ -265,6 +296,53 @@ async function queryLegacyQueueRows({ date, branchId, limit }) {
   );
 
   return normalizeLegacyQueueRows(rows || []);
+}
+
+async function queryLegacyQueueRowsFromSheet({ date, limit }) {
+  const params = [];
+  const whereParts = ['deleted_at IS NULL'];
+
+  if (date) {
+    params.push(date);
+    whereParts.push(`visit_date = $${params.length}`);
+  }
+
+  params.push(limit);
+  const limitParam = `$${params.length}`;
+
+  const { rows } = await query(
+    `
+      SELECT
+        sheet_uuid::text AS id,
+        sheet_uuid::text AS raw_sheet_uuid,
+        COALESCE(TO_CHAR(visit_date, 'YYYY-MM-DD'), '') AS date,
+        COALESCE(visit_time_text, '') AS "bookingTime",
+        COALESCE(customer_full_name, '') AS "customerName",
+        COALESCE(phone_raw, '') AS phone,
+        COALESCE(email_or_lineid, '') AS "lineId",
+        COALESCE(treatment_item_text, '') AS "treatmentItem",
+        COALESCE(NULLIF(staff_name, ''), '-') AS "staffName",
+        'booked'::text AS status
+      FROM public.sheet_visits_raw
+      WHERE ${whereParts.join(' AND ')}
+      ORDER BY visit_date DESC, visit_time_text DESC, imported_at DESC
+      LIMIT ${limitParam}
+    `,
+    params
+  );
+
+  return mapSheetRowsToQueue(rows);
+}
+
+async function queryLegacyQueueRows({ date, branchId, limit }) {
+  try {
+    return await queryLegacyQueueRowsFromAppointments({ date, branchId, limit });
+  } catch (error) {
+    if (!shouldFallbackToLegacyQueue(error)) {
+      throw error;
+    }
+    return queryLegacyQueueRowsFromSheet({ date, limit });
+  }
 }
 
 export async function listBookingTreatmentOptions(req, res) {
@@ -696,6 +774,14 @@ export async function listAppointmentsQueue(req, res) {
             'Queue served via legacy schema fallback because backend schema is missing queue dependencies.',
           code: errorCode || null,
         });
+        if (branchId) {
+          warnings.push({
+            type: 'fallback',
+            reason:
+              'branch_id filter may be ignored in fallback mode if appointments table is unavailable.',
+            param: 'branch_id',
+          });
+        }
 
         return res.json({
           ok: true,
