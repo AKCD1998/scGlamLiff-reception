@@ -200,3 +200,47 @@ curl -i "https://<your-backend-service>.onrender.com/api/appointments/queue?date
 - Attempted to run targeted tests:
   - `npm run test:run -- src/components/ServiceConfirmationModal.test.jsx`
 - Result in this shell: failed because `vitest` command is not currently available (`'vitest' is not recognized...`).
+
+## 2026-02-13 17:11:50 +07:00 — Safe E2E test-data isolation (UI filter + guarded cleanup tool)
+
+### Problem observed
+- Booking queue/customer lists were polluted by automated test records (`e2e_*`, `verify-*`), making production UI noisy.
+- Source is API-backed data (not hardcoded):
+  - Queue: `GET /api/appointments/queue` (`rows` -> `QueuePanel`/`QueueTable`)
+  - Customers: `GET /api/customers` (`rows` -> `CustomerTable`)
+
+### Safe changes implemented
+- Added shared conservative matcher at `src/utils/isTestRecord.js`:
+  - allowlist markers only: `^e2e_`, `^e2e_workflow_`, `^verify-` (case-insensitive)
+  - exports: `isE2EName`, `isTestRecord`, `shouldHideTestRecordsByDefault`
+- Added UI toggles (non-invasive) in both queue and customer views:
+  - label: `แสดงข้อมูลทดสอบ (E2E)`
+  - production default: hidden (`import.meta.env.PROD`)
+  - can override with env: `VITE_HIDE_E2E_RECORDS=true|false`
+- Real business logic/status handling remains unchanged.
+- Added env placeholders for this flag in `.env.example`, `.env.development`, `.env.staging`, `.env.production`.
+
+### Optional cleanup tool (guarded)
+- Added `backend/scripts/cleanup-e2e-data.js` (+ backend script `cleanup:e2e`).
+- Safety behavior:
+  - dry-run by default (no DB modifications)
+  - strict allowlist only (`^e2e_`, `^e2e_workflow_`, `^verify-`)
+  - prints only counts + sample IDs (max 10), no secrets/no full PII dump
+  - actual deletion only when `CLEANUP_E2E_CONFIRM=true`
+- Cleanup targets only matched records and dependencies in safe order (children first).
+
+### How to run cleanup tool
+```bash
+cd backend
+node scripts/cleanup-e2e-data.js
+```
+( dry run by default )
+
+```bash
+cd backend
+CLEANUP_E2E_CONFIRM=true node scripts/cleanup-e2e-data.js
+```
+( executes deletion only for allowlist-matched IDs )
+
+### Safety note
+- Tool never performs broad deletes; it only acts on records matched by the allowlist prefixes above.

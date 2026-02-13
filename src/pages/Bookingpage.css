@@ -178,6 +178,30 @@ body[data-theme="dark"] {
   cursor: not-allowed;
 }
 
+.booking-test-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--booking-text);
+  font-weight: 700;
+}
+
+.booking-test-filter input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--booking-brown);
+}
+
+.booking-test-filter input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--booking-focus);
+  outline-offset: 2px;
+}
+
+.booking-queue-filter--customer {
+  justify-content: flex-end;
+}
+
 .booking-edit-button {
   border: 1.5px solid var(--booking-border);
   background: var(--booking-panel);
