@@ -4,6 +4,7 @@ const baseURL = process.env.E2E_BASE_URL || "http://localhost:5173";
 
 export default defineConfig({
   testDir: "./specs",
+  globalSetup: "./global-setup.ts",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
@@ -32,4 +33,3 @@ export default defineConfig({
     },
   ],
 });
-

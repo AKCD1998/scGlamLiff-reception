@@ -5,6 +5,7 @@ import type { TestInfo } from "@playwright/test";
 export interface FailureLogArtifacts {
   screenshotPath: string | null;
   responseSnapshotPath: string | null;
+  loginResponsePath: string | null;
   metadataPath: string;
 }
 
@@ -91,6 +92,9 @@ function formatArtifactList(artifacts: FailureLogArtifacts): string {
   if (artifacts.responseSnapshotPath) {
     lines.push(`last-response: \`${artifacts.responseSnapshotPath}\``);
   }
+  if (artifacts.loginResponsePath) {
+    lines.push(`last-login-response: \`${artifacts.loginResponsePath}\``);
+  }
   lines.push(`metadata: \`${artifacts.metadataPath}\``);
   return lines.join(", ");
 }
@@ -144,4 +148,3 @@ export async function appendFailureLogs(context: FailureLogContext): Promise<voi
   ].join("\n");
   await fs.appendFile(logPaths.projectDiary, indexEntry, "utf8");
 }
-

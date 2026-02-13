@@ -15,6 +15,7 @@ export interface ApiResponseSnapshot {
 export interface FailureArtifacts {
   screenshotPath: string | null;
   responseSnapshotPath: string | null;
+  loginResponsePath: string | null;
   metadataPath: string;
 }
 
@@ -113,7 +114,7 @@ export async function saveFailureArtifacts(params: {
   return {
     screenshotPath,
     responseSnapshotPath,
+    loginResponsePath: null,
     metadataPath: toRelativePath(metadataAbsolute),
   };
 }
-

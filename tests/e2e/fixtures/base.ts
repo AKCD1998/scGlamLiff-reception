@@ -2,9 +2,11 @@ import { test as base, expect } from "@playwright/test";
 import { appendFailureLogs } from "../utils/logger";
 import {
   saveFailureArtifacts,
+  saveJsonSnapshot,
   type ApiResponseSnapshot,
   type FailureArtifacts,
 } from "../utils/artifacts";
+import { getLastLoginSnapshot } from "../utils/auth";
 
 type NetworkTracker = {
   allApiResponses: ApiResponseSnapshot[];
@@ -87,6 +89,7 @@ export const test = base.extend<BaseFixtures, AutoFixtures>({
       let artifacts: FailureArtifacts = {
         screenshotPath: null,
         responseSnapshotPath: null,
+        loginResponsePath: null,
         metadataPath: "",
       };
 
@@ -98,6 +101,18 @@ export const test = base.extend<BaseFixtures, AutoFixtures>({
         });
       } catch {
         // Continue to logger with whatever we have.
+      }
+
+      try {
+        const loginSnapshot = getLastLoginSnapshot(page);
+        if (loginSnapshot) {
+          artifacts.loginResponsePath = await saveJsonSnapshot(
+            `${testInfo.titlePath.join(" > ")}--last-login-response-redacted`,
+            loginSnapshot
+          );
+        }
+      } catch {
+        // Keep failure logger resilient.
       }
 
       await appendFailureLogs({
@@ -113,4 +128,3 @@ export const test = base.extend<BaseFixtures, AutoFixtures>({
 });
 
 export { expect };
-
