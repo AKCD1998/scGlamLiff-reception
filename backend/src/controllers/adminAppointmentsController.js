@@ -440,6 +440,11 @@ async function getAppointmentDetailsById(client, appointmentId, { forUpdate = fa
         COALESCE(ci_line.provider_user_id, '') AS line_id,
         COALESCE(ci_email.provider_user_id, '') AS email,
         COALESCE(
+          NULLIF(staff_name_evt.staff_name, ''),
+          NULLIF(staff_display_evt.staff_display_name, ''),
+          ''
+        ) AS staff_name,
+        COALESCE(
           NULLIF(ci_line.provider_user_id, ''),
           NULLIF(ci_email.provider_user_id, ''),
           ''
@@ -474,6 +479,44 @@ async function getAppointmentDetailsById(client, appointmentId, { forUpdate = fa
         ORDER BY created_at DESC, id DESC
         LIMIT 1
       ) ci_email ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          COALESCE(
+            NULLIF(ae.meta->'after'->>'staff_name', ''),
+            NULLIF(ae.meta->>'staff_name', '')
+          ) AS staff_name
+        FROM appointment_events ae
+        WHERE ae.appointment_id = a.id
+          AND (
+            COALESCE(ae.meta->'after', '{}'::jsonb) ? 'staff_name'
+            OR ae.meta ? 'staff_name'
+          )
+          AND COALESCE(
+            NULLIF(ae.meta->'after'->>'staff_name', ''),
+            NULLIF(ae.meta->>'staff_name', '')
+          ) IS NOT NULL
+        ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
+        LIMIT 1
+      ) staff_name_evt ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          COALESCE(
+            NULLIF(ae.meta->'after'->>'staff_display_name', ''),
+            NULLIF(ae.meta->>'staff_display_name', '')
+          ) AS staff_display_name
+        FROM appointment_events ae
+        WHERE ae.appointment_id = a.id
+          AND (
+            COALESCE(ae.meta->'after', '{}'::jsonb) ? 'staff_display_name'
+            OR ae.meta ? 'staff_display_name'
+          )
+          AND COALESCE(
+            NULLIF(ae.meta->'after'->>'staff_display_name', ''),
+            NULLIF(ae.meta->>'staff_display_name', '')
+          ) IS NOT NULL
+        ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
+        LIMIT 1
+      ) staff_display_evt ON true
       WHERE a.id = $1
       LIMIT 1
       ${lockClause}
@@ -762,6 +805,7 @@ export async function getAdminAppointmentById(req, res) {
         phone: appointment.phone,
         line_id: appointment.line_id,
         email: appointment.email,
+        staff_name: appointment.staff_name,
         email_or_lineid: appointment.email_or_lineid,
         treatment_item_text: treatmentPlan.treatment_item_text || appointment.treatment_title,
         treatment_plan_mode: treatmentPlan.treatment_plan_mode,
@@ -1016,6 +1060,14 @@ export async function patchAdminAppointment(req, res) {
         );
         before.customer_full_name = beforeRecord.customer_full_name;
         after.customer_full_name = nextCustomerName;
+      }
+    }
+
+    if (hasOwnField(req.body, 'staff_name')) {
+      const nextStaffName = requireText(req.body?.staff_name, 'staff_name');
+      if (normalizeText(beforeRecord.staff_name) !== nextStaffName) {
+        before.staff_name = beforeRecord.staff_name || null;
+        after.staff_name = nextStaffName;
       }
     }
 

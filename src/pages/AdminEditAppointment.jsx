@@ -17,6 +17,7 @@ const ALLOWED_STATUSES = new Set([
   "no_show",
   "rescheduled",
 ]);
+const DEFAULT_STAFF_OPTIONS = ["ส้ม", "โบว์", "เบนซ์", "แพร"];
 
 function pad2(value) {
   return String(value).padStart(2, "0");
@@ -150,6 +151,7 @@ export default function AdminEditAppointment({ currentUser }) {
   const [treatmentOptionsError, setTreatmentOptionsError] = useState("");
   const [status, setStatus] = useState("booked");
   const [customerName, setCustomerName] = useState("");
+  const [staffName, setStaffName] = useState("");
   const [phone, setPhone] = useState("");
   const [emailOrLineid, setEmailOrLineid] = useState("");
   const [reason, setReason] = useState("");
@@ -176,6 +178,12 @@ export default function AdminEditAppointment({ currentUser }) {
   const selectedStatusNormalized = normalizeStatus(status);
   const requiresCancelledToCompletedConfirm =
     currentStatusNormalized === "cancelled" && selectedStatusNormalized === "completed";
+  const staffSelectOptions = useMemo(() => {
+    const unique = new Set(DEFAULT_STAFF_OPTIONS);
+    const current = String(staffName || "").trim();
+    if (current) unique.add(current);
+    return Array.from(unique);
+  }, [staffName]);
 
   const applyLoadedData = (data) => {
     const appt = data?.appointment || null;
@@ -190,6 +198,7 @@ export default function AdminEditAppointment({ currentUser }) {
     setTreatmentOptionValue("");
     setStatus(normalizeStatus(appt?.status) || "booked");
     setCustomerName(String(appt?.customer_full_name || ""));
+    setStaffName(String(appt?.staff_name || "").trim());
     setPhone(String(appt?.phone || ""));
     setEmailOrLineid(String(appt?.email_or_lineid || ""));
     setRawSheetUuid(String(appt?.raw_sheet_uuid || ""));
@@ -415,6 +424,16 @@ export default function AdminEditAppointment({ currentUser }) {
       diffs.push(
         buildDiffRow("customer_full_name", appointment.customer_full_name, cleanCustomerName)
       );
+    }
+
+    const cleanStaffName = String(staffName || "").trim();
+    const currentStaffName = String(appointment.staff_name || "").trim();
+    if (cleanStaffName !== currentStaffName) {
+      if (!cleanStaffName) {
+        return { error: "กรุณาเลือก staff_name" };
+      }
+      payload.staff_name = cleanStaffName;
+      diffs.push(buildDiffRow("staff_name", appointment.staff_name, cleanStaffName));
     }
 
     const originalPhone = String(appointment.phone || "").trim();
@@ -665,6 +684,22 @@ export default function AdminEditAppointment({ currentUser }) {
                   value={customerName}
                   onChange={(event) => setCustomerName(event.target.value)}
                 />
+              </div>
+
+              <div className="aed-field">
+                <label htmlFor="aed-staff-name">staff_name</label>
+                <select
+                  id="aed-staff-name"
+                  value={staffName}
+                  onChange={(event) => setStaffName(event.target.value)}
+                >
+                  <option value="">-- เลือกผู้ให้บริการ --</option>
+                  {staffSelectOptions.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="aed-field">
