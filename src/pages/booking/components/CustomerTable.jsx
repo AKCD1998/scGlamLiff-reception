@@ -9,9 +9,9 @@ export default function CustomerTable({
     <table className="booking-table">
       <thead>
         <tr>
-          <th>Customer ID</th>
-          <th>Full name</th>
-          <th>Edit</th>
+          <th>รหัสลูกค้า</th>
+          <th>ชื่อ-สกุล</th>
+          <th>แก้ไข</th>
         </tr>
       </thead>
       <tbody>
