@@ -6,6 +6,31 @@
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  background: var(--scm-bg, var(--booking-panel, #fff7f0));
+  color: var(--scm-text, var(--booking-text, #2a1206));
+
+  --scm-bg: var(--booking-panel, #fff7f0);
+  --scm-card: #fffaf6;
+  --scm-card-subtle: rgba(255, 250, 246, 0.75);
+  --scm-border: var(--booking-border, #2a1206);
+  --scm-text: var(--booking-text, #2a1206);
+  --scm-soft: var(--booking-soft, #5a2a12);
+  --scm-muted: var(--booking-muted, #7a5a43);
+  --scm-focus: var(--booking-focus, rgba(42, 18, 6, 0.35));
+  --scm-accent-outline: rgba(179, 115, 59, 0.35);
+  --scm-selected-bg: rgba(179, 115, 59, 0.08);
+  --scm-overlay-bg: rgba(16, 12, 8, 0.28);
+  --scm-loading-card-shadow: 0 16px 30px rgba(20, 12, 6, 0.25);
+  --scm-hover-filter: brightness(0.99);
+  --scm-disabled-bg: rgba(42, 18, 6, 0.05);
+  --scm-disabled-border: rgba(42, 18, 6, 0.28);
+  --scm-disabled-text: var(--scm-muted);
+  --scm-danger: #b23b2a;
+  --scm-danger-bg: rgba(178, 59, 42, 0.12);
+  --scm-danger-border: rgba(178, 59, 42, 0.35);
+  --scm-success: #2a6a39;
+  --scm-success-bg: rgba(42, 106, 57, 0.12);
+  --scm-success-border: rgba(42, 106, 57, 0.35);
 }
 
 .modal-loading-overlay {
@@ -17,19 +42,19 @@
   justify-content: center;
   padding: 20px;
   border-radius: inherit;
-  background: rgba(16, 12, 8, 0.28);
+  background: var(--scm-overlay-bg);
   backdrop-filter: blur(2px);
   pointer-events: all;
 }
 
 .modal-loading-overlay .workbench-loading-card {
   width: min(320px, 90vw);
-  border: 2px solid var(--booking-border);
+  border: 2px solid var(--scm-border);
   border-radius: 16px;
   padding: 18px 20px;
-  background: #fffaf6;
-  box-shadow: 0 16px 30px rgba(20, 12, 6, 0.25);
-  color: var(--booking-text);
+  background: var(--scm-card);
+  box-shadow: var(--scm-loading-card-shadow);
+  color: var(--scm-text);
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -48,12 +73,12 @@
 
 .modal-loading-overlay .workbench-loading-text {
   font-weight: 700;
-  color: var(--booking-soft);
+  color: var(--scm-soft);
 }
 
 .modal-loading-overlay .workbench-loading-subtext {
   font-size: 0.9rem;
-  color: var(--booking-muted);
+  color: var(--scm-muted);
 }
 
 .scm-header {
@@ -67,7 +92,7 @@
 .scm-title {
   font-size: 1.05rem;
   font-weight: 800;
-  color: var(--booking-soft);
+  color: var(--scm-soft);
 }
 
 .scm-body {
@@ -87,7 +112,7 @@
 
 .scm-section__title {
   font-weight: 800;
-  color: var(--booking-soft);
+  color: var(--scm-soft);
   font-size: 0.95rem;
 }
 
@@ -97,25 +122,25 @@
   gap: 12px;
   padding: 12px;
   border-radius: 12px;
-  border: 1.5px solid var(--booking-border);
-  background: #fffaf6;
+  border: 1.5px solid var(--scm-border);
+  background: var(--scm-card);
 }
 
 .scm-label {
   font-size: 0.82rem;
-  color: var(--booking-muted);
+  color: var(--scm-muted);
   margin-bottom: 4px;
 }
 
 .scm-value {
   font-weight: 800;
-  color: var(--booking-text);
+  color: var(--scm-text);
   word-break: break-word;
 }
 
 .scm-state {
   font-size: 0.9rem;
-  color: var(--booking-muted);
+  color: var(--scm-muted);
 }
 
 .scm-state--row {
@@ -127,27 +152,47 @@
 }
 
 .scm-inline-btn {
-  border: 1.5px solid var(--booking-border);
+  border: 1.5px solid var(--scm-border);
   border-radius: 999px;
   padding: 6px 12px;
-  background: #fffaf6;
-  color: var(--booking-text);
+  background: var(--scm-card);
+  color: var(--scm-text);
   font-weight: 900;
   cursor: pointer;
 }
 
+.scm-inline-btn:hover {
+  filter: var(--scm-hover-filter);
+}
+
+.scm-inline-btn:focus-visible {
+  outline: 2px solid var(--scm-focus);
+  outline-offset: 2px;
+}
+
 .scm-inline-btn:disabled {
-  opacity: 0.6;
+  opacity: 1;
+  background: var(--scm-disabled-bg);
+  border-color: var(--scm-disabled-border);
+  color: var(--scm-disabled-text);
   cursor: not-allowed;
 }
 
 .scm-state--error {
-  color: #b23b2a;
+  color: var(--scm-danger);
+  border: 1px solid var(--scm-danger-border);
+  background: var(--scm-danger-bg);
+  border-radius: 10px;
+  padding: 8px 10px;
   font-weight: 700;
 }
 
 .scm-state--success {
-  color: #2a6a39;
+  color: var(--scm-success);
+  border: 1px solid var(--scm-success-border);
+  background: var(--scm-success-bg);
+  border-radius: 10px;
+  padding: 8px 10px;
   font-weight: 700;
 }
 
@@ -158,31 +203,42 @@
 }
 
 .scm-package {
-  border: 1.5px solid var(--booking-border);
+  border: 1.5px solid var(--scm-border);
   border-radius: 14px;
-  background: #fffaf6;
+  background: var(--scm-card);
+  color: var(--scm-text);
   padding: 12px;
   text-align: left;
   cursor: pointer;
-  transition: transform 0.15s ease, filter 0.2s ease;
+  transition: transform 0.15s ease, filter 0.2s ease, background 0.2s ease, border-color 0.2s ease;
 }
 
 .scm-package:hover {
-  filter: brightness(0.99);
+  filter: var(--scm-hover-filter);
 }
 
 .scm-package:active {
   transform: translateY(1px);
 }
 
+.scm-package:focus-visible {
+  outline: 2px solid var(--scm-focus);
+  outline-offset: 2px;
+}
+
 .scm-package:disabled {
-  opacity: 0.6;
+  opacity: 1;
+  background: var(--scm-disabled-bg);
+  border-color: var(--scm-disabled-border);
+  color: var(--scm-disabled-text);
   cursor: not-allowed;
 }
 
 .scm-package.is-selected {
-  outline: 2px solid rgba(179, 115, 59, 0.35);
+  outline: 2px solid var(--scm-accent-outline);
   outline-offset: 2px;
+  border-color: var(--scm-accent-outline);
+  background: var(--scm-selected-bg);
 }
 
 .scm-package__top {
@@ -194,17 +250,17 @@
 
 .scm-package__title {
   font-weight: 900;
-  color: var(--booking-text);
+  color: var(--scm-text);
 }
 
 .scm-package__code {
   font-size: 0.82rem;
-  color: var(--booking-muted);
+  color: var(--scm-muted);
 }
 
 .scm-package__meta {
   font-size: 0.82rem;
-  color: var(--booking-muted);
+  color: var(--scm-muted);
   text-align: right;
   display: flex;
   flex-direction: column;
@@ -216,7 +272,7 @@
   align-items: center;
   gap: 10px;
   font-weight: 700;
-  color: var(--booking-soft);
+  color: var(--scm-soft);
 }
 
 .scm-check input {
@@ -225,8 +281,8 @@
 }
 
 .scm-preview {
-  border: 1.5px dashed rgba(42, 18, 6, 0.35);
-  background: rgba(255, 250, 246, 0.75);
+  border: 1.5px dashed var(--scm-border);
+  background: var(--scm-card-subtle);
   border-radius: 12px;
   padding: 10px 12px;
 }
@@ -242,7 +298,7 @@
   align-items: center;
   gap: 10px;
   font-weight: 800;
-  color: var(--booking-soft);
+  color: var(--scm-soft);
 }
 
 .scm-actions {
@@ -253,15 +309,25 @@
 }
 
 .scm-btn {
-  border: 1.5px solid var(--booking-border);
+  border: 1.5px solid var(--scm-border);
   border-radius: 12px;
   padding: 10px 14px;
   font-weight: 900;
+  color: var(--scm-text);
+  background: var(--scm-card);
   cursor: pointer;
 }
 
+.scm-btn:focus-visible {
+  outline: 2px solid var(--scm-focus);
+  outline-offset: 2px;
+}
+
 .scm-btn:disabled {
-  opacity: 0.55;
+  opacity: 1;
+  background: var(--scm-disabled-bg);
+  border-color: var(--scm-disabled-border);
+  color: var(--scm-disabled-text);
   cursor: not-allowed;
 }
 
@@ -271,9 +337,63 @@
 }
 
 .scm-btn--danger {
-  background: #b23b2a;
+  background: var(--scm-danger);
   color: #fff;
-  border-color: rgba(0, 0, 0, 0.2);
+  border-color: var(--scm-danger-border);
+}
+
+body[data-theme="dark"] .booking-modal-card.service-confirmation-modal,
+[data-theme="dark"] .booking-modal-card.service-confirmation-modal,
+.dark .booking-modal-card.service-confirmation-modal {
+  --scm-bg: #121821;
+  --scm-card: #1a2230;
+  --scm-card-subtle: #1d2735;
+  --scm-border: #344155;
+  --scm-text: #ecf2fb;
+  --scm-soft: #f4f8ff;
+  --scm-muted: #a8b4c6;
+  --scm-focus: rgba(192, 138, 71, 0.5);
+  --scm-accent-outline: rgba(192, 138, 71, 0.72);
+  --scm-selected-bg: rgba(192, 138, 71, 0.16);
+  --scm-overlay-bg: rgba(6, 9, 13, 0.62);
+  --scm-loading-card-shadow: 0 16px 30px rgba(1, 4, 8, 0.55);
+  --scm-hover-filter: brightness(1.06);
+  --scm-disabled-bg: #202a39;
+  --scm-disabled-border: #2d3a4d;
+  --scm-disabled-text: #8693a5;
+  --scm-danger: #f0887a;
+  --scm-danger-bg: rgba(240, 136, 122, 0.16);
+  --scm-danger-border: rgba(240, 136, 122, 0.5);
+  --scm-success: #9be0ad;
+  --scm-success-bg: rgba(155, 224, 173, 0.15);
+  --scm-success-border: rgba(155, 224, 173, 0.45);
+}
+
+@media (prefers-color-scheme: dark) {
+  body:not([data-theme]) .booking-modal-card.service-confirmation-modal {
+    --scm-bg: #121821;
+    --scm-card: #1a2230;
+    --scm-card-subtle: #1d2735;
+    --scm-border: #344155;
+    --scm-text: #ecf2fb;
+    --scm-soft: #f4f8ff;
+    --scm-muted: #a8b4c6;
+    --scm-focus: rgba(192, 138, 71, 0.5);
+    --scm-accent-outline: rgba(192, 138, 71, 0.72);
+    --scm-selected-bg: rgba(192, 138, 71, 0.16);
+    --scm-overlay-bg: rgba(6, 9, 13, 0.62);
+    --scm-loading-card-shadow: 0 16px 30px rgba(1, 4, 8, 0.55);
+    --scm-hover-filter: brightness(1.06);
+    --scm-disabled-bg: #202a39;
+    --scm-disabled-border: #2d3a4d;
+    --scm-disabled-text: #8693a5;
+    --scm-danger: #f0887a;
+    --scm-danger-bg: rgba(240, 136, 122, 0.16);
+    --scm-danger-border: rgba(240, 136, 122, 0.5);
+    --scm-success: #9be0ad;
+    --scm-success-bg: rgba(155, 224, 173, 0.15);
+    --scm-success-border: rgba(155, 224, 173, 0.45);
+  }
 }
 
 @media (max-width: 920px) {
