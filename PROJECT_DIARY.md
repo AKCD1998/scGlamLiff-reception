@@ -161,3 +161,42 @@ curl -i "https://<your-backend-service>.onrender.com/api/appointments/queue?date
 5. Confirm row still visible with label `ยกเลิกการจอง`.
 6. Mark one row as `completed`.
 7. Confirm row still visible with label `ให้บริการแล้ว` and package usage/course deduction follows completed flow.
+
+## 2026-02-13 16:50:27 +07:00 — Revert support expanded for `no_show` + `cancelled/canceled`
+
+### What changed
+- Expanded revert support in service modal and backend so admin/owner can revert these statuses back to the same target used by existing revert flow (`booked`):
+  - `completed` -> `booked` (existing flow retained)
+  - `no_show` -> `booked` (new)
+  - `cancelled` / `canceled` -> `booked` (new)
+- Queue visibility policy remains unchanged: rows stay visible regardless of status.
+
+### Files changed
+- `src/components/ServiceConfirmationModal.jsx`
+  - Added `isRevertableStatus` helper and expanded `canRevert` condition.
+  - Revert button now shows for `completed/no_show/cancelled/canceled` with Thai label: `ย้อนกลับเป็นสถานะจอง/ยืนยันแล้ว`.
+  - Added confirm dialog before revert and inline success/error feedback.
+  - Updated modal status Thai labels to avoid ambiguous wording.
+- `src/components/ServiceConfirmationModal.css`
+  - Added `.scm-state--success` style for inline success feedback.
+- `src/utils/appointmentsApi.js`
+  - Added structured API error builder and wired appointment action path to surface backend status/message/details more clearly.
+- `backend/src/controllers/appointmentServiceController.js`
+  - Added allowed revert source statuses (`completed`, `no_show`, `cancelled`, `canceled`).
+  - Revert now performs status-only revert for `no_show/cancelled/canceled` (no package usage mutation).
+  - For `completed`, keeps usage-undo behavior when usage record exists.
+- `src/components/ServiceConfirmationModal.test.jsx`
+  - Added unit tests for allowed revert status transitions.
+
+### Verification checklist (manual)
+1. Set an appointment to `no_show` in modal, then click revert.
+2. Confirm row remains in queue and status returns to `จองแล้ว`/target revert status.
+3. Set an appointment to `cancelled`, then click revert.
+4. Confirm row remains in queue and status returns to `จองแล้ว`/target revert status.
+5. Set an appointment to `completed`, then click revert.
+6. Confirm revert still works and completed usage rollback behavior remains consistent with existing flow.
+
+### Local command note
+- Attempted to run targeted tests:
+  - `npm run test:run -- src/components/ServiceConfirmationModal.test.jsx`
+- Result in this shell: failed because `vitest` command is not currently available (`'vitest' is not recognized...`).

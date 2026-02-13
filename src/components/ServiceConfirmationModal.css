@@ -146,6 +146,11 @@
   font-weight: 700;
 }
 
+.scm-state--success {
+  color: #2a6a39;
+  font-weight: 700;
+}
+
 .scm-packages {
   display: flex;
   flex-direction: column;

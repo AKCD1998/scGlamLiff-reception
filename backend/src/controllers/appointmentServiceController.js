@@ -4,10 +4,16 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const DEFAULT_BRANCH_ID = process.env.DEFAULT_BRANCH_ID || 'branch-003';
+const REVERT_TARGET_STATUS = 'booked';
+const REVERTABLE_STATUSES = new Set(['completed', 'no_show', 'cancelled', 'canceled']);
 
 function isAdmin(user) {
   const role = String(user?.role_name || '').toLowerCase();
   return role === 'admin' || role === 'owner';
+}
+
+export function canRevertFromStatus(status) {
+  return REVERTABLE_STATUSES.has(String(status || '').trim().toLowerCase());
 }
 
 function normalizePhone(raw) {
@@ -942,45 +948,49 @@ export async function revertAppointment(req, res) {
     }
 
     const currentStatus = String(appointment.status || '').toLowerCase();
-    if (currentStatus !== 'completed') {
+    if (!canRevertFromStatus(currentStatus)) {
       await client.query('ROLLBACK');
-      return res.status(409).json({ ok: false, error: 'Only completed appointments can be reverted' });
+      return res.status(409).json({
+        ok: false,
+        error: `Only ${Array.from(REVERTABLE_STATUSES).join(', ')} appointments can be reverted`,
+      });
     }
 
-    const usageResult = await client.query(
-      `
-        SELECT id, customer_package_id, session_no, used_mask
-        FROM package_usages
-        WHERE appointment_id = $1
-        LIMIT 1
-        FOR UPDATE
-      `,
-      [appointment.id]
-    );
-
-    if (usageResult.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ ok: false, error: 'Usage record not found for this appointment' });
+    // Revert policy:
+    // - completed: undo package usage if one was recorded.
+    // - no_show / cancelled(canceled): status-only revert, no package usage mutation.
+    let usage = null;
+    if (currentStatus === 'completed') {
+      const usageResult = await client.query(
+        `
+          SELECT id, customer_package_id, session_no, used_mask
+          FROM package_usages
+          WHERE appointment_id = $1
+          LIMIT 1
+          FOR UPDATE
+        `,
+        [appointment.id]
+      );
+      if (usageResult.rowCount > 0) {
+        usage = usageResult.rows[0];
+        await client.query('DELETE FROM package_usages WHERE id = $1', [usage.id]);
+      }
     }
-
-    const usage = usageResult.rows[0];
-
-    await client.query('DELETE FROM package_usages WHERE id = $1', [usage.id]);
 
     await client.query(
       `
         UPDATE appointments
-        SET status = 'booked',
+        SET status = $2,
             updated_at = now()
         WHERE id = $1
       `,
-      [appointment.id]
+      [appointment.id, REVERT_TARGET_STATUS]
     );
 
     await client.query(
       `
         INSERT INTO appointment_events (id, appointment_id, event_type, event_at, actor, note, meta)
-        VALUES (gen_random_uuid(), $1, 'redeemed', now(), 'staff', 'revert usage', $2::jsonb)
+        VALUES (gen_random_uuid(), $1, 'redeemed', now(), 'staff', 'revert status', $2::jsonb)
       `,
       [
         appointment.id,
@@ -988,16 +998,18 @@ export async function revertAppointment(req, res) {
           action: 'revert',
           staff_user_id: req.user?.id || null,
           staff_display_name: safeDisplayName(req.user),
-          reverted_usage_id: usage.id,
-          customer_package_id: usage.customer_package_id,
-          session_no: usage.session_no,
-          used_mask: usage.used_mask,
+          previous_status: currentStatus,
+          next_status: REVERT_TARGET_STATUS,
+          reverted_usage_id: usage?.id || null,
+          customer_package_id: usage?.customer_package_id || null,
+          session_no: usage?.session_no || null,
+          used_mask: usage?.used_mask ?? null,
         }),
       ]
     );
 
     await client.query('COMMIT');
-    return res.json({ ok: true, data: { appointment_id: appointment.id, status: 'booked' } });
+    return res.json({ ok: true, data: { appointment_id: appointment.id, status: REVERT_TARGET_STATUS } });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error(error);

@@ -23,13 +23,24 @@ function normalizePackageId(value) {
   return String(value || "").trim();
 }
 
+function normalizeStatus(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function statusLabel(status) {
-  const s = String(status || "").toLowerCase();
-  if (s === "completed") return "ให้บริการเรียบร้อย";
-  if (s === "cancelled" || s === "canceled") return "ยกเลิก";
-  if (s === "no_show") return "ไม่มาตามนัด";
+  const s = normalizeStatus(status);
+  if (s === "completed") return "ให้บริการแล้ว";
+  if (s === "cancelled" || s === "canceled") return "ยกเลิกการจอง";
+  if (s === "no_show" || s === "no-show" || s === "noshow") return "ลูกค้าไม่มารับบริการ";
+  if (s === "ensured" || s === "confirmed") return "ยืนยันแล้ว";
   if (s === "rescheduled") return "เลื่อนนัด";
   return "จองแล้ว";
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function isRevertableStatus(status) {
+  const s = normalizeStatus(status);
+  return ["completed", "no_show", "cancelled", "canceled"].includes(s);
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -114,6 +125,7 @@ export default function ServiceConfirmationModal({
   const [useMask, setUseMask] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [submitSuccess, setSubmitSuccess] = useState("");
 
   const isAdmin = ["admin", "owner"].includes(String(currentUser?.role_name || "").toLowerCase());
   const bookingPlanMode = useMemo(
@@ -201,6 +213,7 @@ export default function ServiceConfirmationModal({
     setSelectedPackageId(effectiveNoCourseCompletion ? NO_COURSE_ID : "");
     setUseMask(false);
     setSubmitError("");
+    setSubmitSuccess("");
     setSubmitting(false);
     setActionStatus("completed");
 
@@ -299,10 +312,11 @@ export default function ServiceConfirmationModal({
     (!fetchCompletedRef.current || loading || packagesLoading);
 
   const appointmentStatus = appointment?.status || booking?.status || "booked";
+  const appointmentStatusNormalized = normalizeStatus(appointmentStatus);
   const canMutate = useMemo(() => {
-    const s = String(appointmentStatus || "").toLowerCase();
-    return ["booked", "rescheduled"].includes(s);
-  }, [appointmentStatus]);
+    return ["booked", "rescheduled"].includes(appointmentStatusNormalized);
+  }, [appointmentStatusNormalized]);
+  const canRevert = isAdmin && isRevertableStatus(appointmentStatusNormalized);
 
   const activePackages = useMemo(() => {
     return buildActivePackages(packages);
@@ -394,6 +408,7 @@ export default function ServiceConfirmationModal({
   const handleConfirm = async () => {
     if (submitting) return;
     setSubmitError("");
+    setSubmitSuccess("");
 
     if (!appointment?.id) {
       setSubmitError("ไม่พบข้อมูล appointment");
@@ -462,15 +477,25 @@ export default function ServiceConfirmationModal({
   };
 
   const handleRevert = async () => {
-    if (!isAdmin || submitting) return;
+    if (!canRevert || submitting) return;
     if (!appointment?.id) return;
+    const confirmed = window.confirm("ยืนยันย้อนกลับเป็นสถานะจองแล้ว/ยืนยันแล้ว ?");
+    if (!confirmed) return;
 
     setSubmitError("");
+    setSubmitSuccess("");
     setSubmitting(true);
     try {
       await revertService(appointment.id);
-      await onAfterAction?.();
-      onClose?.();
+      setAppointment((prev) => (prev ? { ...prev, status: "booked" } : prev));
+      setActionStatus("completed");
+      setUseMask(false);
+      setSubmitSuccess("ย้อนกลับเป็นสถานะจองแล้ว/ยืนยันแล้วสำเร็จ");
+      try {
+        await onAfterAction?.();
+      } catch (refreshError) {
+        console.error("[ServiceConfirmationModal] onAfterAction failed after revert", refreshError);
+      }
     } catch (e) {
       setSubmitError(e?.message || "Revert ไม่สำเร็จ");
     } finally {
@@ -704,7 +729,7 @@ export default function ServiceConfirmationModal({
             <div className="scm-status-grid" role="radiogroup" aria-label="Select status">
               <label className="scm-radio">
                 <input type="radio" checked readOnly disabled />
-                <span>{`current: ${String(appointmentStatus || "booked")}`}</span>
+                <span>{`สถานะปัจจุบัน: ${statusLabel(appointmentStatus)}`}</span>
               </label>
               <label className="scm-radio">
                 <input
@@ -744,16 +769,19 @@ export default function ServiceConfirmationModal({
             {submitError ? (
               <div className="scm-state scm-state--error">{submitError}</div>
             ) : null}
+            {submitSuccess ? (
+              <div className="scm-state scm-state--success">{submitSuccess}</div>
+            ) : null}
 
             <div className="scm-actions">
-              {isAdmin && String(appointmentStatus || "").toLowerCase() === "completed" ? (
+              {canRevert ? (
                 <button
                   type="button"
                   className="scm-btn scm-btn--danger"
                   onClick={handleRevert}
                   disabled={submitting}
                 >
-                  ยกเลิกการใช้บริการ
+                  ย้อนกลับเป็นสถานะจอง/ยืนยันแล้ว
                 </button>
               ) : null}
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildActivePackages } from "./ServiceConfirmationModal";
+import { buildActivePackages, isRevertableStatus } from "./ServiceConfirmationModal";
 
 describe("buildActivePackages", () => {
   it("keeps both 1-session and 3-session packages when both have remaining sessions", () => {
@@ -87,5 +87,20 @@ describe("buildActivePackages", () => {
 
     const result = buildActivePackages(packages);
     expect(result).toHaveLength(0);
+  });
+});
+
+describe("isRevertableStatus", () => {
+  it("allows revert from completed/no_show/cancelled/canceled", () => {
+    expect(isRevertableStatus("completed")).toBe(true);
+    expect(isRevertableStatus("no_show")).toBe(true);
+    expect(isRevertableStatus("cancelled")).toBe(true);
+    expect(isRevertableStatus("canceled")).toBe(true);
+  });
+
+  it("rejects non-terminal statuses", () => {
+    expect(isRevertableStatus("booked")).toBe(false);
+    expect(isRevertableStatus("ensured")).toBe(false);
+    expect(isRevertableStatus("rescheduled")).toBe(false);
   });
 });

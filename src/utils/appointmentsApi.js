@@ -17,6 +17,20 @@ function ensureConfig() {
   }
 }
 
+function buildApiError(res, data, fallbackMessage = "Server returned error") {
+  const message =
+    data?.message ||
+    data?.error ||
+    `${fallbackMessage}${res?.status ? ` (status ${res.status})` : ""}`;
+  const error = new Error(message);
+  if (res && typeof res.status === "number") {
+    error.status = res.status;
+  }
+  error.details = data?.details || null;
+  error.response = data || null;
+  return error;
+}
+
 export async function appendAppointment(payload, options = {}) {
   ensureConfig();
   const bodyPayload = { ...(payload || {}) };
@@ -122,7 +136,7 @@ async function postAppointmentAction(path, payload, signal) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) {
-    throw new Error(data.error || "Server returned error");
+    throw buildApiError(res, data);
   }
   return data;
 }
@@ -226,7 +240,7 @@ export async function getAdminAppointmentById(appointmentId, signal) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) {
-    throw new Error(data.error || "Server returned error");
+    throw buildApiError(res, data);
   }
   return data;
 }
@@ -244,7 +258,7 @@ export async function patchAdminAppointment(appointmentId, payload, signal) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) {
-    throw new Error(data.error || "Server returned error");
+    throw buildApiError(res, data);
   }
   return data;
 }
@@ -293,7 +307,7 @@ export async function getBookingTreatmentOptions(signal) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) {
-    throw new Error(data.error || "Server returned error");
+    throw buildApiError(res, data);
   }
   return data;
 }
