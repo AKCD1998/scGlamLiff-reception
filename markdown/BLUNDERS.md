@@ -1,5 +1,31 @@
 # Blunders / Lessons Learned
 
+## Integration Test Failures
+
+### 2026-02-13 09:54 +07:00 — Port ambiguity during test-protocol setup
+- What was unclear: `backend/README-backend.md` mentions default port `3001`, while runtime backend uses `5050`
+- Reproduction:
+  1. `rg -n "3001" backend/README-backend.md`
+  2. `rg -n "PORT|5050" backend/server.js backend/.env`
+- Impact: using wrong API base can make FE integration tests fail immediately
+- Working assumption for current test workflow: `http://localhost:5050`
+
+### 2026-02-13 10:04 +07:00 — Local backend boot conflict (`EADDRINUSE:5050`)
+- Bug title: backend dev boot fails because default port already occupied
+- Cause hypothesis: another local backend/node process is already bound to `localhost:5050`
+- Fix suggestion:
+  1. check listener: `Get-NetTCPConnection -LocalPort 5050 -State Listen`
+  2. stop conflicting process (if safe) or run temporary instance with `PORT=5051/5052`
+  3. keep FE `VITE_API_BASE` aligned with the backend port currently in use
+
+Template for future appends:
+- Timestamp
+- Scenario/step
+- Expected vs actual
+- Reproduction steps
+- Request/response evidence
+- Follow-up action
+
 ## Deploy MVP: แยก branch ตั้งแต่แรก
 
 **ปัญหาที่เจอ:** เราคิดว่า “แค่ commit ไว้” ก็พอ แต่ถ้าไม่ได้ sync/push ให้ชัดเจน (และ/หรือ Codex เข้าโหมด agentic ตอนเราเผลออยู่ผิด branch) มันมีโอกาส `git push` ขึ้น repo ไปโดน `main` โดยไม่ทันสังเกต ทำให้ของที่กำลังพัฒนา/ย้ายระบบ (เช่น migrate DB) กระทบกับสิ่งที่อยาก deploy เป็น MVP

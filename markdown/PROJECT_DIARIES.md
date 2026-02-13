@@ -1,5 +1,108 @@
 # Project Diaries
 
+## 2026-02-13 09:54 +07:00 — Testing Protocol (lightweight prep)
+
+### Path notes
+- Selected diary file: `markdown/PROJECT_DIARIES.md` (closest existing match to requested `PROJECT_DIARY.md`)
+- Selected blunder file: `markdown/BLUNDERS.md` (closest existing match to requested `BLUNDER.md`)
+
+### Environment assumptions
+- Frontend code reads `VITE_API_BASE` (not `VITE_API_BASE_URL`)
+- Local frontend URL: `http://localhost:5173`
+- Local backend API base: `http://localhost:5050`
+- Backend port source of truth:
+  - `backend/server.js` uses `PORT || 5050`
+  - `backend/.env` currently sets `PORT=5050`
+- CORS for local FE should include `FRONTEND_ORIGIN=http://localhost:5173`
+- Note: `backend/README-backend.md` still mentions `3001`; this protocol uses `5050` based on runtime code/env
+
+### Run FE + BE locally
+1. Start backend in one terminal:
+```powershell
+Set-Location backend
+npm install
+npm run dev
+```
+2. Start frontend in another terminal (repo root):
+```powershell
+Set-Location ..
+npm install
+npm run dev
+```
+3. Quick health check:
+```powershell
+curl.exe -sS http://localhost:5050/api/health
+```
+
+### Test steps for upcoming chunks
+Manual steps:
+1. Start backend/frontend with the commands above
+2. Open `http://localhost:5173`
+3. Login with local admin credentials from `backend/.env` (`ADMIN_USERNAME`, `ADMIN_PASSWORD`)
+4. Execute the chunk test flow (for example: admin user create/update/reset, queue/customer checks)
+5. If any failure occurs, append to `markdown/BLUNDERS.md` under `Integration Test Failures` with timestamp, expected vs actual, and exact reproduction steps
+
+curl baseline (PowerShell):
+```powershell
+New-Item -ItemType Directory -Force .tmp | Out-Null
+curl.exe -i -sS http://localhost:5050/api/health
+curl.exe -i -sS -c .tmp\admin.cookies.txt -H "Content-Type: application/json" -d "{\"username\":\"<ADMIN_USERNAME>\",\"password\":\"<ADMIN_PASSWORD>\"}" http://localhost:5050/api/auth/login
+curl.exe -i -sS -b .tmp\admin.cookies.txt http://localhost:5050/api/auth/me
+curl.exe -i -sS -b .tmp\admin.cookies.txt http://localhost:5050/api/admin/staff-users
+```
+
+### Reproduction note (clarity issue found during setup)
+- Symptom: backend docs mention default port `3001`, but runtime backend uses `5050`
+- Reproduce:
+```powershell
+rg -n "3001" backend/README-backend.md
+rg -n "PORT|5050" backend/server.js backend/.env
+```
+- Resolution for this protocol: use backend at `http://localhost:5050`
+
+## 2026-02-13 10:04 +07:00 — Backend reachability + CORS sanity check
+
+### What was tried
+1. Inspected backend entrypoint/scripts:
+```powershell
+Get-Content backend/package.json
+Get-Content backend/server.js
+Get-Content backend/src/app.js
+```
+2. Attempted direct run on default port:
+```powershell
+Set-Location backend
+node server.js
+```
+3. Ran isolated dev boot on alternate port to avoid collision:
+```powershell
+$env:PORT='5052'
+npm run dev
+```
+4. Probed endpoints and CORS (using local dev origin and Render origin):
+```powershell
+Invoke-WebRequest http://localhost:5051/api/health
+Invoke-WebRequest http://localhost:5051/api/admin/staff-users
+Invoke-WebRequest http://localhost:5051/api/visits
+Invoke-WebRequest http://localhost:5051/api/appointments/queue
+Invoke-WebRequest -Method OPTIONS http://localhost:5051/api/health -Headers @{ Origin='http://localhost:5173'; 'Access-Control-Request-Method'='GET' }
+Invoke-WebRequest -Method OPTIONS http://localhost:5050/api/health -Headers @{ Origin='https://scglamliff-reception.onrender.com'; 'Access-Control-Request-Method'='GET' }
+```
+
+### Failure observed
+- `node server.js` on `:5050` failed with `EADDRINUSE` (port already in use).
+- Short error:
+  - `Error: listen EADDRINUSE: address already in use :::5050`
+
+### Why this happened
+- Existing process already listening on `localhost:5050` during test window.
+
+### Next suspected fix
+- Either:
+  - stop existing process on `:5050` before starting a new local backend instance, or
+  - run smoke checks on an alternate port via `PORT=5051/5052`.
+- Keep `:5050` as default API base for frontend local integration.
+
 ## 2026-02-12 18:27 ICT — Bookingpage dark-mode fix (native date/time + react-select tokenized)
 
 ### Issue
