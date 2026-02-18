@@ -277,3 +277,39 @@ CLEANUP_E2E_CONFIRM=true node scripts/cleanup-e2e-data.js
 3. Switch back to Home tab.
 4. Expected: Home refetches automatically and shows updated rows/status within ~0–1s.
 5. Optional: switch browser tab away and back (focus/visibility); Home should refetch again (throttled to avoid rapid repeats).
+
+## 2026-02-18 12:10:00 +07:00 — SSOT alignment for staff/contact + hard-fail on missing staff
+
+### What changed
+- Enforced one resolver for appointment identity fields (phone, email/line, staff) across:
+  - `GET /api/appointments/queue`
+  - `GET /api/admin/appointments/:appointmentId`
+  - `GET /api/visits?source=appointments`
+- Source of truth is now strictly appointments/events + customer_identities (no sheet fallback in queue).
+- Queue fallback mode to legacy sheet rows was removed.
+- Added hard-fail behavior:
+  - if resolved SSOT staff is missing in queue/admin detail/visits(appointments source), endpoint returns `500` with `code=SSOT_STAFF_MISSING`.
+- Added write-time event validation requiring `meta.staff_name` or `meta.staff_id` for all appointment event inserts.
+
+### Files changed
+- Added shared resolver + guard:
+  - `backend/src/services/appointmentIdentitySql.js`
+  - `backend/src/services/appointmentEventStaffGuard.js`
+- Updated controllers:
+  - `backend/src/controllers/appointmentsQueueController.js`
+  - `backend/src/controllers/adminAppointmentsController.js`
+  - `backend/src/controllers/appointmentServiceController.js`
+  - `backend/src/controllers/staffCreateAppointmentController.js`
+  - `backend/src/controllers/visitsController.js`
+- Added data-hygiene report script:
+  - `backend/scripts/report_ssot_mismatches.js`
+  - `backend/package.json` script: `report:ssot-mismatches`
+- Added E2E parity tests:
+  - `tests/e2e/specs/08_ssot_consistency.spec.ts`
+
+### Watch-outs
+- Because fallback was removed, data issues now fail fast instead of being masked.
+- If production has records without resolvable SSOT staff, queue/admin detail will return `500` until records are fixed.
+- Use:
+  - `cd backend && npm run report:ssot-mismatches`
+  to inspect legacy-vs-SSOT mismatches before/after backfill.

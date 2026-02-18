@@ -13,6 +13,7 @@
     "seed:admin": "node scripts/seed_admin.js",
     "seed:user": "node scripts/seed_user.js",
     "cleanup:e2e": "node scripts/cleanup-e2e-data.js",
+    "report:ssot-mismatches": "node scripts/report_ssot_mismatches.js",
     "migrate:appointment-events": "node scripts/migrate_appointment_events_constraints.js",
     "verify:admin-edit": "node scripts/verify_admin_edit_patch.js"
   },

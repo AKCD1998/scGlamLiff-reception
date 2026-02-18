@@ -1,4 +1,11 @@
 import { query } from '../db.js';
+import {
+  APPOINTMENT_IDENTITY_JOINS_SQL,
+  RESOLVED_EMAIL_OR_LINEID_SQL,
+  RESOLVED_PHONE_SQL,
+  RESOLVED_STAFF_NAME_SQL,
+  assertSsotStaffRows,
+} from '../services/appointmentIdentitySql.js';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const BRANCH_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -99,12 +106,6 @@ function sanitizeDisplayLineId(value) {
   return text;
 }
 
-function sanitizeDisplayStaffName(value) {
-  const text = normalizeText(value);
-  if (!text) return '-';
-  return text;
-}
-
 function getTreatmentTitle(row) {
   return (
     normalizeText(row.treatment_item_text_override) ||
@@ -182,162 +183,6 @@ function buildQueueFilters({ date, branchId }) {
   }
 
   return { params, whereParts };
-}
-
-function shouldFallbackToLegacyQueue(error) {
-  const code = normalizeText(error?.code);
-  if (code === '42P01' || code === '42703') return true; // undefined table/column
-
-  const message = normalizeText(error?.message).toLowerCase();
-  return message.includes('does not exist');
-}
-
-function normalizeLegacyQueueRows(rows) {
-  return rows.map((row) => {
-    const rawLineUserId = normalizeText(row.raw_line_user_id);
-    const phoneFromLine = rawLineUserId.toLowerCase().startsWith('phone:')
-      ? rawLineUserId.slice(6)
-      : '';
-    const normalizedPhone = sanitizeThaiPhone(phoneFromLine);
-    const { raw_line_user_id: _ignored, ...rest } = row;
-
-    return {
-      ...rest,
-      phone: normalizedPhone,
-      lineId: sanitizeDisplayLineId(rawLineUserId),
-      staffName: sanitizeDisplayStaffName(row.staffName),
-      treatmentItemDisplay: normalizeText(row.treatmentItem),
-    };
-  });
-}
-
-function mapSheetRowsToQueue(rows) {
-  return (rows || []).map((row) => {
-    const rawPhone = normalizeText(row.phone);
-    const normalizedPhone = sanitizeThaiPhone(rawPhone);
-    const treatmentItem = normalizeText(row.treatmentItem);
-
-    return {
-      id: row.id,
-      appointment_id: null,
-      scheduled_at: null,
-      status: normalizeText(row.status) || 'booked',
-      branch_id: null,
-      treatment_id: null,
-      customer_id: null,
-      raw_sheet_uuid: row.raw_sheet_uuid || row.id || null,
-      treatment_code: '',
-      treatment_title_en: '',
-      date: normalizeText(row.date),
-      bookingTime: normalizeText(row.bookingTime),
-      customer_full_name: normalizeText(row.customerName),
-      customerName: normalizeText(row.customerName),
-      phone: normalizedPhone,
-      lineId: sanitizeDisplayLineId(row.lineId),
-      treatment_name: treatmentItem,
-      treatmentItem,
-      staffName: sanitizeDisplayStaffName(row.staffName),
-      treatmentItemDisplay: treatmentItem,
-    };
-  });
-}
-
-async function queryLegacyQueueRowsFromAppointments({ date, branchId, limit }) {
-  const { params, whereParts } = buildQueueFilters({ date, branchId });
-  params.push(limit);
-  const limitParam = `$${params.length}`;
-  const orderBy = date ? 'a.scheduled_at ASC' : 'a.scheduled_at DESC';
-
-  const { rows } = await query(
-    `
-      SELECT
-        a.id,
-        a.id AS appointment_id,
-        a.scheduled_at AS scheduled_at,
-        a.status AS status,
-        a.branch_id AS branch_id,
-        a.treatment_id AS treatment_id,
-        a.customer_id AS customer_id,
-        a.raw_sheet_uuid AS raw_sheet_uuid,
-        COALESCE(NULLIF(t.code, ''), '') AS treatment_code,
-        COALESCE(NULLIF(t.title_en, ''), '') AS treatment_title_en,
-        COALESCE(TO_CHAR(a.scheduled_at AT TIME ZONE 'Asia/Bangkok', 'YYYY-MM-DD'), '') AS date,
-        COALESCE(TO_CHAR(a.scheduled_at AT TIME ZONE 'Asia/Bangkok', 'HH24:MI'), '') AS "bookingTime",
-        COALESCE(c.full_name, '') AS customer_full_name,
-        COALESCE(c.full_name, '') AS "customerName",
-        COALESCE(NULLIF(a.line_user_id, ''), '') AS raw_line_user_id,
-        COALESCE(
-          NULLIF(t.title_th, ''),
-          NULLIF(t.title_en, ''),
-          NULLIF(t.code, ''),
-          ''
-        ) AS treatment_name,
-        COALESCE(
-          NULLIF(t.title_th, ''),
-          NULLIF(t.title_en, ''),
-          NULLIF(t.code, ''),
-          ''
-        ) AS "treatmentItem",
-        COALESCE(NULLIF(svr.staff_name, ''), '-') AS "staffName"
-      FROM appointments a
-      LEFT JOIN customers c ON a.customer_id = c.id
-      LEFT JOIN treatments t ON a.treatment_id = t.id
-      LEFT JOIN sheet_visits_raw svr ON svr.sheet_uuid = a.raw_sheet_uuid
-      ${whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : ''}
-      ORDER BY ${orderBy}
-      LIMIT ${limitParam}
-    `,
-    params
-  );
-
-  return normalizeLegacyQueueRows(rows || []);
-}
-
-async function queryLegacyQueueRowsFromSheet({ date, limit }) {
-  const params = [];
-  const whereParts = ['deleted_at IS NULL'];
-
-  if (date) {
-    params.push(date);
-    whereParts.push(`visit_date = $${params.length}`);
-  }
-
-  params.push(limit);
-  const limitParam = `$${params.length}`;
-
-  const { rows } = await query(
-    `
-      SELECT
-        sheet_uuid::text AS id,
-        sheet_uuid::text AS raw_sheet_uuid,
-        COALESCE(TO_CHAR(visit_date, 'YYYY-MM-DD'), '') AS date,
-        COALESCE(visit_time_text, '') AS "bookingTime",
-        COALESCE(customer_full_name, '') AS "customerName",
-        COALESCE(phone_raw, '') AS phone,
-        COALESCE(email_or_lineid, '') AS "lineId",
-        COALESCE(treatment_item_text, '') AS "treatmentItem",
-        COALESCE(NULLIF(staff_name, ''), '-') AS "staffName",
-        'booked'::text AS status
-      FROM public.sheet_visits_raw
-      WHERE ${whereParts.join(' AND ')}
-      ORDER BY visit_date DESC, visit_time_text DESC, imported_at DESC
-      LIMIT ${limitParam}
-    `,
-    params
-  );
-
-  return mapSheetRowsToQueue(rows);
-}
-
-async function queryLegacyQueueRows({ date, branchId, limit }) {
-  try {
-    return await queryLegacyQueueRowsFromAppointments({ date, branchId, limit });
-  } catch (error) {
-    if (!shouldFallbackToLegacyQueue(error)) {
-      throw error;
-    }
-    return queryLegacyQueueRowsFromSheet({ date, limit });
-  }
 }
 
 export async function listBookingTreatmentOptions(req, res) {
@@ -459,28 +304,8 @@ export async function listAppointmentsQueue(req, res) {
           COALESCE(TO_CHAR(a.scheduled_at AT TIME ZONE 'Asia/Bangkok', 'HH24:MI'), '') AS "bookingTime",
           COALESCE(c.full_name, '') AS customer_full_name,
           COALESCE(c.full_name, '') AS "customerName",
-          COALESCE(
-            NULLIF(ci_phone.provider_user_id, ''),
-            CASE
-              WHEN a.line_user_id LIKE 'phone:%' THEN SUBSTRING(a.line_user_id FROM 7)
-              ELSE ''
-            END
-          ) AS phone,
-          CASE
-            WHEN COALESCE(contact_evt.has_email_or_lineid, false)
-              THEN COALESCE(NULLIF(contact_evt.email_or_lineid_raw, ''), '')
-            ELSE COALESCE(
-              NULLIF(ci_line.provider_user_id, ''),
-              NULLIF(ci_email.provider_user_id, ''),
-              CASE
-                WHEN COALESCE(a.line_user_id, '') IN ('__STAFF__', '__BACKDATE__') THEN ''
-                WHEN a.line_user_id LIKE 'phone:%' THEN ''
-                WHEN a.line_user_id LIKE 'sheet:%' THEN ''
-                ELSE COALESCE(NULLIF(a.line_user_id, ''), '')
-              END,
-              ''
-            )
-          END AS "lineId",
+          ${RESOLVED_PHONE_SQL} AS phone,
+          ${RESOLVED_EMAIL_OR_LINEID_SQL} AS "lineId",
           COALESCE(
             NULLIF(t.title_th, ''),
             NULLIF(t.title_en, ''),
@@ -534,16 +359,10 @@ export async function listAppointmentsQueue(req, res) {
           ) AS smooth_price_thb,
           COALESCE(pkg_usage.sessions_used, 0) AS smooth_sessions_used,
           COALESCE(pkg_usage.mask_used, 0) AS smooth_mask_used,
-          COALESCE(
-            NULLIF(svr.staff_name, ''),
-            NULLIF(staff_name_evt.staff_name, ''),
-            NULLIF(staff_display_evt.staff_display_name, ''),
-            '-'
-          ) AS "staffName"
+          ${RESOLVED_STAFF_NAME_SQL} AS "staffName"
         FROM appointments a
         LEFT JOIN customers c ON a.customer_id = c.id
         LEFT JOIN treatments t ON a.treatment_id = t.id
-        LEFT JOIN sheet_visits_raw svr ON svr.sheet_uuid = a.raw_sheet_uuid
         LEFT JOIN LATERAL (
           SELECT
             p.sessions_total,
@@ -602,63 +421,6 @@ export async function listAppointmentsQueue(req, res) {
           ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
           LIMIT 1
         ) plan_evt ON true
-        LEFT JOIN LATERAL (
-          SELECT
-            COALESCE(
-              ae.meta->'after'->>'email_or_lineid',
-              ae.meta->>'email_or_lineid'
-            ) AS email_or_lineid_raw,
-            (
-              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'email_or_lineid'
-              OR ae.meta ? 'email_or_lineid'
-            ) AS has_email_or_lineid
-          FROM appointment_events ae
-          WHERE ae.appointment_id = a.id
-            AND (
-              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'email_or_lineid'
-              OR ae.meta ? 'email_or_lineid'
-            )
-          ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
-          LIMIT 1
-        ) contact_evt ON true
-        LEFT JOIN LATERAL (
-          SELECT
-            COALESCE(
-              NULLIF(ae.meta->'after'->>'staff_name', ''),
-              NULLIF(ae.meta->>'staff_name', '')
-            ) AS staff_name
-          FROM appointment_events ae
-          WHERE ae.appointment_id = a.id
-            AND (
-              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'staff_name'
-              OR ae.meta ? 'staff_name'
-            )
-            AND COALESCE(
-              NULLIF(ae.meta->'after'->>'staff_name', ''),
-              NULLIF(ae.meta->>'staff_name', '')
-            ) IS NOT NULL
-          ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
-          LIMIT 1
-        ) staff_name_evt ON true
-        LEFT JOIN LATERAL (
-          SELECT
-            COALESCE(
-              NULLIF(ae.meta->'after'->>'staff_display_name', ''),
-              NULLIF(ae.meta->>'staff_display_name', '')
-            ) AS staff_display_name
-          FROM appointment_events ae
-          WHERE ae.appointment_id = a.id
-            AND (
-              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'staff_display_name'
-              OR ae.meta ? 'staff_display_name'
-            )
-            AND COALESCE(
-              NULLIF(ae.meta->'after'->>'staff_display_name', ''),
-              NULLIF(ae.meta->>'staff_display_name', '')
-            ) IS NOT NULL
-          ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
-          LIMIT 1
-        ) staff_display_evt ON true
         LEFT JOIN packages plan_pkg ON (
           plan_evt.package_id ~* '${UUID_PATTERN}'
           AND plan_pkg.id = plan_evt.package_id::uuid
@@ -691,33 +453,19 @@ export async function listAppointmentsQueue(req, res) {
           FROM package_usages pu
           WHERE pu.customer_package_id = pkg_ctx.customer_package_id
         ) pkg_usage ON true
-        LEFT JOIN LATERAL (
-          SELECT provider_user_id
-          FROM customer_identities
-          WHERE customer_id = c.id AND provider = 'PHONE' AND is_active = true
-          ORDER BY created_at DESC
-          LIMIT 1
-        ) ci_phone ON true
-        LEFT JOIN LATERAL (
-          SELECT provider_user_id
-          FROM customer_identities
-          WHERE customer_id = c.id AND provider = 'LINE' AND is_active = true
-          ORDER BY created_at DESC
-          LIMIT 1
-        ) ci_line ON true
-        LEFT JOIN LATERAL (
-          SELECT provider_user_id
-          FROM customer_identities
-          WHERE customer_id = c.id AND provider = 'EMAIL' AND is_active = true
-          ORDER BY created_at DESC
-          LIMIT 1
-        ) ci_email ON true
+        ${APPOINTMENT_IDENTITY_JOINS_SQL}
         ${whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : ''}
         ORDER BY ${orderBy}
         LIMIT ${limitParam}
       `,
       params
     );
+
+    assertSsotStaffRows(rows, {
+      endpointLabel: '/api/appointments/queue',
+      idFields: ['appointment_id', 'id'],
+      staffFields: ['staffName'],
+    });
 
     const normalizedRows = rows.map((row) => {
       const rawPhone = normalizeText(row.phone);
@@ -738,7 +486,7 @@ export async function listAppointmentsQueue(req, res) {
         ...row,
         phone: normalizedPhone,
         lineId: sanitizeDisplayLineId(row.lineId),
-        staffName: sanitizeDisplayStaffName(row.staffName),
+        staffName: normalizeText(row.staffName),
         treatmentItem: treatmentItemDisplay || row.treatmentItem,
         treatmentItemDisplay: treatmentItemDisplay || row.treatmentItem,
       };
@@ -753,45 +501,23 @@ export async function listAppointmentsQueue(req, res) {
   } catch (error) {
     const errorCode = normalizeText(error?.code);
     const errorMessage = normalizeText(error?.message) || 'Queue query failed';
+    const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
     console.error('[appointmentsQueue] queue query failed', {
       code: errorCode || null,
       message: errorMessage,
+      details: error?.details || null,
     });
 
-    if (shouldFallbackToLegacyQueue(error)) {
-      try {
-        const legacyRows = await queryLegacyQueueRows({ date, branchId, limit });
-        const warnings = [];
-        if (limitWarning) warnings.push(limitWarning);
-        warnings.push({
-          type: 'fallback',
-          reason:
-            'Queue served via legacy schema fallback because backend schema is missing queue dependencies.',
-          code: errorCode || null,
-        });
-        if (branchId) {
-          warnings.push({
-            type: 'fallback',
-            reason:
-              'branch_id filter may be ignored in fallback mode if appointments table is unavailable.',
-            param: 'branch_id',
-          });
-        }
-
-        return res.json({
-          ok: true,
-          rows: legacyRows,
-          meta: { warnings },
-        });
-      } catch (legacyError) {
-        console.error('[appointmentsQueue] legacy fallback failed', {
-          code: normalizeText(legacyError?.code) || null,
-          message: normalizeText(legacyError?.message) || 'Legacy fallback failed',
-        });
-      }
+    if (error?.code === 'SSOT_STAFF_MISSING') {
+      return res.status(500).json({
+        ok: false,
+        error: 'SSOT staff_name missing',
+        message: isProd ? 'Queue SSOT staff validation failed.' : errorMessage,
+        code: error.code,
+        details: error?.details || null,
+      });
     }
 
-    const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
     return res.status(500).json({
       ok: false,
       error: 'Queue query failed',
@@ -799,6 +525,7 @@ export async function listAppointmentsQueue(req, res) {
         ? 'Backend queue query failed. Check Render logs for SQL/schema mismatch.'
         : errorMessage,
       code: errorCode || null,
+      details: isProd ? null : error?.details || null,
     });
   }
 }

@@ -1,4 +1,11 @@
-﻿import { query } from '../db.js';
+import { query } from '../db.js';
+import {
+  APPOINTMENT_IDENTITY_JOINS_SQL,
+  RESOLVED_EMAIL_OR_LINEID_SQL,
+  RESOLVED_PHONE_SQL,
+  RESOLVED_STAFF_NAME_SQL,
+  assertSsotStaffRows,
+} from '../services/appointmentIdentitySql.js';
 
 const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 200;
@@ -122,122 +129,31 @@ export async function listVisits(req, res) {
           COALESCE(TO_CHAR(a.scheduled_at AT TIME ZONE 'Asia/Bangkok', 'YYYY-MM-DD'), '') AS date,
           COALESCE(TO_CHAR(a.scheduled_at AT TIME ZONE 'Asia/Bangkok', 'HH24:MI'), '') AS "bookingTime",
           COALESCE(c.full_name, '') AS "customerName",
-          COALESCE(NULLIF(ci_phone.provider_user_id, ''), '') AS phone,
-          CASE
-            WHEN COALESCE(contact_evt.has_email_or_lineid, false)
-              THEN COALESCE(NULLIF(contact_evt.email_or_lineid_raw, ''), '')
-            ELSE COALESCE(
-              NULLIF(ci_line.provider_user_id, ''),
-              NULLIF(ci_email.provider_user_id, ''),
-              CASE
-                WHEN COALESCE(a.line_user_id, '') IN ('__STAFF__', '__BACKDATE__') THEN ''
-                WHEN a.line_user_id LIKE 'phone:%' THEN ''
-                WHEN a.line_user_id LIKE 'sheet:%' THEN ''
-                ELSE COALESCE(NULLIF(a.line_user_id, ''), '')
-              END,
-              ''
-            )
-          END AS "lineId",
+          ${RESOLVED_PHONE_SQL} AS phone,
+          ${RESOLVED_EMAIL_OR_LINEID_SQL} AS "lineId",
           COALESCE(
             NULLIF(t.title_th, ''),
             NULLIF(t.title_en, ''),
             NULLIF(t.code, ''),
             ''
           ) AS "treatmentItem",
-          COALESCE(
-            NULLIF(svr.staff_name, ''),
-            NULLIF(staff_name_evt.staff_name, ''),
-            NULLIF(staff_display_evt.staff_display_name, ''),
-            '-'
-          ) AS "staffName"
+          ${RESOLVED_STAFF_NAME_SQL} AS "staffName"
         FROM appointments a
         LEFT JOIN customers c ON a.customer_id = c.id
         LEFT JOIN treatments t ON a.treatment_id = t.id
-        LEFT JOIN sheet_visits_raw svr ON svr.sheet_uuid = a.raw_sheet_uuid
-        LEFT JOIN LATERAL (
-          SELECT provider_user_id
-          FROM customer_identities
-          WHERE customer_id = c.id AND provider = 'PHONE'
-          ORDER BY is_active DESC, created_at DESC
-          LIMIT 1
-        ) ci_phone ON true
-        LEFT JOIN LATERAL (
-          SELECT provider_user_id
-          FROM customer_identities
-          WHERE customer_id = c.id AND provider = 'LINE'
-          ORDER BY is_active DESC, created_at DESC
-          LIMIT 1
-        ) ci_line ON true
-        LEFT JOIN LATERAL (
-          SELECT provider_user_id
-          FROM customer_identities
-          WHERE customer_id = c.id AND provider = 'EMAIL'
-          ORDER BY is_active DESC, created_at DESC
-          LIMIT 1
-        ) ci_email ON true
-        LEFT JOIN LATERAL (
-          SELECT
-            COALESCE(
-              ae.meta->'after'->>'email_or_lineid',
-              ae.meta->>'email_or_lineid'
-            ) AS email_or_lineid_raw,
-            (
-              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'email_or_lineid'
-              OR ae.meta ? 'email_or_lineid'
-            ) AS has_email_or_lineid
-          FROM appointment_events ae
-          WHERE ae.appointment_id = a.id
-            AND (
-              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'email_or_lineid'
-              OR ae.meta ? 'email_or_lineid'
-            )
-          ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
-          LIMIT 1
-        ) contact_evt ON true
-        LEFT JOIN LATERAL (
-          SELECT
-            COALESCE(
-              NULLIF(ae.meta->'after'->>'staff_name', ''),
-              NULLIF(ae.meta->>'staff_name', '')
-            ) AS staff_name
-          FROM appointment_events ae
-          WHERE ae.appointment_id = a.id
-            AND (
-              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'staff_name'
-              OR ae.meta ? 'staff_name'
-            )
-            AND COALESCE(
-              NULLIF(ae.meta->'after'->>'staff_name', ''),
-              NULLIF(ae.meta->>'staff_name', '')
-            ) IS NOT NULL
-          ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
-          LIMIT 1
-        ) staff_name_evt ON true
-        LEFT JOIN LATERAL (
-          SELECT
-            COALESCE(
-              NULLIF(ae.meta->'after'->>'staff_display_name', ''),
-              NULLIF(ae.meta->>'staff_display_name', '')
-            ) AS staff_display_name
-          FROM appointment_events ae
-          WHERE ae.appointment_id = a.id
-            AND (
-              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'staff_display_name'
-              OR ae.meta ? 'staff_display_name'
-            )
-            AND COALESCE(
-              NULLIF(ae.meta->'after'->>'staff_display_name', ''),
-              NULLIF(ae.meta->>'staff_display_name', '')
-            ) IS NOT NULL
-          ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
-          LIMIT 1
-        ) staff_display_evt ON true
+        ${APPOINTMENT_IDENTITY_JOINS_SQL}
         WHERE ${whereParts.join(' AND ')}
         ORDER BY a.scheduled_at DESC
         LIMIT $${params.length}
       `,
       params
     );
+
+    assertSsotStaffRows(rows, {
+      endpointLabel: '/api/visits?source=appointments',
+      idFields: ['id'],
+      staffFields: ['staffName'],
+    });
 
     const normalizedRows = rows.map((row) => ({
       ...row,
@@ -247,6 +163,14 @@ export async function listVisits(req, res) {
 
     return res.json({ ok: true, rows: normalizedRows });
   } catch (error) {
+    if (error?.code === 'SSOT_STAFF_MISSING') {
+      return res.status(500).json({
+        ok: false,
+        error: 'SSOT staff_name missing',
+        code: error.code,
+        details: error?.details || null,
+      });
+    }
     console.error(error);
     return res.status(500).json({ ok: false, error: 'Server error' });
   }
@@ -308,3 +232,4 @@ export async function createVisit(req, res) {
     return res.status(500).json({ ok: false, error: 'Server error' });
   }
 }
+

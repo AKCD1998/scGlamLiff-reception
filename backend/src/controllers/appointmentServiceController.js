@@ -1,4 +1,5 @@
 import { pool } from '../db.js';
+import { assertEventStaffIdentity } from '../services/appointmentEventStaffGuard.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -491,6 +492,15 @@ export async function ensureAppointmentFromSheet(req, res) {
 
     appointment = insertResult.rows[0];
 
+    const sheetCreateEventMeta = {
+      source: 'sheet',
+      raw_sheet_uuid: sheetUuid,
+      staff_name: normalizeText(sheet.staff_name) || safeDisplayName(req.user),
+      staff_user_id: req.user?.id || null,
+      staff_display_name: safeDisplayName(req.user),
+    };
+    assertEventStaffIdentity(sheetCreateEventMeta, 'ensureAppointmentFromSheet');
+
     await client.query(
       `
         INSERT INTO appointment_events (id, appointment_id, event_type, event_at, actor, note, meta)
@@ -498,12 +508,7 @@ export async function ensureAppointmentFromSheet(req, res) {
       `,
       [
         appointment.id,
-        JSON.stringify({
-          source: 'sheet',
-          raw_sheet_uuid: sheetUuid,
-          staff_user_id: req.user?.id || null,
-          staff_display_name: safeDisplayName(req.user),
-        }),
+        JSON.stringify(sheetCreateEventMeta),
       ]
     );
 
@@ -511,6 +516,13 @@ export async function ensureAppointmentFromSheet(req, res) {
     return res.json({ ok: true, appointment });
   } catch (error) {
     await client.query('ROLLBACK');
+    if (error?.status) {
+      return res.status(error.status).json({
+        ok: false,
+        error: error.message,
+        code: error?.code || null,
+      });
+    }
     console.error(error);
     const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
     return res.status(500).json({
@@ -600,6 +612,13 @@ export async function syncAppointmentCourse(req, res) {
     });
   } catch (error) {
     await client.query('ROLLBACK');
+    if (error?.status) {
+      return res.status(error.status).json({
+        ok: false,
+        error: error.message,
+        code: error?.code || null,
+      });
+    }
     console.error(error);
     return res.status(500).json({ ok: false, error: 'Server error' });
   } finally {
@@ -661,6 +680,17 @@ export async function completeAppointment(req, res) {
         [appointment.id]
       );
 
+      const completeOneOffEventMeta = {
+        kind: 'one_off',
+        staff_id: staffId,
+        staff_user_id: req.user?.id || null,
+        staff_name: safeDisplayName(req.user),
+        staff_display_name: safeDisplayName(req.user),
+        treatment_id: appointment.treatment_id || null,
+        raw_sheet_uuid: appointment.raw_sheet_uuid || null,
+      };
+      assertEventStaffIdentity(completeOneOffEventMeta, 'completeAppointment/one_off');
+
       await client.query(
         `
           INSERT INTO appointment_events (id, appointment_id, event_type, event_at, actor, note, meta)
@@ -668,14 +698,7 @@ export async function completeAppointment(req, res) {
         `,
         [
           appointment.id,
-          JSON.stringify({
-            kind: 'one_off',
-            staff_id: staffId,
-            staff_user_id: req.user?.id || null,
-            staff_display_name: safeDisplayName(req.user),
-            treatment_id: appointment.treatment_id || null,
-            raw_sheet_uuid: appointment.raw_sheet_uuid || null,
-          }),
+          JSON.stringify(completeOneOffEventMeta),
         ]
       );
 
@@ -791,6 +814,19 @@ export async function completeAppointment(req, res) {
       [appointment.id]
     );
 
+    const completePackageEventMeta = {
+      staff_id: staffId,
+      staff_user_id: req.user?.id || null,
+      staff_name: safeDisplayName(req.user),
+      staff_display_name: safeDisplayName(req.user),
+      customer_package_id: customerPackageId,
+      package_code: pkg.package_code,
+      session_no: nextSessionNo,
+      used_mask: usedMask,
+      usage_id: usageInsert.rows[0]?.id || null,
+    };
+    assertEventStaffIdentity(completePackageEventMeta, 'completeAppointment/package');
+
     await client.query(
       `
         INSERT INTO appointment_events (id, appointment_id, event_type, event_at, actor, note, meta)
@@ -798,16 +834,7 @@ export async function completeAppointment(req, res) {
       `,
       [
         appointment.id,
-        JSON.stringify({
-          staff_id: staffId,
-          staff_user_id: req.user?.id || null,
-          staff_display_name: safeDisplayName(req.user),
-          customer_package_id: customerPackageId,
-          package_code: pkg.package_code,
-          session_no: nextSessionNo,
-          used_mask: usedMask,
-          usage_id: usageInsert.rows[0]?.id || null,
-        }),
+        JSON.stringify(completePackageEventMeta),
       ]
     );
 
@@ -827,6 +854,13 @@ export async function completeAppointment(req, res) {
     });
   } catch (error) {
     await client.query('ROLLBACK');
+    if (error?.status) {
+      return res.status(error.status).json({
+        ok: false,
+        error: error.message,
+        code: error?.code || null,
+      });
+    }
     console.error(error);
     const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
     return res.status(500).json({
@@ -853,6 +887,7 @@ async function setAppointmentStatus({ req, res, nextStatus, eventType }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const eventStaffId = await ensureStaffRow(client, req.user);
 
     const appointment = await resolveAppointment(client, appointmentId, { forUpdate: true });
     if (!appointment) {
@@ -878,6 +913,17 @@ async function setAppointmentStatus({ req, res, nextStatus, eventType }) {
       [appointment.id, nextStatus]
     );
 
+    const statusEventMeta = {
+      previous_status: currentStatus,
+      next_status: nextStatus,
+      staff_id: eventStaffId,
+      staff_name: safeDisplayName(req.user),
+      staff_user_id: req.user?.id || null,
+      staff_display_name: safeDisplayName(req.user),
+      note,
+    };
+    assertEventStaffIdentity(statusEventMeta, `setAppointmentStatus/${eventType}`);
+
     await client.query(
       `
         INSERT INTO appointment_events (id, appointment_id, event_type, event_at, actor, note, meta)
@@ -887,13 +933,7 @@ async function setAppointmentStatus({ req, res, nextStatus, eventType }) {
         appointment.id,
         eventType,
         note,
-        JSON.stringify({
-          previous_status: currentStatus,
-          next_status: nextStatus,
-          staff_user_id: req.user?.id || null,
-          staff_display_name: safeDisplayName(req.user),
-          note,
-        }),
+        JSON.stringify(statusEventMeta),
       ]
     );
 
@@ -901,6 +941,13 @@ async function setAppointmentStatus({ req, res, nextStatus, eventType }) {
     return res.json({ ok: true, data: { appointment_id: appointment.id, status: nextStatus } });
   } catch (error) {
     await client.query('ROLLBACK');
+    if (error?.status) {
+      return res.status(error.status).json({
+        ok: false,
+        error: error.message,
+        code: error?.code || null,
+      });
+    }
     console.error(error);
     const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
     return res.status(500).json({
@@ -940,6 +987,7 @@ export async function revertAppointment(req, res) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const eventStaffId = await ensureStaffRow(client, req.user);
 
     const appointment = await resolveAppointment(client, appointmentId, { forUpdate: true });
     if (!appointment) {
@@ -987,6 +1035,21 @@ export async function revertAppointment(req, res) {
       [appointment.id, REVERT_TARGET_STATUS]
     );
 
+    const revertEventMeta = {
+      action: 'revert',
+      staff_id: eventStaffId,
+      staff_name: safeDisplayName(req.user),
+      staff_user_id: req.user?.id || null,
+      staff_display_name: safeDisplayName(req.user),
+      previous_status: currentStatus,
+      next_status: REVERT_TARGET_STATUS,
+      reverted_usage_id: usage?.id || null,
+      customer_package_id: usage?.customer_package_id || null,
+      session_no: usage?.session_no || null,
+      used_mask: usage?.used_mask ?? null,
+    };
+    assertEventStaffIdentity(revertEventMeta, 'revertAppointment');
+
     await client.query(
       `
         INSERT INTO appointment_events (id, appointment_id, event_type, event_at, actor, note, meta)
@@ -994,17 +1057,7 @@ export async function revertAppointment(req, res) {
       `,
       [
         appointment.id,
-        JSON.stringify({
-          action: 'revert',
-          staff_user_id: req.user?.id || null,
-          staff_display_name: safeDisplayName(req.user),
-          previous_status: currentStatus,
-          next_status: REVERT_TARGET_STATUS,
-          reverted_usage_id: usage?.id || null,
-          customer_package_id: usage?.customer_package_id || null,
-          session_no: usage?.session_no || null,
-          used_mask: usage?.used_mask ?? null,
-        }),
+        JSON.stringify(revertEventMeta),
       ]
     );
 
@@ -1012,6 +1065,13 @@ export async function revertAppointment(req, res) {
     return res.json({ ok: true, data: { appointment_id: appointment.id, status: REVERT_TARGET_STATUS } });
   } catch (error) {
     await client.query('ROLLBACK');
+    if (error?.status) {
+      return res.status(error.status).json({
+        ok: false,
+        error: error.message,
+        code: error?.code || null,
+      });
+    }
     console.error(error);
     const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
     return res.status(500).json({

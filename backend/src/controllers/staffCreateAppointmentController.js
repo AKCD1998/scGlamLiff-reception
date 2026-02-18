@@ -1,4 +1,5 @@
 import { pool } from '../db.js';
+import { assertEventStaffIdentity } from '../services/appointmentEventStaffGuard.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -515,6 +516,29 @@ export async function createStaffAppointment(req, res) {
       note: appointmentId ? `auto:staff:${appointmentId}` : 'auto:staff',
     });
 
+    const createEventMeta = {
+      source: 'staff_create',
+      scheduled_at: scheduledAtRaw,
+      branch_id: branchId,
+      treatment_id: resolvedTreatmentId,
+      customer_id: customerId,
+      customer_full_name: customerFullName,
+      phone: phoneDigits,
+      email_or_lineid: emailOrLineid || null,
+      staff_name:
+        staffName ||
+        normalizeText(req.user?.display_name) ||
+        normalizeText(req.user?.username) ||
+        null,
+      treatment_item_text: treatmentItemText || null,
+      package_id: resolvedPackageId || null,
+      customer_package_id: customerPackageId || null,
+      staff_user_id: req.user?.id || null,
+      staff_username: normalizeText(req.user?.username) || null,
+      staff_display_name: normalizeText(req.user?.display_name) || null,
+    };
+    assertEventStaffIdentity(createEventMeta, 'createStaffAppointment');
+
     await client.query(
       `
         INSERT INTO appointment_events (id, appointment_id, event_type, event_at, actor, note, meta)
@@ -522,23 +546,7 @@ export async function createStaffAppointment(req, res) {
       `,
       [
         appointmentId,
-        JSON.stringify({
-          source: 'staff_create',
-          scheduled_at: scheduledAtRaw,
-          branch_id: branchId,
-          treatment_id: resolvedTreatmentId,
-          customer_id: customerId,
-          customer_full_name: customerFullName,
-          phone: phoneDigits,
-          email_or_lineid: emailOrLineid || null,
-          staff_name: staffName || null,
-          treatment_item_text: treatmentItemText || null,
-          package_id: resolvedPackageId || null,
-          customer_package_id: customerPackageId || null,
-          staff_user_id: req.user?.id || null,
-          staff_username: normalizeText(req.user?.username) || null,
-          staff_display_name: normalizeText(req.user?.display_name) || null,
-        }),
+        JSON.stringify(createEventMeta),
       ]
     );
 
@@ -589,6 +597,13 @@ export async function createStaffAppointment(req, res) {
     });
   } catch (error) {
     await client.query('ROLLBACK');
+    if (error?.status) {
+      return res.status(error.status).json({
+        ok: false,
+        error: error.message,
+        code: error?.code || null,
+      });
+    }
     if (error?.code === '23503' && error?.constraint === 'appointments_line_user_id_fkey') {
       return res.status(422).json({
         ok: false,

@@ -1,4 +1,12 @@
 import { pool } from '../db.js';
+import {
+  APPOINTMENT_IDENTITY_JOINS_SQL,
+  RESOLVED_EMAIL_OR_LINEID_SQL,
+  RESOLVED_PHONE_SQL,
+  RESOLVED_STAFF_NAME_SQL,
+  assertSsotStaffRow,
+} from '../services/appointmentIdentitySql.js';
+import { assertEventStaffIdentity } from '../services/appointmentEventStaffGuard.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -436,87 +444,15 @@ async function getAppointmentDetailsById(client, appointmentId, { forUpdate = fa
         COALESCE(c.full_name, '') AS customer_full_name,
         COALESCE(t.code, '') AS treatment_code,
         COALESCE(NULLIF(t.title_th, ''), NULLIF(t.title_en, ''), '') AS treatment_title,
-        COALESCE(ci_phone.provider_user_id, '') AS phone,
+        ${RESOLVED_PHONE_SQL} AS phone,
         COALESCE(ci_line.provider_user_id, '') AS line_id,
         COALESCE(ci_email.provider_user_id, '') AS email,
-        COALESCE(
-          NULLIF(staff_name_evt.staff_name, ''),
-          NULLIF(staff_display_evt.staff_display_name, ''),
-          ''
-        ) AS staff_name,
-        COALESCE(
-          NULLIF(ci_line.provider_user_id, ''),
-          NULLIF(ci_email.provider_user_id, ''),
-          ''
-        ) AS email_or_lineid
+        ${RESOLVED_STAFF_NAME_SQL} AS staff_name,
+        ${RESOLVED_EMAIL_OR_LINEID_SQL} AS email_or_lineid
       FROM appointments a
       LEFT JOIN customers c ON c.id = a.customer_id
       LEFT JOIN treatments t ON t.id = a.treatment_id
-      LEFT JOIN LATERAL (
-        SELECT provider_user_id
-        FROM customer_identities
-        WHERE customer_id = a.customer_id
-          AND provider = 'PHONE'
-          AND is_active = true
-        ORDER BY created_at DESC, id DESC
-        LIMIT 1
-      ) ci_phone ON true
-      LEFT JOIN LATERAL (
-        SELECT provider_user_id
-        FROM customer_identities
-        WHERE customer_id = a.customer_id
-          AND provider = 'LINE'
-          AND is_active = true
-        ORDER BY created_at DESC, id DESC
-        LIMIT 1
-      ) ci_line ON true
-      LEFT JOIN LATERAL (
-        SELECT provider_user_id
-        FROM customer_identities
-        WHERE customer_id = a.customer_id
-          AND provider = 'EMAIL'
-          AND is_active = true
-        ORDER BY created_at DESC, id DESC
-        LIMIT 1
-      ) ci_email ON true
-      LEFT JOIN LATERAL (
-        SELECT
-          COALESCE(
-            NULLIF(ae.meta->'after'->>'staff_name', ''),
-            NULLIF(ae.meta->>'staff_name', '')
-          ) AS staff_name
-        FROM appointment_events ae
-        WHERE ae.appointment_id = a.id
-          AND (
-            COALESCE(ae.meta->'after', '{}'::jsonb) ? 'staff_name'
-            OR ae.meta ? 'staff_name'
-          )
-          AND COALESCE(
-            NULLIF(ae.meta->'after'->>'staff_name', ''),
-            NULLIF(ae.meta->>'staff_name', '')
-          ) IS NOT NULL
-        ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
-        LIMIT 1
-      ) staff_name_evt ON true
-      LEFT JOIN LATERAL (
-        SELECT
-          COALESCE(
-            NULLIF(ae.meta->'after'->>'staff_display_name', ''),
-            NULLIF(ae.meta->>'staff_display_name', '')
-          ) AS staff_display_name
-        FROM appointment_events ae
-        WHERE ae.appointment_id = a.id
-          AND (
-            COALESCE(ae.meta->'after', '{}'::jsonb) ? 'staff_display_name'
-            OR ae.meta ? 'staff_display_name'
-          )
-          AND COALESCE(
-            NULLIF(ae.meta->'after'->>'staff_display_name', ''),
-            NULLIF(ae.meta->>'staff_display_name', '')
-          ) IS NOT NULL
-        ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
-        LIMIT 1
-      ) staff_display_evt ON true
+      ${APPOINTMENT_IDENTITY_JOINS_SQL}
       WHERE a.id = $1
       LIMIT 1
       ${lockClause}
@@ -738,6 +674,22 @@ async function createPackageUsageByAdmin(
     [customerPackageId, appointmentId, nextSessionNo, Boolean(usedMask), staffId, 'admin edit deduction']
   );
 
+  const packageUsageEventMeta = {
+    source: 'admin_edit',
+    actor: APPOINTMENT_EVENT_ACTOR_STAFF,
+    actor_user_id: actorUserId,
+    actor_display_name: safeActor(adminUser),
+    staff_id: staffId,
+    staff_name: safeActor(adminUser),
+    customer_package_id: customerPackageId,
+    package_code: pkg.package_code,
+    package_title: pkg.package_title,
+    session_no: nextSessionNo,
+    used_mask: Boolean(usedMask),
+    usage_id: insertedUsage.rows[0]?.id || null,
+  };
+  assertEventStaffIdentity(packageUsageEventMeta, 'createPackageUsageByAdmin');
+
   await client.query(
     `
       INSERT INTO appointment_events (id, appointment_id, event_type, event_at, actor, note, meta)
@@ -746,18 +698,7 @@ async function createPackageUsageByAdmin(
     [
       appointmentId,
       APPOINTMENT_EVENT_ACTOR_STAFF,
-      JSON.stringify({
-        source: 'admin_edit',
-        actor: APPOINTMENT_EVENT_ACTOR_STAFF,
-        actor_user_id: actorUserId,
-        actor_display_name: safeActor(adminUser),
-        customer_package_id: customerPackageId,
-        package_code: pkg.package_code,
-        package_title: pkg.package_title,
-        session_no: nextSessionNo,
-        used_mask: Boolean(usedMask),
-        usage_id: insertedUsage.rows[0]?.id || null,
-      }),
+      JSON.stringify(packageUsageEventMeta),
     ]
   );
 
@@ -782,6 +723,11 @@ export async function getAdminAppointmentById(req, res) {
     if (!appointment) {
       return res.status(404).json({ ok: false, error: 'Appointment not found' });
     }
+    assertSsotStaffRow(appointment, {
+      endpointLabel: '/api/admin/appointments/:appointmentId',
+      idFields: ['id'],
+      staffFields: ['staff_name'],
+    });
 
     const treatmentPlan = await getAppointmentTreatmentPlan(client, appointmentId);
 
@@ -815,6 +761,14 @@ export async function getAdminAppointmentById(req, res) {
     });
   } catch (error) {
     console.error(error);
+    if (error?.code === 'SSOT_STAFF_MISSING') {
+      return res.status(500).json({
+        ok: false,
+        error: 'SSOT staff_name missing',
+        code: error.code,
+        details: error?.details || null,
+      });
+    }
     const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
     return res.status(500).json({
       ok: false,
@@ -856,12 +810,18 @@ export async function patchAdminAppointment(req, res) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const eventStaffId = await ensureStaffRow(client, req.user);
 
     const beforeRecord = await getAppointmentDetailsById(client, appointmentId, { forUpdate: true });
     if (!beforeRecord) {
       await client.query('ROLLBACK');
       return res.status(404).json({ ok: false, error: 'Appointment not found' });
     }
+    assertSsotStaffRow(beforeRecord, {
+      endpointLabel: 'patchAdminAppointment/before',
+      idFields: ['id'],
+      staffFields: ['staff_name'],
+    });
     if (!beforeRecord.customer_id) {
       await client.query('ROLLBACK');
       return res.status(422).json({ ok: false, error: 'Appointment missing customer_id' });
@@ -1155,6 +1115,23 @@ export async function patchAdminAppointment(req, res) {
       return res.status(400).json({ ok: false, error: 'No changes detected' });
     }
 
+    const eventStaffName =
+      normalizeText(after.staff_name) || normalizeText(beforeRecord.staff_name) || safeActor(req.user);
+    const appointmentUpdateEventMeta = {
+      reason,
+      changed_fields: changedFields,
+      before,
+      after,
+      actor: APPOINTMENT_EVENT_ACTOR_STAFF,
+      admin_user_id: actorUserId,
+      admin_username: normalizeText(req.user?.username) || null,
+      admin_display_name: normalizeText(req.user?.display_name) || null,
+      created_package_usage: Boolean(deductionResult),
+      staff_id: eventStaffId,
+      staff_name: eventStaffName,
+    };
+    assertEventStaffIdentity(appointmentUpdateEventMeta, 'patchAdminAppointment');
+
     await client.query(
       `
         INSERT INTO appointment_events (id, appointment_id, event_type, event_at, actor, note, meta)
@@ -1164,17 +1141,7 @@ export async function patchAdminAppointment(req, res) {
         appointmentId,
         APPOINTMENT_EVENT_ACTOR_STAFF,
         reason,
-        JSON.stringify({
-          reason,
-          changed_fields: changedFields,
-          before,
-          after,
-          actor: APPOINTMENT_EVENT_ACTOR_STAFF,
-          admin_user_id: actorUserId,
-          admin_username: normalizeText(req.user?.username) || null,
-          admin_display_name: normalizeText(req.user?.display_name) || null,
-          created_package_usage: Boolean(deductionResult),
-        }),
+        JSON.stringify(appointmentUpdateEventMeta),
       ]
     );
 
@@ -1371,6 +1338,7 @@ export async function adminBackdateAppointment(req, res) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const eventStaffId = await ensureStaffRow(client, req.user);
 
     const treatmentExists = await client.query('SELECT id FROM treatments WHERE id = $1 LIMIT 1', [
       treatmentId,
@@ -1442,6 +1410,28 @@ export async function adminBackdateAppointment(req, res) {
 
     const appointmentId = insertedAppointment.rows[0]?.id;
 
+    const backdateEventMeta = {
+      actor: APPOINTMENT_EVENT_ACTOR_STAFF,
+      actor_user_id: actorUserId,
+      scheduled_at: scheduledAtRaw,
+      branch_id: branchId,
+      treatment_id: treatmentId,
+      status,
+      customer_full_name: customerFullName,
+      phone: phoneDigits,
+      email_or_lineid: emailOrLineid || null,
+      staff_id: eventStaffId,
+      staff_name: staffName,
+      treatment_item_text: treatmentItemText,
+      raw_sheet_uuid: rawSheetUuid || null,
+      selected_toppings: selectedToppings,
+      addons_total_thb: addonsTotal,
+      staff_user_id: actorUserId,
+      staff_username: normalizeText(req.user?.username) || null,
+      staff_display_name: normalizeText(req.user?.display_name) || null,
+    };
+    assertEventStaffIdentity(backdateEventMeta, 'adminBackdateAppointment');
+
     await client.query(
       `
         INSERT INTO appointment_events (id, appointment_id, event_type, event_at, actor, note, meta)
@@ -1452,25 +1442,7 @@ export async function adminBackdateAppointment(req, res) {
         'ADMIN_BACKDATE_CREATE',
         APPOINTMENT_EVENT_ACTOR_STAFF,
         reason,
-        JSON.stringify({
-          actor: APPOINTMENT_EVENT_ACTOR_STAFF,
-          actor_user_id: actorUserId,
-          scheduled_at: scheduledAtRaw,
-          branch_id: branchId,
-          treatment_id: treatmentId,
-          status,
-          customer_full_name: customerFullName,
-          phone: phoneDigits,
-          email_or_lineid: emailOrLineid || null,
-          staff_name: staffName,
-          treatment_item_text: treatmentItemText,
-          raw_sheet_uuid: rawSheetUuid || null,
-          selected_toppings: selectedToppings,
-          addons_total_thb: addonsTotal,
-          staff_user_id: actorUserId,
-          staff_username: normalizeText(req.user?.username) || null,
-          staff_display_name: normalizeText(req.user?.display_name) || null,
-        }),
+        JSON.stringify(backdateEventMeta),
       ]
     );
 
