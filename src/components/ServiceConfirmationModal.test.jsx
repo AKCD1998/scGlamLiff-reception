@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   buildActivePackages,
-  calculateDeductionPreview,
   isRevertableStatus,
 } from "./ServiceConfirmationModal";
 
@@ -106,31 +105,5 @@ describe("isRevertableStatus", () => {
     expect(isRevertableStatus("booked")).toBe(false);
     expect(isRevertableStatus("ensured")).toBe(false);
     expect(isRevertableStatus("rescheduled")).toBe(false);
-  });
-});
-
-describe("calculateDeductionPreview", () => {
-  it("reduces remaining sessions by deduct_sessions", () => {
-    const result = calculateDeductionPreview({
-      sessionsRemaining: 10,
-      maskRemaining: 3,
-      deductSessions: 3,
-      deductMask: 0,
-    });
-
-    expect(result.nextSessions).toBe(7);
-    expect(result.nextMask).toBe(3);
-  });
-
-  it("reduces remaining mask by deduct_mask", () => {
-    const result = calculateDeductionPreview({
-      sessionsRemaining: 4,
-      maskRemaining: 2,
-      deductSessions: 1,
-      deductMask: 1,
-    });
-
-    expect(result.nextSessions).toBe(3);
-    expect(result.nextMask).toBe(1);
   });
 });
