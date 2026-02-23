@@ -7,6 +7,7 @@ import {
   revertService,
   syncAppointmentCourse,
 } from "../utils/appointmentsApi";
+import ProgressDots from "./ProgressDots";
 import "./ServiceConfirmationModal.css";
 
 const NO_COURSE_ID = "__NO_COURSE__";
@@ -41,6 +42,36 @@ function statusLabel(status) {
 export function isRevertableStatus(status) {
   const s = normalizeStatus(status);
   return ["completed", "no_show", "cancelled", "canceled"].includes(s);
+}
+
+function toNonNegativeInt(value, fallback = 0) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(Math.trunc(parsed), 0);
+}
+
+function clampInt(value, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return min;
+  const truncated = Math.trunc(parsed);
+  return Math.min(Math.max(truncated, min), max);
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function calculateDeductionPreview({
+  sessionsRemaining = 0,
+  maskRemaining = 0,
+  deductSessions = 0,
+  deductMask = 0,
+} = {}) {
+  const safeSessionsRemaining = toNonNegativeInt(sessionsRemaining, 0);
+  const safeMaskRemaining = toNonNegativeInt(maskRemaining, 0);
+  const safeDeductSessions = toNonNegativeInt(deductSessions, 0);
+  const safeDeductMask = toNonNegativeInt(deductMask, 0);
+  return {
+    nextSessions: Math.max(safeSessionsRemaining - safeDeductSessions, 0),
+    nextMask: Math.max(safeMaskRemaining - safeDeductMask, 0),
+  };
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -122,7 +153,8 @@ export default function ServiceConfirmationModal({
 
   const [selectedPackageId, setSelectedPackageId] = useState("");
   const [actionStatus, setActionStatus] = useState("completed");
-  const [useMask, setUseMask] = useState(false);
+  const [deductSessions, setDeductSessions] = useState(1);
+  const [deductMask, setDeductMask] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
@@ -211,7 +243,8 @@ export default function ServiceConfirmationModal({
     setPackagesError("");
     setPackagesLoading(false);
     setSelectedPackageId(effectiveNoCourseCompletion ? NO_COURSE_ID : "");
-    setUseMask(false);
+    setDeductSessions(1);
+    setDeductMask(0);
     setSubmitError("");
     setSubmitSuccess("");
     setSubmitting(false);
@@ -397,13 +430,160 @@ export default function ServiceConfirmationModal({
     }
   };
 
+  useEffect(() => {
+    if (!open) return;
+    if (actionStatus !== "completed" || completingWithoutCourse || !selectedPkg) {
+      setDeductSessions(1);
+      setDeductMask(0);
+      return;
+    }
+
+    const maxSessions = Math.max(selectedPkg._computed.sessionsRemaining, 1);
+    const maxMask = Math.max(
+      Math.min(selectedPkg._computed.maskRemaining, maxSessions),
+      0
+    );
+
+    setDeductSessions((prev) => clampInt(prev, 1, maxSessions));
+    setDeductMask((prev) => clampInt(prev, 0, maxMask));
+  }, [actionStatus, completingWithoutCourse, open, selectedPkg]);
+
+  const deductionValidation = useMemo(() => {
+    if (actionStatus !== "completed") return { valid: true, message: "" };
+    if (completingWithoutCourse) return { valid: true, message: "" };
+    if (!selectedPkg) {
+      return { valid: false, message: "เลือกคอร์ส 1 รายการก่อนยืนยัน" };
+    }
+
+    const sessionsRemaining = Math.max(selectedPkg._computed.sessionsRemaining, 0);
+    const maskRemaining = Math.max(selectedPkg._computed.maskRemaining, 0);
+
+    if (!Number.isInteger(deductSessions) || deductSessions < 1) {
+      return { valid: false, message: "จำนวนครั้งบริการต้องเป็นจำนวนเต็มตั้งแต่ 1 ขึ้นไป" };
+    }
+    if (deductSessions > sessionsRemaining) {
+      return {
+        valid: false,
+        message: `จำนวนครั้งที่เลือก (${deductSessions}) มากกว่าคงเหลือ (${sessionsRemaining})`,
+      };
+    }
+    if (!Number.isInteger(deductMask) || deductMask < 0) {
+      return { valid: false, message: "จำนวน Mask ต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป" };
+    }
+    if (deductMask > maskRemaining) {
+      return {
+        valid: false,
+        message: `จำนวน Mask ที่เลือก (${deductMask}) มากกว่าคงเหลือ (${maskRemaining})`,
+      };
+    }
+    if (deductMask > deductSessions) {
+      return {
+        valid: false,
+        message: "จำนวน Mask ที่ตัดต้องไม่เกินจำนวนครั้งบริการที่ตัด",
+      };
+    }
+
+    return { valid: true, message: "" };
+  }, [actionStatus, completingWithoutCourse, deductMask, deductSessions, selectedPkg]);
+
+  const progressState = useMemo(() => {
+    if (submitting) {
+      return {
+        used: 3,
+        label: "ขั้นตอน 3/3 กำลังบันทึกรายการ",
+      };
+    }
+    if (submitSuccess) {
+      return {
+        used: 3,
+        label: "ขั้นตอน 3/3 เสร็จสิ้น",
+      };
+    }
+    if (actionStatus !== "completed") {
+      return {
+        used: 1,
+        label: "ขั้นตอน 1/3 เลือกสถานะการทำรายการ",
+      };
+    }
+    if (completingWithoutCourse) {
+      return {
+        used: 2,
+        label: "ขั้นตอน 2/3 พร้อมยืนยันแบบไม่ตัดคอร์ส",
+      };
+    }
+    if (deductionValidation.valid) {
+      return {
+        used: 2,
+        label: "ขั้นตอน 2/3 พร้อมยืนยันการตัดคอร์ส",
+      };
+    }
+    return {
+      used: 1,
+      label: "ขั้นตอน 1/3 เลือกคอร์สและจำนวนที่ต้องตัด",
+    };
+  }, [
+    actionStatus,
+    completingWithoutCourse,
+    deductionValidation.valid,
+    submitSuccess,
+    submitting,
+  ]);
+
   const preview = useMemo(() => {
     if (!selectedPkg) return null;
     const { sessionsRemaining, maskRemaining } = selectedPkg._computed;
-    const nextSessions = actionStatus === "completed" ? Math.max(sessionsRemaining - 1, 0) : sessionsRemaining;
-    const nextMask = actionStatus === "completed" && useMask ? Math.max(maskRemaining - 1, 0) : maskRemaining;
-    return { nextSessions, nextMask };
-  }, [actionStatus, selectedPkg, useMask]);
+    if (actionStatus !== "completed" || completingWithoutCourse) {
+      return {
+        nextSessions: Math.max(sessionsRemaining, 0),
+        nextMask: Math.max(maskRemaining, 0),
+      };
+    }
+    return calculateDeductionPreview({
+      sessionsRemaining,
+      maskRemaining,
+      deductSessions,
+      deductMask,
+    });
+  }, [
+    actionStatus,
+    completingWithoutCourse,
+    deductMask,
+    deductSessions,
+    selectedPkg,
+  ]);
+
+  const maxMaskDeduction = useMemo(() => {
+    if (!selectedPkg) return 0;
+    return Math.max(
+      Math.min(selectedPkg._computed.maskRemaining, deductSessions),
+      0
+    );
+  }, [deductSessions, selectedPkg]);
+
+  const handleDeductSessionsChange = (event) => {
+    if (!selectedPkg) return;
+    const maxSessions = Math.max(selectedPkg._computed.sessionsRemaining, 1);
+    const parsed = Number.parseInt(String(event.target.value ?? ""), 10);
+    const nextSessions = Number.isFinite(parsed)
+      ? clampInt(parsed, 1, maxSessions)
+      : 1;
+    setDeductSessions(nextSessions);
+    setDeductMask((prev) => clampInt(prev, 0, Math.min(selectedPkg._computed.maskRemaining, nextSessions)));
+  };
+
+  const handleDeductMaskChange = (event) => {
+    if (!selectedPkg) return;
+    const parsed = Number.parseInt(String(event.target.value ?? ""), 10);
+    const nextMask = Number.isFinite(parsed)
+      ? clampInt(parsed, 0, maxMaskDeduction)
+      : 0;
+    setDeductMask(nextMask);
+  };
+
+  const isConfirmDisabled =
+    submitting ||
+    !canMutate ||
+    (actionStatus === "completed" && !deductionValidation.valid);
 
   const handleConfirm = async () => {
     if (submitting) return;
@@ -443,8 +623,28 @@ export default function ServiceConfirmationModal({
           setSubmitError("คอร์สนี้เหลือ 0 ครั้งแล้ว");
           return;
         }
-        if (useMask && selectedPkg._computed.maskRemaining <= 0) {
-          setSubmitError("Mask เหลือ 0 ครั้งแล้ว");
+        if (deductSessions < 1) {
+          setSubmitError("จำนวนครั้งบริการต้องอย่างน้อย 1");
+          return;
+        }
+        if (deductSessions > selectedPkg._computed.sessionsRemaining) {
+          setSubmitError(
+            `จำนวนครั้งที่ตัด (${deductSessions}) เกินจำนวนที่เหลือ (${selectedPkg._computed.sessionsRemaining})`
+          );
+          return;
+        }
+        if (deductMask < 0) {
+          setSubmitError("จำนวน Mask ต้องเป็น 0 หรือมากกว่า");
+          return;
+        }
+        if (deductMask > selectedPkg._computed.maskRemaining) {
+          setSubmitError(
+            `จำนวน Mask ที่ตัด (${deductMask}) เกินจำนวนที่เหลือ (${selectedPkg._computed.maskRemaining})`
+          );
+          return;
+        }
+        if (deductMask > deductSessions) {
+          setSubmitError("จำนวน Mask ที่ตัดต้องไม่เกินจำนวนครั้งบริการที่ตัด");
           return;
         }
       }
@@ -452,22 +652,24 @@ export default function ServiceConfirmationModal({
 
     setSubmitting(true);
     try {
+      let actionResult = null;
       if (actionStatus === "completed") {
         if (completingWithoutCourse) {
-          await completeService(appointment.id, {});
+          actionResult = await completeService(appointment.id, {});
         } else {
-          await completeService(appointment.id, {
+          actionResult = await completeService(appointment.id, {
             customer_package_id: selectedPackageId,
-            used_mask: useMask,
+            deduct_sessions: deductSessions,
+            deduct_mask: deductMask,
           });
         }
       } else if (actionStatus === "cancelled") {
-        await cancelService(appointment.id);
+        actionResult = await cancelService(appointment.id);
       } else if (actionStatus === "no_show") {
-        await noShowService(appointment.id);
+        actionResult = await noShowService(appointment.id);
       }
 
-      await onAfterAction?.();
+      await onAfterAction?.(actionResult);
       onClose?.();
     } catch (e) {
       setSubmitError(e?.message || "ทำรายการไม่สำเร็จ");
@@ -489,7 +691,8 @@ export default function ServiceConfirmationModal({
       await revertService(appointment.id);
       setAppointment((prev) => (prev ? { ...prev, status: "booked" } : prev));
       setActionStatus("completed");
-      setUseMask(false);
+      setDeductSessions(1);
+      setDeductMask(0);
       setSubmitSuccess("ย้อนกลับเป็นสถานะจองแล้ว/ยืนยันแล้วสำเร็จ");
       try {
         await onAfterAction?.();
@@ -525,8 +728,19 @@ export default function ServiceConfirmationModal({
         ) : null}
 
         <div className="scm-header">
-          <div className="scm-title" id="service-confirmation-title">
-            ยืนยันการให้บริการ
+          <div className="scm-title-wrap">
+            <div className="scm-title" id="service-confirmation-title">
+              ยืนยันการให้บริการ
+            </div>
+            <div className="scm-progress" aria-live="polite">
+              <ProgressDots
+                total={3}
+                used={progressState.used}
+                size="sm"
+                ariaLabel={progressState.label}
+              />
+              <span className="scm-progress__label">{progressState.label}</span>
+            </div>
           </div>
           <button
             type="button"
@@ -589,7 +803,8 @@ export default function ServiceConfirmationModal({
                       className={`scm-package${completingWithoutCourse ? " is-selected" : ""}`}
                       onClick={() => {
                         setSelectedPackageId(NO_COURSE_ID);
-                        setUseMask(false);
+                        setDeductSessions(1);
+                        setDeductMask(0);
                       }}
                       disabled={!canMutate || actionStatus !== "completed"}
                       aria-pressed={completingWithoutCourse}
@@ -628,7 +843,8 @@ export default function ServiceConfirmationModal({
                       className={`scm-package${completingWithoutCourse ? " is-selected" : ""}`}
                       onClick={() => {
                         setSelectedPackageId(NO_COURSE_ID);
-                        setUseMask(false);
+                        setDeductSessions(1);
+                        setDeductMask(0);
                       }}
                       disabled={!canMutate || actionStatus !== "completed"}
                       aria-pressed={completingWithoutCourse}
@@ -698,18 +914,45 @@ export default function ServiceConfirmationModal({
               <div className="scm-state">เลือกคอร์ส 1 รายการเพื่อดูตัวเลือก</div>
             ) : (
               <>
-                <label className="scm-check">
-                  <input
-                    type="checkbox"
-                    checked={useMask}
-                    onChange={(e) => setUseMask(e.target.checked)}
-                    disabled={selectedPkg._computed.maskRemaining <= 0}
-                  />
-                  <span>ใช้ Mask สำหรับการให้บริการครั้งนี้?</span>
-                </label>
+                <div className="scm-deduct-grid">
+                  <label className="scm-field">
+                    <span className="scm-field__label">จำนวนครั้งที่จะตัด</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={Math.max(selectedPkg._computed.sessionsRemaining, 1)}
+                      value={deductSessions}
+                      onChange={handleDeductSessionsChange}
+                      disabled={submitting}
+                    />
+                    <span className="scm-field__hint">
+                      คงเหลือ {selectedPkg._computed.sessionsRemaining} ครั้ง
+                    </span>
+                  </label>
+
+                  {selectedPkg._computed.maskTotal > 0 ? (
+                    <label className="scm-field">
+                      <span className="scm-field__label">จำนวน Mask ที่จะตัด</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={maxMaskDeduction}
+                        value={deductMask}
+                        onChange={handleDeductMaskChange}
+                        disabled={submitting || selectedPkg._computed.maskRemaining <= 0}
+                      />
+                      <span className="scm-field__hint">
+                        คงเหลือ {selectedPkg._computed.maskRemaining} ครั้ง (สูงสุดรอบนี้{" "}
+                        {maxMaskDeduction} ครั้ง)
+                      </span>
+                    </label>
+                  ) : (
+                    <div className="scm-state">คอร์สนี้ไม่มีสิทธิ์ Mask</div>
+                  )}
+                </div>
                 <div className="scm-preview">
                   <div>
-                    <div className="scm-label">ยืนยัน</div>
+                    <div className="scm-label">Preview หลังยืนยัน</div>
                     <div className="scm-value">
                       จำนวนการให้บริการที่เหลือ: {preview?.nextSessions ?? "-"}
                     </div>
@@ -720,6 +963,9 @@ export default function ServiceConfirmationModal({
                     ) : null}
                   </div>
                 </div>
+                {!deductionValidation.valid ? (
+                  <div className="scm-state scm-state--error">{deductionValidation.message}</div>
+                ) : null}
               </>
             )}
           </section>
@@ -789,7 +1035,7 @@ export default function ServiceConfirmationModal({
                 type="button"
                 className="scm-btn scm-btn--primary"
                 onClick={handleConfirm}
-                disabled={submitting || !canMutate}
+                disabled={isConfirmDisabled}
               >
                 {submitting ? "Processing..." : "Confirm"}
               </button>

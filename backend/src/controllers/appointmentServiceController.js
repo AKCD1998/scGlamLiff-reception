@@ -27,6 +27,39 @@ function normalizeText(raw) {
   return String(raw).trim();
 }
 
+function parseOptionalInteger(value, fieldName) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed)) {
+    const err = new Error(`${fieldName} must be an integer`);
+    err.status = 400;
+    throw err;
+  }
+  return parsed;
+}
+
+function parseDeductSessions(value) {
+  const parsed = parseOptionalInteger(value, 'deduct_sessions');
+  if (parsed === null) return 1;
+  if (parsed < 1) {
+    const err = new Error('deduct_sessions must be >= 1');
+    err.status = 400;
+    throw err;
+  }
+  return parsed;
+}
+
+function parseDeductMask(value, { usedMask = false } = {}) {
+  const parsed = parseOptionalInteger(value, 'deduct_mask');
+  const resolved = parsed === null ? (usedMask ? 1 : 0) : parsed;
+  if (resolved < 0) {
+    const err = new Error('deduct_mask must be >= 0');
+    err.status = 400;
+    throw err;
+  }
+  return resolved;
+}
+
 function safeDisplayName(user) {
   return String(user?.display_name || user?.username || '').trim() || null;
 }
@@ -523,6 +556,13 @@ export async function ensureAppointmentFromSheet(req, res) {
         code: error?.code || null,
       });
     }
+    if (error?.code === '23505') {
+      return res.status(409).json({
+        ok: false,
+        error: 'Package usage conflict (duplicate usage/session)',
+        code: error.code,
+      });
+    }
     console.error(error);
     const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
     return res.status(500).json({
@@ -631,6 +671,19 @@ export async function completeAppointment(req, res) {
   const customerPackageId =
     typeof req.body?.customer_package_id === 'string' ? req.body.customer_package_id.trim() : '';
   const usedMask = Boolean(req.body?.used_mask);
+  let deductSessions = 1;
+  let deductMask = 0;
+
+  try {
+    deductSessions = parseDeductSessions(req.body?.deduct_sessions);
+    deductMask = parseDeductMask(req.body?.deduct_mask, { usedMask });
+  } catch (error) {
+    return res.status(error?.status || 400).json({
+      ok: false,
+      error: error?.message || 'Invalid deduction payload',
+      code: error?.code || null,
+    });
+  }
 
   const client = await pool.connect();
   try {
@@ -656,7 +709,7 @@ export async function completeAppointment(req, res) {
     }
 
     const existingUsage = await client.query(
-      'SELECT id, customer_package_id, session_no, used_mask FROM package_usages WHERE appointment_id = $1 LIMIT 1',
+      'SELECT id FROM package_usages WHERE appointment_id = $1 LIMIT 1',
       [appointment.id]
     );
     if (existingUsage.rowCount > 0) {
@@ -665,9 +718,12 @@ export async function completeAppointment(req, res) {
     }
 
     if (!customerPackageId) {
-      if (usedMask) {
+      if (deductMask > 0 || deductSessions > 1) {
         await client.query('ROLLBACK');
-        return res.status(422).json({ ok: false, error: 'Cannot use mask without selecting a package' });
+        return res.status(422).json({
+          ok: false,
+          error: 'Cannot deduct sessions/mask without selecting a package',
+        });
       }
 
       await client.query(
@@ -775,33 +831,64 @@ export async function completeAppointment(req, res) {
     const sessionsRemaining = Math.max(totals.sessions_total - Number(counts.sessions_used || 0), 0);
     const maskRemaining = Math.max(totals.mask_total - Number(counts.mask_used || 0), 0);
 
-    if (sessionsRemaining <= 0) {
+    if (sessionsRemaining <= 0 || deductSessions > sessionsRemaining) {
       await client.query('ROLLBACK');
-      return res.status(409).json({ ok: false, error: 'No remaining sessions for this package' });
+      return res.status(409).json({
+        ok: false,
+        error:
+          sessionsRemaining <= 0
+            ? 'No remaining sessions for this package'
+            : `Requested deduct_sessions (${deductSessions}) exceeds remaining sessions (${sessionsRemaining})`,
+      });
     }
 
-    if (usedMask) {
-      if (totals.mask_total <= 0) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ ok: false, error: 'This package has no mask allowance' });
-      }
-      if (maskRemaining <= 0) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ ok: false, error: 'No remaining masks for this package' });
-      }
+    if (deductMask > deductSessions) {
+      await client.query('ROLLBACK');
+      return res.status(422).json({
+        ok: false,
+        error: 'deduct_mask must not exceed deduct_sessions',
+      });
     }
 
-    const nextSessionNo = Number(counts.last_session_no || 0) + 1;
+    if (deductMask > 0 && totals.mask_total <= 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ ok: false, error: 'This package has no mask allowance' });
+    }
+
+    if (deductMask > maskRemaining) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        ok: false,
+        error: `Requested deduct_mask (${deductMask}) exceeds remaining masks (${maskRemaining})`,
+      });
+    }
+
+    const firstSessionNo = Number(counts.last_session_no || 0) + 1;
+    const lastSessionNo = firstSessionNo + deductSessions - 1;
 
     const usageInsert = await client.query(
       `
+        WITH usage_rows AS (
+          SELECT
+            ($3 + gs.idx)::int AS session_no,
+            (gs.idx < $4)::boolean AS used_mask
+          FROM generate_series(0, $5 - 1) AS gs(idx)
+        )
         INSERT INTO package_usages
           (id, customer_package_id, appointment_id, session_no, used_mask, used_at, staff_id, note)
-        VALUES
-          (gen_random_uuid(), $1, $2, $3, $4, now(), $5, NULL)
-        RETURNING id
+        SELECT
+          gen_random_uuid(),
+          $1,
+          $2,
+          usage_rows.session_no,
+          usage_rows.used_mask,
+          now(),
+          $6,
+          NULL
+        FROM usage_rows
+        RETURNING id, session_no, used_mask
       `,
-      [customerPackageId, appointment.id, nextSessionNo, usedMask, staffId]
+      [customerPackageId, appointment.id, firstSessionNo, deductMask, deductSessions, staffId]
     );
 
     await client.query(
@@ -814,6 +901,10 @@ export async function completeAppointment(req, res) {
       [appointment.id]
     );
 
+    const usageRows = usageInsert.rows || [];
+    const remainingSessionsAfter = Math.max(sessionsRemaining - deductSessions, 0);
+    const remainingMaskAfter = Math.max(maskRemaining - deductMask, 0);
+
     const completePackageEventMeta = {
       staff_id: staffId,
       staff_user_id: req.user?.id || null,
@@ -821,9 +912,14 @@ export async function completeAppointment(req, res) {
       staff_display_name: safeDisplayName(req.user),
       customer_package_id: customerPackageId,
       package_code: pkg.package_code,
-      session_no: nextSessionNo,
-      used_mask: usedMask,
-      usage_id: usageInsert.rows[0]?.id || null,
+      session_no_start: firstSessionNo,
+      session_no_end: lastSessionNo,
+      sessions_deducted: deductSessions,
+      mask_deducted: deductMask,
+      used_mask: deductMask > 0,
+      usage_ids: usageRows.map((row) => row.id).filter(Boolean),
+      remaining_sessions_after: remainingSessionsAfter,
+      remaining_mask_after: remainingMaskAfter,
     };
     assertEventStaffIdentity(completePackageEventMeta, 'completeAppointment/package');
 
@@ -847,8 +943,16 @@ export async function completeAppointment(req, res) {
         usage: {
           customer_package_id: customerPackageId,
           package_code: pkg.package_code,
-          session_no: nextSessionNo,
-          used_mask: usedMask,
+          session_no: lastSessionNo,
+          session_no_start: firstSessionNo,
+          session_no_end: lastSessionNo,
+          sessions_deducted: deductSessions,
+          mask_deducted: deductMask,
+          used_mask: deductMask > 0,
+        },
+        remaining: {
+          sessions_remaining: remainingSessionsAfter,
+          mask_remaining: remainingMaskAfter,
         },
       },
     });
@@ -1005,23 +1109,23 @@ export async function revertAppointment(req, res) {
     }
 
     // Revert policy:
-    // - completed: undo package usage if one was recorded.
+    // - completed: undo all package usages recorded by this appointment.
     // - no_show / cancelled(canceled): status-only revert, no package usage mutation.
-    let usage = null;
+    let usageRows = [];
     if (currentStatus === 'completed') {
       const usageResult = await client.query(
         `
           SELECT id, customer_package_id, session_no, used_mask
           FROM package_usages
           WHERE appointment_id = $1
-          LIMIT 1
+          ORDER BY session_no ASC, used_at ASC, id ASC
           FOR UPDATE
         `,
         [appointment.id]
       );
       if (usageResult.rowCount > 0) {
-        usage = usageResult.rows[0];
-        await client.query('DELETE FROM package_usages WHERE id = $1', [usage.id]);
+        usageRows = usageResult.rows;
+        await client.query('DELETE FROM package_usages WHERE appointment_id = $1', [appointment.id]);
       }
     }
 
@@ -1035,6 +1139,12 @@ export async function revertAppointment(req, res) {
       [appointment.id, REVERT_TARGET_STATUS]
     );
 
+    const revertedUsageIds = usageRows.map((row) => row.id).filter(Boolean);
+    const revertedPackageIds = [...new Set(usageRows.map((row) => row.customer_package_id).filter(Boolean))];
+    const revertedMaskCount = usageRows.filter((row) => row.used_mask).length;
+    const firstSessionNo = usageRows[0]?.session_no ?? null;
+    const lastSessionNo = usageRows.length > 0 ? usageRows[usageRows.length - 1]?.session_no ?? null : null;
+
     const revertEventMeta = {
       action: 'revert',
       staff_id: eventStaffId,
@@ -1043,10 +1153,13 @@ export async function revertAppointment(req, res) {
       staff_display_name: safeDisplayName(req.user),
       previous_status: currentStatus,
       next_status: REVERT_TARGET_STATUS,
-      reverted_usage_id: usage?.id || null,
-      customer_package_id: usage?.customer_package_id || null,
-      session_no: usage?.session_no || null,
-      used_mask: usage?.used_mask ?? null,
+      reverted_usage_ids: revertedUsageIds,
+      reverted_usage_count: revertedUsageIds.length,
+      reverted_mask_count: revertedMaskCount,
+      customer_package_id: revertedPackageIds.length === 1 ? revertedPackageIds[0] : null,
+      customer_package_ids: revertedPackageIds,
+      session_no_start: firstSessionNo,
+      session_no_end: lastSessionNo,
     };
     assertEventStaffIdentity(revertEventMeta, 'revertAppointment');
 
