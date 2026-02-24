@@ -1,6 +1,21 @@
 import { normalizeDateString, parseTimeToMinutes } from "../../../utils/bookingTimeUtils";
 
 export function normalizeRow(row = {}) {
+  const smoothSessionsTotal = Number(row.smooth_sessions_total ?? row.smoothSessionsTotal) || 0;
+  const smoothSessionsUsed = Number(row.smooth_sessions_used ?? row.smoothSessionsUsed) || 0;
+  const smoothSessionsRemaining = Math.max(smoothSessionsTotal - smoothSessionsUsed, 0);
+  const smoothPackageStatus = String(
+    row.smooth_customer_package_status ?? row.smoothCustomerPackageStatus ?? ""
+  )
+    .trim()
+    .toLowerCase();
+  const hasContinuousCourseRaw =
+    row.has_continuous_course ??
+    row.hasContinuousCourse ??
+    (Boolean(row.smooth_customer_package_id ?? row.smoothCustomerPackageId) &&
+      smoothSessionsRemaining > 0 &&
+      (smoothPackageStatus === "active" || smoothPackageStatus === ""));
+
   return {
     id: row.id ?? "",
     date: row.date ?? "",
@@ -17,6 +32,13 @@ export function normalizeRow(row = {}) {
       row.treatment_plan_mode ?? row.treatmentPlanMode ?? "",
     treatmentPlanPackageId:
       row.treatment_plan_package_id ?? row.treatmentPlanPackageId ?? "",
+    smoothCustomerPackageId:
+      row.smooth_customer_package_id ?? row.smoothCustomerPackageId ?? "",
+    smoothCustomerPackageStatus: smoothPackageStatus,
+    smoothSessionsTotal,
+    smoothSessionsUsed,
+    smoothSessionsRemaining,
+    hasContinuousCourse: Boolean(hasContinuousCourseRaw),
   };
 }
 

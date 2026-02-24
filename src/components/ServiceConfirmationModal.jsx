@@ -314,6 +314,7 @@ export default function ServiceConfirmationModal({
 
   const appointmentStatus = appointment?.status || booking?.status || "booked";
   const appointmentStatusNormalized = normalizeStatus(appointmentStatus);
+  const isAlreadyCompleted = appointmentStatusNormalized === "completed";
   const canMutate = useMemo(() => {
     return ["booked", "rescheduled"].includes(appointmentStatusNormalized);
   }, [appointmentStatusNormalized]);
@@ -336,6 +337,13 @@ export default function ServiceConfirmationModal({
     () => packageChoices.find((pkg) => pkg.customer_package_id === selectedPackageId) || null,
     [packageChoices, selectedPackageId]
   );
+  const isContinuousCourseSelected = useMemo(() => {
+    if (!selectedPkg) return false;
+    return (
+      String(selectedPkg?.status || "").toLowerCase() === "active" &&
+      selectedPkg._computed.sessionsRemaining > 0
+    );
+  }, [selectedPkg]);
 
   const completingWithoutCourse =
     effectiveNoCourseCompletion && selectedPackageId === NO_COURSE_ID;
@@ -706,8 +714,16 @@ export default function ServiceConfirmationModal({
                       >
                         <div className="scm-package__top">
                           <div>
-                            <div className="scm-package__title">
-                              {pkg.package?.title || pkg.package?.code || "-"}
+                            <div className="scm-package__title-row">
+                              <div className="scm-package__title">
+                                {pkg.package?.title || pkg.package?.code || "-"}
+                              </div>
+                              {String(pkg?.status || "").toLowerCase() === "active" &&
+                              pkg._computed.sessionsRemaining > 0 ? (
+                                <span className="scm-badge scm-badge--continuous">
+                                  คอร์สต่อเนื่อง
+                                </span>
+                              ) : null}
                             </div>
                             <div className="scm-package__code">{pkg.package?.code || "-"}</div>
                           </div>
@@ -731,7 +747,11 @@ export default function ServiceConfirmationModal({
                 ) : null}
               </>
             )}
-            {!canMutate && !isAdmin ? (
+            {isAlreadyCompleted ? (
+              <div className="scm-state scm-state--notice">
+                รายการนี้ตัดแล้ว ต้องนัดใหม่สำหรับครั้งถัดไป
+              </div>
+            ) : !canMutate && !isAdmin ? (
               <div className="scm-state">
                 รายการนี้ถูกปิดแล้ว (ตัดคอร์สสำหรับนัดนี้เรียบร้อย) หากต้องตัดครั้งถัดไปให้เลือกนัดใหม่
               </div>
@@ -748,6 +768,11 @@ export default function ServiceConfirmationModal({
               <div className="scm-state">เลือกคอร์ส 1 รายการเพื่อดูตัวเลือก</div>
             ) : (
               <>
+                {isContinuousCourseSelected ? (
+                  <div>
+                    <span className="scm-badge scm-badge--continuous">คอร์สต่อเนื่อง</span>
+                  </div>
+                ) : null}
                 {selectedProgress ? (
                   <div className="scm-package-progress">
                     <div className="scm-package-progress__row">

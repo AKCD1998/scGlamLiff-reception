@@ -323,6 +323,7 @@ export async function listAppointmentsQueue(req, res) {
           COALESCE(NULLIF(plan_evt.package_id, ''), '') AS treatment_plan_package_id,
           COALESCE(pu_current.customer_package_id, NULL) AS smooth_usage_customer_package_id,
           COALESCE(pkg_ctx.customer_package_id, NULL) AS smooth_customer_package_id,
+          COALESCE(NULLIF(pkg_ctx.customer_package_status, ''), '') AS smooth_customer_package_status,
           COALESCE(
             pkg_ctx.sessions_total,
             CASE
@@ -428,6 +429,7 @@ export async function listAppointmentsQueue(req, res) {
         LEFT JOIN LATERAL (
           SELECT
             cp.id AS customer_package_id,
+            cp.status AS customer_package_status,
             p.code AS package_code,
             p.title AS package_title,
             p.sessions_total,
@@ -489,6 +491,18 @@ export async function listAppointmentsQueue(req, res) {
         staffName: normalizeText(row.staffName),
         treatmentItem: treatmentItemDisplay || row.treatmentItem,
         treatmentItemDisplay: treatmentItemDisplay || row.treatmentItem,
+        smooth_customer_package_status: normalizeText(row.smooth_customer_package_status).toLowerCase(),
+        smooth_sessions_remaining: Math.max(
+          0,
+          Math.max(0, toInt(row.smooth_sessions_total)) - Math.max(0, toInt(row.smooth_sessions_used))
+        ),
+        has_continuous_course: Boolean(
+          normalizeText(row.smooth_customer_package_id) &&
+            ((normalizeText(row.smooth_customer_package_status).toLowerCase() === 'active' &&
+              Math.max(0, toInt(row.smooth_sessions_total)) - Math.max(0, toInt(row.smooth_sessions_used)) > 0) ||
+              (normalizeText(row.smooth_customer_package_status).toLowerCase() === '' &&
+                Math.max(0, toInt(row.smooth_sessions_total)) - Math.max(0, toInt(row.smooth_sessions_used)) > 0))
+        ),
       };
     });
 

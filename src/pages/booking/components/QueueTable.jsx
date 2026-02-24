@@ -53,7 +53,14 @@ export default function QueueTable({
               <td>{row.bookingTime}</td>
               <td>{row.customerName}</td>
               <td>{row.phone}</td>
-              <td>{row.treatmentItem}</td>
+              <td>
+                <div className="booking-treatment-cell">
+                  <span>{row.treatmentItem}</span>
+                  {row.hasContinuousCourse ? (
+                    <span className="booking-badge booking-badge--continuous">คอร์สต่อเนื่อง</span>
+                  ) : null}
+                </div>
+              </td>
               <td>{row.staffName}</td>
               <td className="booking-table-status">
                 {formatAppointmentStatus(row.status)}
@@ -65,4 +72,3 @@ export default function QueueTable({
     </table>
   );
 }
-

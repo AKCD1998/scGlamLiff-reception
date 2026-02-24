@@ -196,6 +196,14 @@
   font-weight: 700;
 }
 
+.scm-state--notice {
+  border: 1px solid var(--scm-border);
+  background: var(--scm-card-subtle);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-weight: 700;
+}
+
 .scm-packages {
   display: flex;
   flex-direction: column;
@@ -253,6 +261,13 @@
   color: var(--scm-text);
 }
 
+.scm-package__title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .scm-package__code {
   font-size: 0.82rem;
   color: var(--scm-muted);
@@ -296,6 +311,22 @@
   font-size: 0.84rem;
   font-weight: 800;
   color: var(--scm-soft);
+}
+
+.scm-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.scm-badge--continuous {
+  border: 1px solid rgba(46, 117, 68, 0.35);
+  background: rgba(46, 117, 68, 0.12);
+  color: #2a6a39;
 }
 
 .scm-check input {
@@ -390,6 +421,14 @@ body[data-theme="dark"] .booking-modal-card.service-confirmation-modal,
   --scm-success: #9be0ad;
   --scm-success-bg: rgba(155, 224, 173, 0.15);
   --scm-success-border: rgba(155, 224, 173, 0.45);
+}
+
+body[data-theme="dark"] .booking-modal-card.service-confirmation-modal .scm-badge--continuous,
+[data-theme="dark"] .booking-modal-card.service-confirmation-modal .scm-badge--continuous,
+.dark .booking-modal-card.service-confirmation-modal .scm-badge--continuous {
+  border-color: rgba(155, 224, 173, 0.45);
+  background: rgba(155, 224, 173, 0.16);
+  color: #9be0ad;
 }
 
 @media (prefers-color-scheme: dark) {

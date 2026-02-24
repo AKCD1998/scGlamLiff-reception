@@ -1,5 +1,11 @@
 import { pool } from '../db.js';
 import { assertEventStaffIdentity } from '../services/appointmentEventStaffGuard.js';
+import {
+  computePackageRemaining,
+  deriveContinuousPackageStatus,
+  shouldShortCircuitCompletedAppointment,
+  toNonNegativeInt,
+} from '../services/packageContinuity.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -266,6 +272,100 @@ async function ensureActiveCustomerPackage(client, { customerId, packageId, note
   );
 
   return inserted.rows[0]?.id || null;
+}
+
+async function getPackageUsageCounts(client, customerPackageId) {
+  const usageCounts = await client.query(
+    `
+      SELECT
+        COUNT(*)::int AS sessions_used,
+        COUNT(*) FILTER (WHERE used_mask IS TRUE)::int AS mask_used,
+        COALESCE(MAX(session_no), 0)::int AS last_session_no
+      FROM package_usages
+      WHERE customer_package_id = $1
+    `,
+    [customerPackageId]
+  );
+
+  const row = usageCounts.rows[0] || {};
+  return {
+    sessions_used: toNonNegativeInt(row.sessions_used),
+    mask_used: toNonNegativeInt(row.mask_used),
+    last_session_no: toNonNegativeInt(row.last_session_no),
+  };
+}
+
+async function syncCustomerPackageContinuityStatus(client, customerPackageId, sessionsRemaining) {
+  const statusResult = await client.query(
+    `
+      SELECT status
+      FROM customer_packages
+      WHERE id = $1
+      LIMIT 1
+      FOR UPDATE
+    `,
+    [customerPackageId]
+  );
+
+  if (statusResult.rowCount === 0) return '';
+  const currentStatus = normalizeText(statusResult.rows[0]?.status);
+  const nextStatus = deriveContinuousPackageStatus(currentStatus, sessionsRemaining);
+
+  if (nextStatus && nextStatus !== String(currentStatus || '').trim()) {
+    await client.query(
+      `
+        UPDATE customer_packages
+        SET status = $2
+        WHERE id = $1
+      `,
+      [customerPackageId, nextStatus]
+    );
+  }
+
+  return nextStatus || currentStatus;
+}
+
+async function buildPackageSnapshot(client, customerPackageId) {
+  const pkgResult = await client.query(
+    `
+      SELECT
+        cp.id AS customer_package_id,
+        cp.status AS customer_package_status,
+        p.code AS package_code,
+        p.title AS package_title,
+        p.sessions_total,
+        p.mask_total
+      FROM customer_packages cp
+      JOIN packages p ON p.id = cp.package_id
+      WHERE cp.id = $1
+      LIMIT 1
+    `,
+    [customerPackageId]
+  );
+
+  if (pkgResult.rowCount === 0) return null;
+  const pkg = pkgResult.rows[0];
+  const counts = await getPackageUsageCounts(client, customerPackageId);
+  const remaining = computePackageRemaining({
+    sessionsTotal: pkg.sessions_total,
+    sessionsUsed: counts.sessions_used,
+    maskTotal: pkg.mask_total,
+    maskUsed: counts.mask_used,
+  });
+
+  return {
+    customer_package_id: customerPackageId,
+    status: normalizeText(pkg.customer_package_status) || 'active',
+    package_code: pkg.package_code || null,
+    package_title: pkg.package_title || null,
+    sessions_total: remaining.sessions_total,
+    sessions_used: remaining.sessions_used,
+    sessions_remaining: remaining.sessions_remaining,
+    mask_total: remaining.mask_total,
+    mask_used: remaining.mask_used,
+    mask_remaining: remaining.mask_remaining,
+    last_session_no: counts.last_session_no,
+  };
 }
 
 async function resolveDefaultSmoothOneOffPackageId(client) {
@@ -559,7 +659,7 @@ export async function ensureAppointmentFromSheet(req, res) {
     if (error?.code === '23505') {
       return res.status(409).json({
         ok: false,
-        error: 'Package usage conflict (duplicate usage/session)',
+        error: 'Service usage already recorded for this appointment',
         code: error.code,
       });
     }
@@ -674,17 +774,6 @@ export async function completeAppointment(req, res) {
   let deductSessions = 1;
   let deductMask = 0;
 
-  try {
-    deductSessions = parseDeductSessions(req.body?.deduct_sessions);
-    deductMask = parseDeductMask(req.body?.deduct_mask, { usedMask });
-  } catch (error) {
-    return res.status(error?.status || 400).json({
-      ok: false,
-      error: error?.message || 'Invalid deduction payload',
-      code: error?.code || null,
-    });
-  }
-
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -698,9 +787,68 @@ export async function completeAppointment(req, res) {
     }
 
     const currentStatus = String(appointment.status || '').toLowerCase();
+    if (shouldShortCircuitCompletedAppointment(currentStatus)) {
+      const usageResult = await client.query(
+        `
+          SELECT
+            pu.id,
+            pu.customer_package_id,
+            pu.session_no,
+            pu.used_mask
+          FROM package_usages pu
+          WHERE pu.appointment_id = $1
+          ORDER BY pu.used_at DESC NULLS LAST, pu.id DESC
+          LIMIT 1
+        `,
+        [appointment.id]
+      );
+
+      const usageRow = usageResult.rows[0] || null;
+      const packageSnapshot = usageRow?.customer_package_id
+        ? await buildPackageSnapshot(client, usageRow.customer_package_id)
+        : null;
+
+      await client.query('COMMIT');
+      return res.json({
+        ok: true,
+        data: {
+          appointment_id: appointment.id,
+          status: 'completed',
+          already_completed: true,
+          idempotent: true,
+          usage: usageRow
+            ? {
+                customer_package_id: usageRow.customer_package_id,
+                session_no: usageRow.session_no,
+                used_mask: Boolean(usageRow.used_mask),
+              }
+            : null,
+          package: packageSnapshot,
+          remaining: packageSnapshot
+            ? {
+                sessions_remaining: packageSnapshot.sessions_remaining,
+                mask_remaining: packageSnapshot.mask_remaining,
+              }
+            : null,
+        },
+      });
+    }
+
     if (!['booked', 'rescheduled'].includes(currentStatus)) {
       await client.query('ROLLBACK');
       return res.status(409).json({ ok: false, error: `Cannot complete appointment in status: ${currentStatus}` });
+    }
+
+    try {
+      deductSessions = parseDeductSessions(req.body?.deduct_sessions);
+      deductMask = parseDeductMask(req.body?.deduct_mask, { usedMask });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      return res.status(error?.status || 400).json({
+        ok: false,
+        error: error?.message || 'Invalid deduction payload',
+        code: error?.code || null,
+      });
     }
 
     if (!appointment.customer_id) {
@@ -815,23 +963,15 @@ export async function completeAppointment(req, res) {
       mask_total: Number(pkg.mask_total) || 0,
     };
 
-    const usageCounts = await client.query(
-      `
-        SELECT
-          COUNT(*)::int AS sessions_used,
-          COUNT(*) FILTER (WHERE used_mask IS TRUE)::int AS mask_used,
-          COALESCE(MAX(session_no), 0)::int AS last_session_no
-        FROM package_usages
-        WHERE customer_package_id = $1
-      `,
-      [customerPackageId]
-    );
+    const counts = await getPackageUsageCounts(client, customerPackageId);
+    const remainingBefore = computePackageRemaining({
+      sessionsTotal: totals.sessions_total,
+      sessionsUsed: counts.sessions_used,
+      maskTotal: totals.mask_total,
+      maskUsed: counts.mask_used,
+    });
 
-    const counts = usageCounts.rows[0] || { sessions_used: 0, mask_used: 0, last_session_no: 0 };
-    const sessionsRemaining = Math.max(totals.sessions_total - Number(counts.sessions_used || 0), 0);
-    const maskRemaining = Math.max(totals.mask_total - Number(counts.mask_used || 0), 0);
-
-    if (sessionsRemaining <= 0) {
+    if (remainingBefore.sessions_remaining <= 0) {
       await client.query('ROLLBACK');
       return res.status(409).json({ ok: false, error: 'No remaining sessions for this package' });
     }
@@ -841,11 +981,11 @@ export async function completeAppointment(req, res) {
       return res.status(409).json({ ok: false, error: 'This package has no mask allowance' });
     }
 
-    if (deductMask > maskRemaining) {
+    if (deductMask > remainingBefore.mask_remaining) {
       await client.query('ROLLBACK');
       return res.status(409).json({
         ok: false,
-        error: `Requested deduct_mask (${deductMask}) exceeds remaining masks (${maskRemaining})`,
+        error: `Requested deduct_mask (${deductMask}) exceeds remaining masks (${remainingBefore.mask_remaining})`,
       });
     }
 
@@ -874,8 +1014,17 @@ export async function completeAppointment(req, res) {
     );
 
     const insertedUsage = usageInsert.rows[0] || null;
-    const remainingSessionsAfter = Math.max(sessionsRemaining - 1, 0);
-    const remainingMaskAfter = Math.max(maskRemaining - (usedMaskFlag ? 1 : 0), 0);
+    const remainingAfter = computePackageRemaining({
+      sessionsTotal: totals.sessions_total,
+      sessionsUsed: counts.sessions_used + 1,
+      maskTotal: totals.mask_total,
+      maskUsed: counts.mask_used + (usedMaskFlag ? 1 : 0),
+    });
+    const packageStatusAfter = await syncCustomerPackageContinuityStatus(
+      client,
+      customerPackageId,
+      remainingAfter.sessions_remaining
+    );
 
     const completePackageEventMeta = {
       staff_id: staffId,
@@ -889,8 +1038,9 @@ export async function completeAppointment(req, res) {
       mask_deducted: usedMaskFlag ? 1 : 0,
       used_mask: usedMaskFlag,
       usage_id: insertedUsage?.id || null,
-      remaining_sessions_after: remainingSessionsAfter,
-      remaining_mask_after: remainingMaskAfter,
+      package_status_after: packageStatusAfter,
+      remaining_sessions_after: remainingAfter.sessions_remaining,
+      remaining_mask_after: remainingAfter.mask_remaining,
     };
     assertEventStaffIdentity(completePackageEventMeta, 'completeAppointment/package');
 
@@ -919,9 +1069,21 @@ export async function completeAppointment(req, res) {
           mask_deducted: usedMaskFlag ? 1 : 0,
           used_mask: usedMaskFlag,
         },
+        package: {
+          customer_package_id: customerPackageId,
+          status: packageStatusAfter || pkg.customer_package_status || 'active',
+          package_code: pkg.package_code || null,
+          package_title: pkg.package_title || null,
+          sessions_total: remainingAfter.sessions_total,
+          sessions_used: remainingAfter.sessions_used,
+          sessions_remaining: remainingAfter.sessions_remaining,
+          mask_total: remainingAfter.mask_total,
+          mask_used: remainingAfter.mask_used,
+          mask_remaining: remainingAfter.mask_remaining,
+        },
         remaining: {
-          sessions_remaining: remainingSessionsAfter,
-          mask_remaining: remainingMaskAfter,
+          sessions_remaining: remainingAfter.sessions_remaining,
+          mask_remaining: remainingAfter.mask_remaining,
         },
       },
     });
@@ -1113,6 +1275,21 @@ export async function revertAppointment(req, res) {
     const revertedMaskCount = usageRows.filter((row) => row.used_mask).length;
     const firstSessionNo = usageRows[0]?.session_no ?? null;
     const lastSessionNo = usageRows.length > 0 ? usageRows[usageRows.length - 1]?.session_no ?? null : null;
+    const restoredPackages = [];
+
+    for (const packageId of revertedPackageIds) {
+      const snapshot = await buildPackageSnapshot(client, packageId);
+      if (!snapshot) continue;
+      const syncedStatus = await syncCustomerPackageContinuityStatus(
+        client,
+        packageId,
+        snapshot.sessions_remaining
+      );
+      restoredPackages.push({
+        ...snapshot,
+        status: syncedStatus || snapshot.status,
+      });
+    }
 
     const revertEventMeta = {
       action: 'revert',
@@ -1127,6 +1304,7 @@ export async function revertAppointment(req, res) {
       reverted_mask_count: revertedMaskCount,
       customer_package_id: revertedPackageIds.length === 1 ? revertedPackageIds[0] : null,
       customer_package_ids: revertedPackageIds,
+      restored_packages: restoredPackages,
       session_no_start: firstSessionNo,
       session_no_end: lastSessionNo,
     };
@@ -1144,7 +1322,14 @@ export async function revertAppointment(req, res) {
     );
 
     await client.query('COMMIT');
-    return res.json({ ok: true, data: { appointment_id: appointment.id, status: REVERT_TARGET_STATUS } });
+    return res.json({
+      ok: true,
+      data: {
+        appointment_id: appointment.id,
+        status: REVERT_TARGET_STATUS,
+        restored_packages: restoredPackages,
+      },
+    });
   } catch (error) {
     await client.query('ROLLBACK');
     if (error?.status) {
