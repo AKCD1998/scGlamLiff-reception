@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildActivePackages,
+  canMutateFromStatus,
   isRevertableStatus,
 } from "./ServiceConfirmationModal";
 
@@ -105,5 +106,20 @@ describe("isRevertableStatus", () => {
     expect(isRevertableStatus("booked")).toBe(false);
     expect(isRevertableStatus("ensured")).toBe(false);
     expect(isRevertableStatus("rescheduled")).toBe(false);
+  });
+});
+
+describe("canMutateFromStatus", () => {
+  it("allows mutating booked/rescheduled/ensured/confirmed", () => {
+    expect(canMutateFromStatus("booked")).toBe(true);
+    expect(canMutateFromStatus("rescheduled")).toBe(true);
+    expect(canMutateFromStatus("ensured")).toBe(true);
+    expect(canMutateFromStatus("confirmed")).toBe(true);
+  });
+
+  it("rejects completed/cancelled/no_show", () => {
+    expect(canMutateFromStatus("completed")).toBe(false);
+    expect(canMutateFromStatus("cancelled")).toBe(false);
+    expect(canMutateFromStatus("no_show")).toBe(false);
   });
 });

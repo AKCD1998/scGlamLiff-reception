@@ -12,3 +12,9 @@
 - Added modal UI badge `คอร์สต่อเนื่อง` and helper text for completed appointments:
   - `รายการนี้ตัดแล้ว ต้องนัดใหม่สำหรับครั้งถัดไป`
 - Added backend guard tests for continuity rules in `backend/src/services/packageContinuity.test.js`.
+
+## 2026-02-24 - Confirm disabled guard adjustment
+
+- Updated service mutation status guard (frontend + backend) to allow `ensured` / `confirmed` in addition to `booked` / `rescheduled`.
+- Kept `completed` blocked for re-confirm to prevent double deduction on the same appointment.
+- Added frontend unit test coverage for status mutability in `src/components/ServiceConfirmationModal.test.jsx`.

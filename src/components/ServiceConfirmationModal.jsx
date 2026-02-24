@@ -11,6 +11,12 @@ import ProgressDots from "./ProgressDots";
 import "./ServiceConfirmationModal.css";
 
 const NO_COURSE_ID = "__NO_COURSE__";
+const MUTABLE_APPOINTMENT_STATUSES = new Set([
+  "booked",
+  "rescheduled",
+  "ensured",
+  "confirmed",
+]);
 
 function normalizePlanMode(value) {
   const mode = String(value || "").trim().toLowerCase();
@@ -42,6 +48,11 @@ function statusLabel(status) {
 export function isRevertableStatus(status) {
   const s = normalizeStatus(status);
   return ["completed", "no_show", "cancelled", "canceled"].includes(s);
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function canMutateFromStatus(status) {
+  return MUTABLE_APPOINTMENT_STATUSES.has(normalizeStatus(status));
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -316,7 +327,7 @@ export default function ServiceConfirmationModal({
   const appointmentStatusNormalized = normalizeStatus(appointmentStatus);
   const isAlreadyCompleted = appointmentStatusNormalized === "completed";
   const canMutate = useMemo(() => {
-    return ["booked", "rescheduled"].includes(appointmentStatusNormalized);
+    return canMutateFromStatus(appointmentStatusNormalized);
   }, [appointmentStatusNormalized]);
   const canRevert = isAdmin && isRevertableStatus(appointmentStatusNormalized);
 

@@ -13,6 +13,7 @@ const UUID_PATTERN =
 const DEFAULT_BRANCH_ID = process.env.DEFAULT_BRANCH_ID || 'branch-003';
 const REVERT_TARGET_STATUS = 'booked';
 const REVERTABLE_STATUSES = new Set(['completed', 'no_show', 'cancelled', 'canceled']);
+const MUTABLE_APPOINTMENT_STATUSES = new Set(['booked', 'rescheduled', 'ensured', 'confirmed']);
 
 function isAdmin(user) {
   const role = String(user?.role_name || '').toLowerCase();
@@ -21,6 +22,10 @@ function isAdmin(user) {
 
 export function canRevertFromStatus(status) {
   return REVERTABLE_STATUSES.has(String(status || '').trim().toLowerCase());
+}
+
+function canMutateFromStatus(status) {
+  return MUTABLE_APPOINTMENT_STATUSES.has(String(status || '').trim().toLowerCase());
 }
 
 function normalizePhone(raw) {
@@ -834,7 +839,7 @@ export async function completeAppointment(req, res) {
       });
     }
 
-    if (!['booked', 'rescheduled'].includes(currentStatus)) {
+    if (!canMutateFromStatus(currentStatus)) {
       await client.query('ROLLBACK');
       return res.status(409).json({ ok: false, error: `Cannot complete appointment in status: ${currentStatus}` });
     }
@@ -1131,7 +1136,7 @@ async function setAppointmentStatus({ req, res, nextStatus, eventType }) {
     }
 
     const currentStatus = String(appointment.status || '').toLowerCase();
-    if (!['booked', 'rescheduled'].includes(currentStatus)) {
+    if (!canMutateFromStatus(currentStatus)) {
       await client.query('ROLLBACK');
       return res
         .status(409)
