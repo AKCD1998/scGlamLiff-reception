@@ -893,7 +893,6 @@ export async function completeAppointment(req, res) {
         kind: 'one_off',
         staff_id: staffId,
         staff_user_id: req.user?.id || null,
-        staff_name: safeDisplayName(req.user),
         staff_display_name: safeDisplayName(req.user),
         treatment_id: appointment.treatment_id || null,
         raw_sheet_uuid: appointment.raw_sheet_uuid || null,
@@ -1034,7 +1033,6 @@ export async function completeAppointment(req, res) {
     const completePackageEventMeta = {
       staff_id: staffId,
       staff_user_id: req.user?.id || null,
-      staff_name: safeDisplayName(req.user),
       staff_display_name: safeDisplayName(req.user),
       customer_package_id: customerPackageId,
       package_code: pkg.package_code,
@@ -1157,7 +1155,6 @@ async function setAppointmentStatus({ req, res, nextStatus, eventType }) {
       previous_status: currentStatus,
       next_status: nextStatus,
       staff_id: eventStaffId,
-      staff_name: safeDisplayName(req.user),
       staff_user_id: req.user?.id || null,
       staff_display_name: safeDisplayName(req.user),
       note,
@@ -1299,7 +1296,6 @@ export async function revertAppointment(req, res) {
     const revertEventMeta = {
       action: 'revert',
       staff_id: eventStaffId,
-      staff_name: safeDisplayName(req.user),
       staff_user_id: req.user?.id || null,
       staff_display_name: safeDisplayName(req.user),
       previous_status: currentStatus,
