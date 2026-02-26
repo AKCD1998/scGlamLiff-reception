@@ -121,6 +121,22 @@ export default function ServiceConfirmationModal({
   currentUser,
   onAfterAction,
 }) {
+  // Data source contract (ServiceConfirmationModal):
+  // - Input booking row comes from GET /api/appointments/queue?date=&branch_id=&limit=.
+  // - Queue query params: date (optional), branch_id (optional), limit.
+  // - Queue backend joins for that row:
+  //   appointments a
+  //   LEFT JOIN customers c ON a.customer_id = c.id
+  //   LEFT JOIN treatments t ON a.treatment_id = t.id
+  //   + APPOINTMENT_IDENTITY_JOINS_SQL on ae.appointment_id = a.id / customer_identities.customer_id = c.id.
+  // - Input booking row must carry appointment_id from /api/appointments/queue.
+  // - Mutations use appointment_id only:
+  //   POST /api/appointments/:id/complete
+  //   POST /api/appointments/:id/cancel
+  //   POST /api/appointments/:id/no-show
+  //   POST /api/appointments/:id/revert
+  //   POST /api/appointments/:id/sync-course
+  // - No fallback to raw_sheet_uuid is allowed for mutations.
   const closeButtonRef = useRef(null);
   const fetchCompletedRef = useRef(false);
   const [appointment, setAppointment] = useState(null);
@@ -234,7 +250,9 @@ export default function ServiceConfirmationModal({
     const run = async () => {
       let shouldFinalize = true;
       try {
-        const appointmentId = booking?.appointmentId || booking?.appointment_id || booking?.id || "";
+        const appointmentId = String(
+          booking?.appointmentId || booking?.appointment_id || ""
+        ).trim();
         const customerId = booking?.customerId || booking?.customer_id || null;
 
         if (!appointmentId) {
@@ -310,7 +328,6 @@ export default function ServiceConfirmationModal({
     booking?.appointment_id,
     booking?.customerId,
     booking?.customer_id,
-    booking?.id,
     booking?.status,
     booking?.treatmentItem,
     bookingPlanMode,
@@ -394,7 +411,9 @@ export default function ServiceConfirmationModal({
   ]);
 
   const syncCourses = async () => {
-    const appointmentId = appointment?.id || booking?.appointmentId || booking?.appointment_id || booking?.id || "";
+    const appointmentId = String(
+      appointment?.id || booking?.appointmentId || booking?.appointment_id || ""
+    ).trim();
     const customerId = appointment?.customer_id || booking?.customerId || booking?.customer_id || null;
 
     if (!appointmentId || !customerId) {

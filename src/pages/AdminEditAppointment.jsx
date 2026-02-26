@@ -221,6 +221,10 @@ export default function AdminEditAppointment({ currentUser }) {
     const run = async () => {
       try {
         setTreatmentOptionsError("");
+        // Endpoint: GET /api/appointments/booking-options
+        // Query params: none
+        // Identifier semantics: option values include treatment UUID or package UUID;
+        // these are supplementary and do not change appointment identity.
         const data = await getBookingTreatmentOptions(controller.signal);
         if (!alive) return;
         const normalized = (data?.options || [])
@@ -293,6 +297,15 @@ export default function AdminEditAppointment({ currentUser }) {
 
     try {
       setLoadingDetail(true);
+      // Data source contract (AdminEditAppointment detail):
+      // - Endpoint: GET /api/admin/appointments/:appointmentId
+      // - Query params: none
+      // - Identifier: appointment_id (appointments.id UUID) from route param
+      // - Backend row merge/join keys:
+      //   appointments a
+      //   LEFT JOIN customers c ON c.id = a.customer_id
+      //   LEFT JOIN treatments t ON t.id = a.treatment_id
+      //   + APPOINTMENT_IDENTITY_JOINS_SQL (customer_identities + appointment_events on ae.appointment_id = a.id)
       const data = await getAdminAppointmentById(id);
       applyLoadedData(data);
     } catch (err) {
@@ -542,6 +555,10 @@ export default function AdminEditAppointment({ currentUser }) {
     try {
       setStatusOpen(true);
       setStatusMode("loading");
+      // Endpoint: PATCH /api/admin/appointments/:appointmentId
+      // Query params: none
+      // Identifier: appointment_id in path (appointments.id UUID).
+      // Backend mutation target: single appointments row by a.id, with event history keyed by ae.appointment_id = a.id.
       const data = await patchAdminAppointment(appointment.id, pendingPayload);
       setResult(data);
       setStatusMode("success");

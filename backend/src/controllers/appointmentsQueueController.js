@@ -318,6 +318,13 @@ export async function listAppointmentsQueue(req, res) {
             NULLIF(t.code, ''),
             ''
           ) AS "treatmentItem",
+          COALESCE(
+            NULLIF(plan_evt.treatment_item_text, ''),
+            NULLIF(t.title_th, ''),
+            NULLIF(t.title_en, ''),
+            NULLIF(t.code, ''),
+            ''
+          ) AS treatment_item_text,
           COALESCE(NULLIF(plan_evt.treatment_item_text, ''), '') AS treatment_item_text_override,
           COALESCE(NULLIF(plan_evt.treatment_plan_mode, ''), '') AS treatment_plan_mode,
           COALESCE(NULLIF(plan_evt.package_id, ''), '') AS treatment_plan_package_id,
@@ -360,7 +367,8 @@ export async function listAppointmentsQueue(req, res) {
           ) AS smooth_price_thb,
           COALESCE(pkg_usage.sessions_used, 0) AS smooth_sessions_used,
           COALESCE(pkg_usage.mask_used, 0) AS smooth_mask_used,
-          ${RESOLVED_STAFF_NAME_SQL} AS "staffName"
+          ${RESOLVED_STAFF_NAME_SQL} AS "staffName",
+          ${RESOLVED_STAFF_NAME_SQL} AS staff_name
         FROM appointments a
         LEFT JOIN customers c ON a.customer_id = c.id
         LEFT JOIN treatments t ON a.treatment_id = t.id
@@ -473,6 +481,8 @@ export async function listAppointmentsQueue(req, res) {
       const rawPhone = normalizeText(row.phone);
       const normalizedPhone = sanitizeThaiPhone(rawPhone);
       const treatmentItemDisplay = buildTreatmentItemDisplay(row);
+      const canonicalTreatmentItem =
+        normalizeText(row.treatment_item_text) || normalizeText(row.treatmentItem);
 
       if (DEBUG_PHONE_FRAGMENT) {
         const rawDigits = rawPhone.replace(/\D+/g, '');
@@ -489,8 +499,10 @@ export async function listAppointmentsQueue(req, res) {
         phone: normalizedPhone,
         lineId: sanitizeDisplayLineId(row.lineId),
         staffName: normalizeText(row.staffName),
-        treatmentItem: treatmentItemDisplay || row.treatmentItem,
-        treatmentItemDisplay: treatmentItemDisplay || row.treatmentItem,
+        staff_name: normalizeText(row.staff_name || row.staffName),
+        treatment_item_text: canonicalTreatmentItem,
+        treatmentItem: canonicalTreatmentItem,
+        treatmentItemDisplay: treatmentItemDisplay || canonicalTreatmentItem,
         smooth_customer_package_status: normalizeText(row.smooth_customer_package_status).toLowerCase(),
         smooth_sessions_remaining: Math.max(
           0,

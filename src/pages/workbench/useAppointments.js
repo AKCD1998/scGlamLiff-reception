@@ -29,6 +29,11 @@ export function useAppointments({ limit = 50, selectedDate = null, branchId = ""
       setError(null);
       try {
         const dateKey = selectedDate ? formatDateKey(selectedDate) : "";
+        // Homepage data source:
+        // - Endpoint: GET /api/appointments/queue
+        // - Query params: date, branch_id, limit
+        // - Identifier: appointment_id (appointments.id UUID)
+        // - Backend joins: appointments->customers/treatments + APPOINTMENT_IDENTITY_JOINS_SQL on customer_id + ae.appointment_id.
         const data = await getAppointmentsQueue(
           { date: dateKey || undefined, branchId: branchId || undefined, limit },
           signal

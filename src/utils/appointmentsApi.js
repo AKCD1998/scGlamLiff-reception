@@ -53,8 +53,15 @@ export async function appendAppointment(payload, options = {}) {
 
 export async function getAppointments(limit = 200, signal) {
   ensureConfig();
-  // Frontend table reads visit rows from backend /api/visits (Postgres).
+  // Legacy helper. Keep this appointments-first to avoid sheet_uuid identity drift.
+  // Endpoint: GET /api/visits?source=appointments&limit=:limit
+  // Backend joins: appointments a
+  //   LEFT JOIN customers c ON a.customer_id = c.id
+  //   LEFT JOIN treatments t ON a.treatment_id = t.id
+  //   + APPOINTMENT_IDENTITY_JOINS_SQL (customer_identities + appointment_events on ae.appointment_id = a.id)
+  // Identifier: appointments.id (UUID) in both row.id and appointment_id.
   const params = new URLSearchParams();
+  params.set("source", "appointments");
   params.set("limit", String(limit));
   const url = `${base}/api/visits?${params.toString()}`;
   const res = await fetch(url, { method: "GET", signal });
@@ -68,6 +75,7 @@ export async function getAppointments(limit = 200, signal) {
 export async function getAppointmentsByDate(date, limit = 200, signal) {
   ensureConfig();
   const params = new URLSearchParams();
+  params.set("source", "appointments");
   params.set("limit", String(limit));
   if (date) {
     params.set("date", date);
@@ -265,6 +273,14 @@ export async function patchAdminAppointment(appointmentId, payload, signal) {
 
 export async function getAppointmentsQueue({ date, branchId, limit = 200 } = {}, signal) {
   ensureConfig();
+  // Canonical queue endpoint used by Homepage + Bookingpage.
+  // Endpoint: GET /api/appointments/queue
+  // Query params: date (YYYY-MM-DD, optional), branch_id (UUID, optional), limit
+  // Backend joins: appointments a
+  //   LEFT JOIN customers c ON a.customer_id = c.id
+  //   LEFT JOIN treatments t ON a.treatment_id = t.id
+  //   + APPOINTMENT_IDENTITY_JOINS_SQL (customer_identities + latest appointment_events by ae.appointment_id = a.id)
+  // Identifier: appointment_id = appointments.id (UUID).
   const params = new URLSearchParams();
   if (date) params.set("date", date);
   if (branchId) params.set("branch_id", branchId);

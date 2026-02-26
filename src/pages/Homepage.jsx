@@ -11,6 +11,15 @@ import LoadingOverlay from "../components/LoadingOverlay";
 import "./Homepage.css";
 
 export default function Homepage(props) {
+  // Data source contract (Homepage):
+  // - Endpoint: GET /api/appointments/queue (called in src/pages/workbench/useAppointments.js).
+  // - Query params: date=YYYY-MM-DD (optional), branch_id=UUID (optional), limit.
+  // - Identifier used in UI/actions: appointment_id (appointments.id UUID).
+  // - Backend row merge/join keys:
+  //   appointments a
+  //   LEFT JOIN customers c ON a.customer_id = c.id
+  //   LEFT JOIN treatments t ON a.treatment_id = t.id
+  //   + APPOINTMENT_IDENTITY_JOINS_SQL (customer_identities + appointment_events on ae.appointment_id = a.id).
   const {
     selectedDate, setSelectedDate,
     displayMonth, setDisplayMonth,

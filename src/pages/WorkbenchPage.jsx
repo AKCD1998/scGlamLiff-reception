@@ -17,6 +17,7 @@ import { useAppointments } from "./workbench/useAppointments";
 import { useHomePickerState } from "./workbench/useHomePickerState";
 import { useTheme } from "./workbench/useTheme";
 import { useMe } from "./workbench/useMe";
+import { runAppointmentConsistencyDebug } from "../utils/appointmentConsistencyDebug";
 
 
 
@@ -26,6 +27,7 @@ export default function WorkbenchPage() {
   const [glowDays, setGlowDays] = useState(() => new Set());
   const [glowError, setGlowError] = useState("");
   const glowRequestIdRef = useRef(0);
+  const debugConsistencyRanRef = useRef(false);
 
   const monthRange = useMemo(() => {
     const month = homePicker.displayMonth;
@@ -110,6 +112,14 @@ export default function WorkbenchPage() {
     if (activeTab !== "home") return;
     void refreshGlow();
   }, [activeTab, refreshGlow]);
+
+  useEffect(() => {
+    if (debugConsistencyRanRef.current) return undefined;
+    debugConsistencyRanRef.current = true;
+    const controller = new AbortController();
+    void runAppointmentConsistencyDebug({ signal: controller.signal });
+    return () => controller.abort();
+  }, []);
 
   const renderTabContent = () => {
     switch (activeTab) {

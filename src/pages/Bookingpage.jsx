@@ -48,6 +48,15 @@ function isAdminRole(roleName) {
 }
 
 export default function Bookingpage() {
+  // Data source contract (Bookingpage queue + create):
+  // - Queue endpoint: GET /api/appointments/queue?date=&branch_id=&limit=
+  // - Create endpoint: POST /api/appointments
+  // - Identifier used by UI/mutations: appointment_id (appointments.id UUID), never raw_sheet_uuid.
+  // - Queue backend joins:
+  //   appointments a
+  //   LEFT JOIN customers c ON a.customer_id = c.id
+  //   LEFT JOIN treatments t ON a.treatment_id = t.id
+  //   + APPOINTMENT_IDENTITY_JOINS_SQL (customer_identities + appointment_events on ae.appointment_id = a.id).
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -136,6 +145,8 @@ export default function Bookingpage() {
     setError(null);
     let completed = false;
     try {
+      // Endpoint: GET /api/appointments/queue?limit=200
+      // Query params used here: limit only (date/branch filters are not sent in this call).
       const data = await getAppointmentsQueue({ limit: 200 }, signal);
       const normalized = (data.rows || []).map(normalizeRow);
       setRows(normalized);
@@ -278,7 +289,17 @@ export default function Bookingpage() {
   }, []);
 
   const handleOpenServiceModal = useCallback((row) => {
-    setSelectedBookingRow(row);
+    const appointmentId = String(row?.appointmentId || row?.appointment_id || "").trim();
+    if (!appointmentId) {
+      setSubmitError("ไม่พบ appointment_id ของรายการนี้");
+      return;
+    }
+    setSelectedBookingRow({
+      ...(row || {}),
+      appointmentId,
+      appointment_id: appointmentId,
+      id: appointmentId,
+    });
     setServiceModalOpen(true);
   }, []);
 
@@ -551,6 +572,8 @@ export default function Bookingpage() {
 
     setSaving(true);
     try {
+      // Endpoint: POST /api/appointments
+      // Identifier flow: backend returns appointment_id; subsequent queue reads return the same id as row.appointment_id.
       await appendAppointment(payload, overrideMeta ? { override: overrideMeta } : undefined);
       setSubmitSuccess("บันทึกแล้ว");
       setBookingTime("");

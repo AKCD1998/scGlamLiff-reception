@@ -72,6 +72,9 @@ Set environment values in CI/hosting platform instead of hardcoding URLs in sour
 - Invalid query params now return structured `400` JSON:
   - `{ error: "Bad Request", message: "...", details: { ... } }`
 
+## Appointment consistency
+- See `docs/appointment_data_consistency.md` for canonical endpoint/ID rules and verification steps.
+
 ## Tests
 - Unit: `npm run test:run`
 - E2E: `npm run test:e2e`

@@ -8,14 +8,18 @@ function sanitizeDisplayLineId(value) {
 }
 
 export function normalizeRow(row = {}) {
+  const appointmentId = row.appointment_id ?? row.appointmentId ?? row.id ?? "";
   return {
-    id: row.id ?? "",
+    // Canonical UI identity: always appointment_id (appointments.id UUID).
+    id: appointmentId,
+    appointmentId,
+    appointment_id: appointmentId,
     date: row.date ?? "",
     bookingTime: row.bookingTime ?? "",
     customerName: row.customerName ?? "",
     phone: row.phone ?? "",
     lineId: sanitizeDisplayLineId(row.lineId),
-    treatmentItem: row.treatmentItemDisplay ?? row.treatmentItem ?? "",
+    treatmentItem: row.treatment_item_text ?? row.treatmentItem ?? row.treatmentItemDisplay ?? "",
     treatmentItemDisplay: row.treatmentItemDisplay ?? row.treatmentItem ?? "",
     staffName: row.staffName ?? row.staff_name ?? "",
     datetime: row.datetime ?? "", // backward compatibility for sorting fallback

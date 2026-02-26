@@ -74,15 +74,19 @@ export default function AppointmentsTablePanel({
               <tr><td colSpan="9">ไม่มีข้อมูล</td></tr>
             ) : (
               filteredRows.map((row, idx) => (
-                <tr key={`${row.id || row.date}-${row.bookingTime}-${row.lineId || "row"}-${idx}`}>
+                <tr
+                  key={`${
+                    row.appointmentId || row.appointment_id || row.id || row.date
+                  }-${row.bookingTime}-${row.lineId || "row"}-${idx}`}
+                >
                   <td>{row.date}</td>
                   <td>{row.bookingTime}</td>
                   <td>{row.customerName}</td>
                   <td>{row.phone}</td>
                   <td>{row.lineId || "-"}</td>
-                  <td>{row.treatmentItemDisplay || row.treatmentItem}</td>
+                  <td>{row.treatmentItem || row.treatmentItemDisplay}</td>
                   <td>{row.staffName || "-"}</td>
-                  <td className="row-id-cell">{row.id || "-"}</td>
+                  <td className="row-id-cell">{row.appointmentId || row.appointment_id || row.id || "-"}</td>
                   <td>
                     <button type="button" className="row-delete-btn" onClick={() => onOpenDelete(row)}>
                       ลบ

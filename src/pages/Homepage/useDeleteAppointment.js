@@ -1,5 +1,9 @@
 import { useState } from "react";
 
+function resolveAppointmentId(row) {
+  return String(row?.appointmentId || row?.appointment_id || row?.id || "").trim();
+}
+
 export function useDeleteAppointment(onDeleteAppointment, setToast) {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteReason, setDeleteReason] = useState("");
@@ -7,11 +11,12 @@ export function useDeleteAppointment(onDeleteAppointment, setToast) {
   const [deleteBusy, setDeleteBusy] = useState(false);
 
   const openDelete = (row) => {
-    if (!row?.id) {
+    const appointmentId = resolveAppointmentId(row);
+    if (!appointmentId) {
       setToast?.({ type: "error", message: "ไม่พบรหัสรายการสำหรับลบ" });
       return;
     }
-    setDeleteTarget(row);
+    setDeleteTarget({ ...(row || {}), appointmentId, appointment_id: appointmentId, id: appointmentId });
     setDeleteReason("");
     setDeleteError("");
   };
@@ -24,7 +29,8 @@ export function useDeleteAppointment(onDeleteAppointment, setToast) {
   };
 
   const confirmDelete = async () => {
-    if (!deleteTarget?.id) return;
+    const appointmentId = resolveAppointmentId(deleteTarget);
+    if (!appointmentId) return;
     if (typeof onDeleteAppointment !== "function") {
       setDeleteError("ระบบลบยังไม่พร้อมใช้งาน");
       return;
@@ -33,7 +39,7 @@ export function useDeleteAppointment(onDeleteAppointment, setToast) {
     try {
       setDeleteBusy(true);
       setDeleteError("");
-      await onDeleteAppointment(deleteTarget.id, deleteReason.trim());
+      await onDeleteAppointment(appointmentId, deleteReason.trim());
       setToast?.({ type: "success", message: "ยกเลิกรายการเรียบร้อยแล้ว" });
       setDeleteTarget(null);
       setDeleteReason("");

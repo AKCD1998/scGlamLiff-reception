@@ -1,6 +1,7 @@
 import { normalizeDateString, parseTimeToMinutes } from "../../../utils/bookingTimeUtils";
 
 export function normalizeRow(row = {}) {
+  const appointmentId = row.appointment_id ?? row.appointmentId ?? row.id ?? "";
   const smoothSessionsTotal = Number(row.smooth_sessions_total ?? row.smoothSessionsTotal) || 0;
   const smoothSessionsUsed = Number(row.smooth_sessions_used ?? row.smoothSessionsUsed) || 0;
   const smoothSessionsRemaining = Math.max(smoothSessionsTotal - smoothSessionsUsed, 0);
@@ -17,16 +18,18 @@ export function normalizeRow(row = {}) {
       (smoothPackageStatus === "active" || smoothPackageStatus === ""));
 
   return {
-    id: row.id ?? "",
+    // Canonical UI identity: appointment_id only (never raw_sheet_uuid).
+    id: appointmentId,
     date: row.date ?? "",
     bookingTime: row.bookingTime ?? "",
     customerName: row.customerName ?? "",
     phone: row.phone ?? "",
-    treatmentItem: row.treatmentItem ?? "",
+    treatmentItem: row.treatment_item_text ?? row.treatmentItem ?? "",
     staffName: row.staffName ?? "",
     datetime: row.datetime ?? "",
     status: row.status ?? "",
-    appointmentId: row.appointment_id ?? row.appointmentId ?? "",
+    appointmentId,
+    appointment_id: appointmentId,
     customerId: row.customer_id ?? row.customerId ?? "",
     treatmentPlanMode:
       row.treatment_plan_mode ?? row.treatmentPlanMode ?? "",

@@ -80,6 +80,8 @@ export async function listVisits(req, res) {
     const whereSql = `WHERE ${whereParts.join(' AND ')}`;
     const limitParam = `$${params.length}`;
 
+    // Legacy sheet linkage can be 1:N if raw_sheet_uuid integrity was broken in older data.
+    // Pick one deterministic appointment row (latest updated_at/created_at) to avoid random join winners.
     const { rows } = await query(
       `
         SELECT
@@ -91,11 +93,17 @@ export async function listVisits(req, res) {
             COALESCE(treatment_item_text, '') AS "treatmentItem",
             COALESCE(NULLIF(staff_name, ''), '-') AS "staffName",
             sheet_uuid::text AS id,
-            COALESCE(a.status, 'booked') AS status,
-            a.id AS appointment_id,
-            a.customer_id AS customer_id
+            COALESCE(a_link.status, 'booked') AS status,
+            a_link.id AS appointment_id,
+            a_link.customer_id AS customer_id
         FROM public.sheet_visits_raw
-        LEFT JOIN appointments a ON a.raw_sheet_uuid = sheet_uuid
+        LEFT JOIN LATERAL (
+          SELECT a.id, a.customer_id, a.status
+          FROM appointments a
+          WHERE a.raw_sheet_uuid = sheet_uuid
+          ORDER BY a.updated_at DESC NULLS LAST, a.created_at DESC NULLS LAST, a.id DESC
+          LIMIT 1
+        ) a_link ON true
         ${whereSql}
         ORDER BY visit_date DESC, visit_time_text DESC, imported_at DESC
         LIMIT ${limitParam}
