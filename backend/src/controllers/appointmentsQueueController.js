@@ -16,6 +16,7 @@ const UUID_PATTERN_RE =
 const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 500;
 const DEBUG_PHONE_FRAGMENT = String(process.env.DEBUG_QUEUE_PHONE_FRAGMENT || '').replace(/\D+/g, '');
+const DEBUG_TREATMENT_CATALOG_PREVIEW = String(process.env.DEBUG_TREATMENT_CATALOG_PREVIEW || '').toLowerCase() === 'true';
 const SMOOTH_CODE = 'smooth';
 const E2E_MARKER_REGEX_SQL = '^(e2e_|e2e_workflow_|verify-)';
 
@@ -108,9 +109,11 @@ function sanitizeDisplayLineId(value) {
   return text;
 }
 
-function formatPackageLabel(pkgRow, treatmentName) {
+function formatPackageLabel(pkgRow, { treatmentNameEn = '', treatmentNameTh = '', treatmentCode = '' } = {}) {
   return formatTreatmentDisplay({
-    treatmentName,
+    treatmentNameEn,
+    treatmentNameTh,
+    treatmentCode,
     treatmentSessions: Math.max(0, toInt(pkgRow.sessions_total)) || 1,
     treatmentMask: Math.max(0, toInt(pkgRow.mask_total)),
     treatmentPrice: Math.max(0, toInt(pkgRow.price_thb)) || null,
@@ -119,16 +122,33 @@ function formatPackageLabel(pkgRow, treatmentName) {
 
 function mapTreatmentToOption(row) {
   const treatmentId = normalizeText(row.id);
-  const title = normalizeText(row.treatment_name);
+  const treatmentNameEn = normalizeText(row.treatment_name_en);
+  const treatmentNameTh = normalizeText(row.treatment_name_th);
+  const treatmentCode = normalizeText(row.code);
+  const title = treatmentNameEn || treatmentNameTh || normalizeText(row.treatment_name);
   const sessions = Math.max(0, toInt(row.sessions_included)) || 1;
   const mask = Math.max(0, toInt(row.mask_included));
   const price = Math.max(0, toInt(row.price_thb)) || null;
-  const display = formatTreatmentDisplay({
+  const resolved = resolveTreatmentDisplay({
+    treatmentId,
+    treatmentNameEn,
+    treatmentNameTh,
+    treatmentCode,
+    treatmentSessions: sessions,
+    treatmentMask: mask,
+    treatmentPrice: price,
+    legacyText: title,
+  });
+  const display = resolved.treatment_display || formatTreatmentDisplay({
+    treatmentNameEn,
+    treatmentNameTh,
+    treatmentCode,
     treatmentName: title,
     treatmentSessions: sessions,
     treatmentMask: mask,
     treatmentPrice: price,
   });
+  const canonicalName = normalizeText(resolved.treatment_name) || title;
 
   return {
     value: `treatment:${treatmentId}`,
@@ -136,7 +156,10 @@ function mapTreatmentToOption(row) {
     source: 'treatment',
     treatment_id: treatmentId,
     treatment_item_text: display,
-    treatment_name: title,
+    treatment_name: canonicalName,
+    treatment_name_en: treatmentNameEn || null,
+    treatment_name_th: treatmentNameTh || null,
+    treatment_code: treatmentCode,
     treatment_sessions: sessions,
     treatment_mask: mask,
     treatment_price: price,
@@ -234,12 +257,16 @@ export async function listBookingTreatmentOptions(req, res) {
         SELECT
           t.id,
           t.code,
+          COALESCE(NULLIF(to_jsonb(t)->>'name_th', ''), NULLIF(t.title_th, ''), '') AS treatment_name_th,
+          COALESCE(NULLIF(to_jsonb(t)->>'name_en', ''), NULLIF(t.title_en, ''), '') AS treatment_name_en,
           t.title_th,
           t.title_en,
           t.is_active,
           COALESCE(
-            NULLIF(t.title_th, ''),
+            NULLIF(to_jsonb(t)->>'name_en', ''),
             NULLIF(t.title_en, ''),
+            NULLIF(to_jsonb(t)->>'name_th', ''),
+            NULLIF(t.title_th, ''),
             NULLIF(t.code, ''),
             'Treatment'
           ) AS treatment_name,
@@ -267,12 +294,35 @@ export async function listBookingTreatmentOptions(req, res) {
     const treatments = treatmentResult.rows || [];
     const options = [];
 
+    if (DEBUG_TREATMENT_CATALOG_PREVIEW && String(process.env.NODE_ENV || '').toLowerCase() !== 'production') {
+      const previewRows = treatments.map((row) => ({
+        treatment_id: normalizeText(row.id),
+        treatment_code: normalizeText(row.code),
+        name_en: normalizeText(row.treatment_name_en),
+        name_th: normalizeText(row.treatment_name_th),
+        treatment_display: formatTreatmentDisplay({
+          treatmentNameEn: normalizeText(row.treatment_name_en),
+          treatmentNameTh: normalizeText(row.treatment_name_th),
+          treatmentCode: normalizeText(row.code),
+          treatmentSessions: Math.max(0, toInt(row.sessions_included)) || 1,
+          treatmentMask: Math.max(0, toInt(row.mask_included)),
+          treatmentPrice: Math.max(0, toInt(row.price_thb)) || null,
+        }),
+      }));
+      console.log('[booking-options] treatment catalog preview');
+      console.table(previewRows);
+    }
+
     const smoothTreatment = treatments.find(
       (row) => normalizeText(row.code).toLowerCase() === SMOOTH_CODE
     );
 
     if (smoothTreatment) {
-      const smoothDisplayName = normalizeText(smoothTreatment.treatment_name) || 'Smooth';
+      const smoothDisplayNameEn =
+        normalizeText(smoothTreatment.treatment_name_en) ||
+        normalizeText(smoothTreatment.treatment_name) ||
+        'Smooth';
+      const smoothDisplayNameTh = normalizeText(smoothTreatment.treatment_name_th);
       const packageResult = await query(
         `
           SELECT
@@ -294,14 +344,21 @@ export async function listBookingTreatmentOptions(req, res) {
         const sessions = Math.max(0, toInt(pkg.sessions_total)) || 1;
         const mask = Math.max(0, toInt(pkg.mask_total));
         const price = Math.max(0, toInt(pkg.price_thb)) || null;
-        const label = formatPackageLabel(pkg, smoothDisplayName);
+        const label = formatPackageLabel(pkg, {
+          treatmentNameEn: smoothDisplayNameEn,
+          treatmentNameTh: smoothDisplayNameTh,
+          treatmentCode: smoothTreatment.code,
+        });
         options.push({
           value: `package:${value}`,
           label,
           source: 'package',
           treatment_id: smoothTreatment.id,
           treatment_item_text: label,
-          treatment_name: smoothDisplayName,
+          treatment_name: smoothDisplayNameEn || smoothDisplayNameTh || 'Smooth',
+          treatment_name_en: smoothDisplayNameEn || null,
+          treatment_name_th: smoothDisplayNameTh || null,
+          treatment_code: normalizeText(smoothTreatment.code),
           treatment_sessions: sessions,
           treatment_mask: mask,
           treatment_price: price,
@@ -360,6 +417,7 @@ export async function listAppointmentsQueue(req, res) {
 
     const orderBy = date ? 'a.scheduled_at ASC' : 'a.scheduled_at DESC';
 
+    // Canonical naming source: prefer treatments.name_en/title_en, fallback to Thai only when English is unavailable.
     const { rows } = await query(
       `
         SELECT
@@ -372,6 +430,8 @@ export async function listAppointmentsQueue(req, res) {
           a.customer_id AS customer_id,
           a.raw_sheet_uuid AS raw_sheet_uuid,
           COALESCE(NULLIF(t.code, ''), '') AS treatment_code,
+          COALESCE(NULLIF(to_jsonb(t)->>'name_en', ''), NULLIF(t.title_en, ''), '') AS treatment_name_en,
+          COALESCE(NULLIF(to_jsonb(t)->>'name_th', ''), NULLIF(t.title_th, ''), '') AS treatment_name_th,
           COALESCE(NULLIF(t.title_en, ''), '') AS treatment_title_en,
           COALESCE(TO_CHAR(a.scheduled_at AT TIME ZONE 'Asia/Bangkok', 'YYYY-MM-DD'), '') AS date,
           COALESCE(TO_CHAR(a.scheduled_at AT TIME ZONE 'Asia/Bangkok', 'HH24:MI'), '') AS "bookingTime",
@@ -380,20 +440,26 @@ export async function listAppointmentsQueue(req, res) {
           ${RESOLVED_PHONE_SQL} AS phone,
           ${RESOLVED_EMAIL_OR_LINEID_SQL} AS "lineId",
           COALESCE(
-            NULLIF(t.title_th, ''),
+            NULLIF(to_jsonb(t)->>'name_en', ''),
             NULLIF(t.title_en, ''),
+            NULLIF(to_jsonb(t)->>'name_th', ''),
+            NULLIF(t.title_th, ''),
             NULLIF(t.code, ''),
             ''
           ) AS treatment_name,
           COALESCE(
-            NULLIF(t.title_th, ''),
+            NULLIF(to_jsonb(t)->>'name_en', ''),
             NULLIF(t.title_en, ''),
+            NULLIF(to_jsonb(t)->>'name_th', ''),
+            NULLIF(t.title_th, ''),
             NULLIF(t.code, ''),
             ''
           ) AS "treatmentItem",
           COALESCE(
-            NULLIF(t.title_th, ''),
+            NULLIF(to_jsonb(t)->>'name_en', ''),
             NULLIF(t.title_en, ''),
+            NULLIF(to_jsonb(t)->>'name_th', ''),
+            NULLIF(t.title_th, ''),
             NULLIF(t.code, ''),
             ''
           ) AS treatment_item_text,
@@ -570,12 +636,15 @@ export async function listAppointmentsQueue(req, res) {
       const resolvedTreatment = resolveTreatmentDisplay({
         treatmentId: row.treatment_id,
         treatmentName: row.treatment_name,
+        treatmentNameEn: row.treatment_name_en,
+        treatmentNameTh: row.treatment_name_th,
         treatmentCode: row.treatment_code,
         treatmentSessions: treatmentSessionsCatalog,
         treatmentMask: treatmentMaskCatalog,
         treatmentPrice: treatmentPriceCatalog,
         legacyText: legacyTreatmentText,
       });
+      const hasCatalogId = UUID_PATTERN_RE.test(normalizeText(row.treatment_id));
 
       const smoothUsagePackageId = normalizeText(row.smooth_usage_customer_package_id);
       const smoothFallbackPackageId = normalizeText(row.smooth_customer_package_id);
@@ -609,6 +678,8 @@ export async function listAppointmentsQueue(req, res) {
         treatment_plan_package_id: resolvedPlanPackageId,
         treatment_item_text_override: resolvedPlanText,
         treatment_name: resolvedTreatment.treatment_name,
+        treatment_name_en: normalizeText(row.treatment_name_en),
+        treatment_name_th: normalizeText(row.treatment_name_th),
         treatment_sessions: resolvedTreatment.treatment_sessions,
         treatment_mask: resolvedTreatment.treatment_mask,
         treatment_price: resolvedTreatment.treatment_price,
@@ -617,7 +688,9 @@ export async function listAppointmentsQueue(req, res) {
         treatment_sessions_catalog: treatmentSessionsCatalog,
         treatment_mask_catalog: treatmentMaskCatalog,
         treatment_price_catalog: treatmentPriceCatalog,
-        treatment_item_text: legacyTreatmentText || resolvedTreatment.treatment_display,
+        treatment_item_text: hasCatalogId
+          ? resolvedTreatment.treatment_display
+          : legacyTreatmentText || resolvedTreatment.treatment_display,
         treatmentItem: resolvedTreatment.treatment_display,
         treatmentItemDisplay: resolvedTreatment.treatment_display,
         treatmentDisplay: resolvedTreatment.treatment_display,

@@ -16,6 +16,17 @@ function toInt(value) {
   return Math.trunc(parsed);
 }
 
+function formatPackageDisplay({ packageCode = '', packageTitle = '', sessionsTotal = 1, maskTotal = 0, priceThb = null } = {}) {
+  // Package cards/history must share the same formatter semantics as queue/booking labels.
+  return formatTreatmentDisplay({
+    treatmentName: packageTitle || packageCode || 'Treatment',
+    treatmentCode: packageCode,
+    treatmentSessions: sessionsTotal || 1,
+    treatmentMask: maskTotal,
+    treatmentPrice: priceThb,
+  });
+}
+
 async function fetchResolvedPlanByAppointmentIds(appointmentIds) {
   const ids = [...new Set((appointmentIds || []).map((value) => normalizeText(value)).filter(Boolean))].filter(
     (id) => UUID_PATTERN_RE.test(id)
@@ -157,38 +168,39 @@ export async function getCustomerProfile(req, res) {
       );
 
       packages = packagesResult.rows.map((row) => {
-      const sessionsTotal = Number(row.sessions_total) || 0;
-      const maskTotal = Number(row.mask_total) || 0;
-      const sessionsUsed = Number(row.sessions_used) || 0;
-      const maskUsed = Number(row.mask_used) || 0;
-      const treatmentDisplay = formatTreatmentDisplay({
-        treatmentName: row.package_title || row.package_code || 'Treatment',
-        treatmentSessions: sessionsTotal || 1,
-        treatmentMask: maskTotal,
-        treatmentPrice: Number(row.price_thb) || null,
-      });
+        const sessionsTotal = Number(row.sessions_total) || 0;
+        const maskTotal = Number(row.mask_total) || 0;
+        const sessionsUsed = Number(row.sessions_used) || 0;
+        const maskUsed = Number(row.mask_used) || 0;
+        const treatmentDisplay = formatPackageDisplay({
+          packageCode: row.package_code,
+          packageTitle: row.package_title,
+          sessionsTotal: sessionsTotal || 1,
+          maskTotal,
+          priceThb: Number(row.price_thb) || null,
+        });
 
-      return {
-        customer_package_id: row.customer_package_id,
-        status: row.status || 'active',
-        purchased_at: row.purchased_at,
-        expires_at: row.expires_at,
-        package: {
-          code: row.package_code,
-          title: row.package_title,
-          sessions_total: sessionsTotal,
-          mask_total: maskTotal,
-          price_thb: row.price_thb,
+        return {
+          customer_package_id: row.customer_package_id,
+          status: row.status || 'active',
+          purchased_at: row.purchased_at,
+          expires_at: row.expires_at,
+          package: {
+            code: row.package_code,
+            title: row.package_title,
+            sessions_total: sessionsTotal,
+            mask_total: maskTotal,
+            price_thb: row.price_thb,
+            treatment_display: treatmentDisplay,
+          },
           treatment_display: treatmentDisplay,
-        },
-        treatment_display: treatmentDisplay,
-        usage: {
-          sessions_used: sessionsUsed,
-          sessions_remaining: Math.max(sessionsTotal - sessionsUsed, 0),
-          mask_used: maskUsed,
-          mask_remaining: Math.max(maskTotal - maskUsed, 0),
-        },
-      };
+          usage: {
+            sessions_used: sessionsUsed,
+            sessions_remaining: Math.max(sessionsTotal - sessionsUsed, 0),
+            mask_used: maskUsed,
+            mask_remaining: Math.max(maskTotal - maskUsed, 0),
+          },
+        };
       });
     } catch (error) {
       if (error?.code === '42P01') {
@@ -282,17 +294,23 @@ export async function getCustomerProfile(req, res) {
             a.branch_id,
             a.treatment_id,
             t.code AS treatment_code,
+            COALESCE(NULLIF(to_jsonb(t)->>'name_en', ''), NULLIF(t.title_en, ''), '') AS treatment_name_en,
+            COALESCE(NULLIF(to_jsonb(t)->>'name_th', ''), NULLIF(t.title_th, ''), '') AS treatment_name_th,
             t.title_th AS treatment_title_th,
             t.title_en AS treatment_title_en,
             COALESCE(
-              NULLIF(t.title_th, ''),
+              NULLIF(to_jsonb(t)->>'name_en', ''),
               NULLIF(t.title_en, ''),
+              NULLIF(to_jsonb(t)->>'name_th', ''),
+              NULLIF(t.title_th, ''),
               NULLIF(t.code, ''),
               'Treatment'
             ) AS treatment_name,
             COALESCE(
-              NULLIF(t.title_th, ''),
+              NULLIF(to_jsonb(t)->>'name_en', ''),
               NULLIF(t.title_en, ''),
+              NULLIF(to_jsonb(t)->>'name_th', ''),
+              NULLIF(t.title_th, ''),
               NULLIF(t.code, ''),
               ''
             ) AS treatment_item_text,
@@ -347,11 +365,12 @@ export async function getCustomerProfile(req, res) {
       customer: customerResult.rows[0],
       packages,
       usage_history: usageRows.map((row) => ({
-        treatment_display: formatTreatmentDisplay({
-          treatmentName: row.package_title || row.package_code || 'Treatment',
-          treatmentSessions: Number(row.sessions_total) || 1,
-          treatmentMask: Number(row.mask_total) || 0,
-          treatmentPrice: Number(row.price_thb) || null,
+        treatment_display: formatPackageDisplay({
+          packageCode: row.package_code,
+          packageTitle: row.package_title,
+          sessionsTotal: Number(row.sessions_total) || 1,
+          maskTotal: Number(row.mask_total) || 0,
+          priceThb: Number(row.price_thb) || null,
         }),
         sessions_total: Number(row.sessions_total) || 1,
         mask_total: Number(row.mask_total) || 0,
@@ -405,12 +424,15 @@ export async function getCustomerProfile(req, res) {
         const resolvedTreatment = resolveTreatmentDisplay({
           treatmentId: row.treatment_id,
           treatmentName: row.treatment_name,
+          treatmentNameEn: row.treatment_name_en,
+          treatmentNameTh: row.treatment_name_th,
           treatmentCode: row.treatment_code,
           treatmentSessions: treatmentSessionsCatalog,
           treatmentMask: treatmentMaskCatalog,
           treatmentPrice: treatmentPriceCatalog,
           legacyText: legacyTreatmentText,
         });
+        const hasCatalogId = UUID_PATTERN_RE.test(normalizeText(row.treatment_id));
 
         return {
           id: row.id,
@@ -421,6 +443,8 @@ export async function getCustomerProfile(req, res) {
           treatment_code: row.treatment_code,
           treatment_title_th: row.treatment_title_th,
           treatment_title_en: row.treatment_title_en,
+          treatment_name_en: row.treatment_name_en,
+          treatment_name_th: row.treatment_name_th,
           treatment_name: resolvedTreatment.treatment_name,
           treatment_sessions: resolvedTreatment.treatment_sessions,
           treatment_mask: resolvedTreatment.treatment_mask,
@@ -429,7 +453,9 @@ export async function getCustomerProfile(req, res) {
           treatment_display_source: resolvedTreatment.treatment_display_source,
           treatment_plan_mode: resolvedPlanMode,
           treatment_plan_package_id: resolvedPlanPackageId,
-          treatment_item_text: legacyTreatmentText || resolvedTreatment.treatment_display,
+          treatment_item_text: hasCatalogId
+            ? resolvedTreatment.treatment_display
+            : legacyTreatmentText || resolvedTreatment.treatment_display,
         };
       }),
     });

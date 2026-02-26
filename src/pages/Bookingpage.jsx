@@ -252,6 +252,21 @@ export default function Bookingpage() {
           .map(normalizeTreatmentOptionRow)
           .filter(Boolean);
 
+        if (
+          import.meta.env.DEV &&
+          String(import.meta.env.VITE_DEBUG_TREATMENT_CATALOG || "").toLowerCase() === "true"
+        ) {
+          console.log("[Bookingpage] treatment catalog preview");
+          console.table(
+            normalized.map((option) => ({
+              treatment_id: option.treatmentId || "",
+              name_en: option.treatmentNameEn || option.treatment_name_en || "",
+              name_th: option.treatmentNameTh || option.treatment_name_th || "",
+              treatment_display: option.treatmentDisplay || option.label || "",
+            }))
+          );
+        }
+
         if (normalized.length === 0) {
           const fallback = buildFallbackTreatmentOptions();
           setTreatmentOptions(fallback);

@@ -264,6 +264,7 @@ export default function CustomerProfileModal({
                       pkg.package?.treatment_display ||
                       formatTreatmentDisplay({
                         treatmentName: pkg.package?.title || pkg.package?.code || "Treatment",
+                        treatmentCode: pkg.package?.code || "",
                         treatmentSessions: sessionsTotal || 1,
                         treatmentMask: maskTotal,
                         treatmentPrice: Number(pkg.package?.price_thb) || null,
@@ -366,6 +367,7 @@ export default function CustomerProfileModal({
                               item.treatment_display ||
                               formatTreatmentDisplay({
                                 treatmentName: item.package_title || item.package_code || "Treatment",
+                                treatmentCode: item.package_code || "",
                                 treatmentSessions: Number(item.sessions_total) || 1,
                                 treatmentMask: Number(item.mask_total) || 0,
                                 treatmentPrice: Number(item.price_thb) || null,
@@ -430,10 +432,14 @@ export default function CustomerProfileModal({
                     {appointmentHistory.map((item, idx) => {
                       const resolvedTreatment = resolveTreatmentDisplay({
                         treatmentId: item.treatment_id || "",
-                        treatmentName:
-                          item.treatment_name ||
-                          item.treatment_title_th ||
+                        treatmentName: item.treatment_name || "",
+                        treatmentNameEn:
+                          item.treatment_name_en ||
                           item.treatment_title_en ||
+                          "",
+                        treatmentNameTh:
+                          item.treatment_name_th ||
+                          item.treatment_title_th ||
                           "",
                         treatmentCode: item.treatment_code || "",
                         treatmentSessions: item.treatment_sessions ?? 1,
@@ -444,8 +450,8 @@ export default function CustomerProfileModal({
                       const title =
                         item.treatment_display ||
                         resolvedTreatment.treatment_display ||
-                        item.treatment_title_th ||
                         item.treatment_title_en ||
+                        item.treatment_title_th ||
                         item.treatment_code ||
                         "-";
                       const idShort = item.id ? String(item.id).slice(0, 8) : "-";

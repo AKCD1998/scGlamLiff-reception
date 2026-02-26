@@ -15,9 +15,12 @@
     "cleanup:e2e": "node scripts/cleanup-e2e-data.js",
     "report:ssot-mismatches": "node scripts/report_ssot_mismatches.js",
     "migrate:appointment-events": "node scripts/migrate_appointment_events_constraints.js",
+    "migrate:treatments-catalog": "node scripts/migrate_treatments_catalog_fields.js",
     "verify:admin-edit": "node scripts/verify_admin_edit_patch.js",
     "verify:appointment-consistency": "node scripts/verify_appointment_consistency.js",
-    "backfill:missing-package-meta": "node scripts/backfill_missing_package_meta.js"
+    "verify:treatment-display": "node scripts/verify_treatment_display_consistency.js",
+    "backfill:missing-package-meta": "node scripts/backfill_missing_package_meta.js",
+    "backfill:treatment-id-from-text": "node scripts/backfill_treatment_id_from_text.js"
   },
   "keywords": [],
   "author": "",

@@ -20,6 +20,8 @@ export function normalizeRow(row = {}) {
   const treatmentResolution = resolveTreatmentDisplay({
     treatmentId: row.treatment_id ?? row.treatmentId ?? "",
     treatmentName: row.treatment_name ?? row.treatmentName ?? "",
+    treatmentNameEn: row.treatment_name_en ?? row.treatmentNameEn ?? "",
+    treatmentNameTh: row.treatment_name_th ?? row.treatmentNameTh ?? "",
     treatmentCode: row.treatment_code ?? row.treatmentCode ?? "",
     treatmentSessions: row.treatment_sessions ?? row.treatmentSessions ?? 1,
     treatmentMask: row.treatment_mask ?? row.treatmentMask ?? 0,
@@ -127,6 +129,8 @@ export function normalizeTreatmentOptionRow(row = {}) {
   const treatmentName = String(
     row.treatment_name ?? row.treatmentName ?? row.label ?? ""
   ).trim();
+  const treatmentNameEn = String(row.treatment_name_en ?? row.treatmentNameEn ?? "").trim();
+  const treatmentNameTh = String(row.treatment_name_th ?? row.treatmentNameTh ?? "").trim();
   const treatmentCode = String(row.treatment_code ?? row.treatmentCode ?? "").trim();
   const sessionsTotal = Number(row.sessions_total ?? row.sessionsTotal ?? row.treatment_sessions ?? row.treatmentSessions) || 0;
   const maskTotal = Number(row.mask_total ?? row.maskTotal ?? row.treatment_mask ?? row.treatmentMask) || 0;
@@ -134,6 +138,8 @@ export function normalizeTreatmentOptionRow(row = {}) {
   const resolved = resolveTreatmentDisplay({
     treatmentId,
     treatmentName,
+    treatmentNameEn,
+    treatmentNameTh,
     treatmentCode,
     treatmentSessions: sessionsTotal || 1,
     treatmentMask: maskTotal,
@@ -150,6 +156,9 @@ export function normalizeTreatmentOptionRow(row = {}) {
     String(row.treatment_display ?? row.treatmentDisplay ?? "").trim() ||
     resolved.treatment_display ||
     formatTreatmentDisplay({
+      treatmentNameEn: treatmentNameEn || treatmentName,
+      treatmentNameTh,
+      treatmentCode,
       treatmentName: treatmentName || treatmentCode || "Treatment",
       treatmentSessions: sessionsTotal || 1,
       treatmentMask: maskTotal,
@@ -169,6 +178,10 @@ export function normalizeTreatmentOptionRow(row = {}) {
     treatment_display: displayLabel,
     treatmentName: resolved.treatment_name || treatmentName,
     treatment_name: resolved.treatment_name || treatmentName,
+    treatmentNameEn: treatmentNameEn || null,
+    treatment_name_en: treatmentNameEn || null,
+    treatmentNameTh: treatmentNameTh || null,
+    treatment_name_th: treatmentNameTh || null,
     treatmentSessions: sessionsTotal || resolved.treatment_sessions || 1,
     treatment_sessions: sessionsTotal || resolved.treatment_sessions || 1,
     treatmentMask: maskTotal || resolved.treatment_mask || 0,

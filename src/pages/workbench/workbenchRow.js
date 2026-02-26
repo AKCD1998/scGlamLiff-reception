@@ -14,6 +14,8 @@ export function normalizeRow(row = {}) {
   const treatmentResolution = resolveTreatmentDisplay({
     treatmentId: row.treatment_id ?? row.treatmentId ?? "",
     treatmentName: row.treatment_name ?? row.treatmentName ?? "",
+    treatmentNameEn: row.treatment_name_en ?? row.treatmentNameEn ?? "",
+    treatmentNameTh: row.treatment_name_th ?? row.treatmentNameTh ?? "",
     treatmentCode: row.treatment_code ?? row.treatmentCode ?? "",
     treatmentSessions: row.treatment_sessions ?? row.treatmentSessions ?? 1,
     treatmentMask: row.treatment_mask ?? row.treatmentMask ?? 0,

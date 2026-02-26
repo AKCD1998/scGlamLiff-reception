@@ -976,6 +976,17 @@ export async function patchAdminAppointment(req, res) {
         }
       }
 
+      // Hard guard: package-style treatment text must keep package linkage.
+      // Prevents "hidden unlink" when only plan mode/text fields are edited.
+      const packageStyleTreatment = isPackageStyleTreatmentText(nextTreatmentItemText);
+      if (packageStyleTreatment && !nextPackageId) {
+        await client.query('ROLLBACK');
+        return res.status(422).json({
+          ok: false,
+          error: 'package_id is required for package-style treatment',
+        });
+      }
+
       if (nextTreatmentPlanMode === 'package' && !nextPackageId) {
         await client.query('ROLLBACK');
         return res.status(400).json({
@@ -1456,13 +1467,6 @@ export async function adminBackdateAppointment(req, res) {
     if (!resolvedPlanMode && resolvedPackageId) {
       resolvedPlanMode = 'package';
     }
-    if (packageStyleTreatment && !resolvedPackageId) {
-      await client.query('ROLLBACK');
-      return res.status(422).json({
-        ok: false,
-        error: 'package_id is required for package-style treatment',
-      });
-    }
     if (resolvedPlanMode === 'package' && !resolvedPackageId) {
       await client.query('ROLLBACK');
       return res.status(400).json({
@@ -1472,6 +1476,13 @@ export async function adminBackdateAppointment(req, res) {
     }
     if (resolvedPlanMode === 'one_off') {
       resolvedPackageId = '';
+    }
+    if (packageStyleTreatment && !resolvedPackageId) {
+      await client.query('ROLLBACK');
+      return res.status(422).json({
+        ok: false,
+        error: 'package_id is required for package-style treatment',
+      });
     }
 
     const customerPackageId = await ensureActiveCustomerPackage(client, {

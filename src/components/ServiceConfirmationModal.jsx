@@ -7,7 +7,7 @@ import {
   revertService,
   syncAppointmentCourse,
 } from "../utils/appointmentsApi";
-import { parseLegacyTreatmentText } from "../utils/treatmentDisplay";
+import { formatTreatmentDisplay, parseLegacyTreatmentText } from "../utils/treatmentDisplay";
 import ProgressDots from "./ProgressDots";
 import "./ServiceConfirmationModal.css";
 
@@ -751,6 +751,16 @@ export default function ServiceConfirmationModal({
                   {packageChoices.map((pkg) => {
                     const disabled = pkg._computed.sessionsRemaining <= 0;
                     const checked = selectedPackageId === pkg.customer_package_id;
+                    const packageDisplay =
+                      pkg.treatment_display ||
+                      pkg.package?.treatment_display ||
+                      formatTreatmentDisplay({
+                        treatmentName: pkg.package?.title || pkg.package?.code || "Treatment",
+                        treatmentCode: pkg.package?.code || "",
+                        treatmentSessions: pkg._computed.sessionsTotal || 1,
+                        treatmentMask: pkg._computed.maskTotal || 0,
+                        treatmentPrice: Number(pkg.package?.price_thb) || null,
+                      });
                     return (
                       <button
                         key={pkg.customer_package_id}
@@ -764,7 +774,7 @@ export default function ServiceConfirmationModal({
                           <div>
                             <div className="scm-package__title-row">
                               <div className="scm-package__title">
-                                {pkg.package?.title || pkg.package?.code || "-"}
+                                {packageDisplay || "-"}
                               </div>
                               {String(pkg?.status || "").toLowerCase() === "active" &&
                               pkg._computed.sessionsRemaining > 0 ? (

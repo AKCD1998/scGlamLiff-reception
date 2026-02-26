@@ -1,58 +1,41 @@
-function normalizeText(value) {
-  if (value === null || value === undefined) return '';
-  return String(value).trim();
-}
-
-function toNonNegativeInt(value, fallback = null) {
-  const parsed = Number.parseInt(String(value ?? ''), 10);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(0, parsed);
-}
-
-function toTitleCase(value) {
-  const text = normalizeText(value);
-  if (!text) return '';
-  return text
-    .split(/\s+/)
-    .map((word) => {
-      if (!word) return '';
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-    })
-    .join(' ');
-}
-
-function deriveNameFromCode(code) {
-  const raw = normalizeText(code).replace(/[_-]+/g, ' ');
-  if (!raw) return '';
-  return toTitleCase(raw);
-}
-
-function resolveBaseName(name, code) {
-  const direct = normalizeText(name);
-  if (direct) return direct;
-  const fromCode = deriveNameFromCode(code);
-  if (fromCode) return fromCode;
-  return 'Treatment';
-}
+import {
+  formatTreatmentDisplay as formatCatalogTreatmentDisplay,
+  normalizeText,
+  resolveCanonicalTreatmentName,
+  toNonNegativeInt,
+} from './formatTreatmentDisplay.js';
 
 function formatTreatmentDisplay({
-  treatmentName,
+  treatmentName = '',
+  treatmentNameEn = '',
+  treatmentNameTh = '',
+  treatmentCode = '',
   treatmentSessions = 1,
   treatmentMask = 0,
   treatmentPrice = null,
+  name_en = '',
+  name_th = '',
+  treatment_code = '',
+  sessions_included = 1,
+  mask_included = 0,
+  price_thb = null,
 } = {}) {
-  const name = resolveBaseName(treatmentName);
-  const sessionsRaw = toNonNegativeInt(treatmentSessions, 1);
-  const sessions = sessionsRaw > 0 ? sessionsRaw : 1;
-  const mask = toNonNegativeInt(treatmentMask, 0) || 0;
-  const price = toNonNegativeInt(treatmentPrice, null);
-  const priceText = Number.isFinite(price) && price > 0 ? ` (${price})` : '';
+  const nameEn = normalizeText(treatmentNameEn || name_en || treatmentName);
+  const nameTh = normalizeText(treatmentNameTh || name_th);
+  const code = normalizeText(treatmentCode || treatment_code);
 
-  if (sessions <= 1 && mask <= 0) {
-    return `${name}${priceText}`;
-  }
-
-  return `${sessions}x ${name}${priceText} | Mask ${mask}`;
+  return formatCatalogTreatmentDisplay({
+    name_en: nameEn,
+    name_th: nameTh,
+    treatment_code: code,
+    sessions_included:
+      treatmentSessions !== undefined && treatmentSessions !== null
+        ? treatmentSessions
+        : sessions_included,
+    mask_included: treatmentMask !== undefined && treatmentMask !== null ? treatmentMask : mask_included,
+    price_thb: treatmentPrice !== undefined && treatmentPrice !== null ? treatmentPrice : price_thb,
+    fallback_name: treatmentName,
+  });
 }
 
 function parseLegacyTreatmentText(text, { fallbackName = '', fallbackCode = '' } = {}) {
@@ -107,8 +90,9 @@ function parseLegacyTreatmentText(text, { fallbackName = '', fallbackCode = '' }
     }
   }
 
+  const thaiSmoothRegex = /บำบัดผิวใส|เรียบเนียน/;
   let treatmentName = '';
-  if (lowered.includes('smooth')) {
+  if (lowered.includes('smooth') || thaiSmoothRegex.test(raw)) {
     treatmentName = 'Smooth';
   } else {
     const words = raw
@@ -119,18 +103,18 @@ function parseLegacyTreatmentText(text, { fallbackName = '', fallbackCode = '' }
         const l = word.toLowerCase();
         return l !== 'mask' && l !== 'thb' && l !== 'บาท' && l !== 'free';
       });
+
     if (words.length > 0) {
       treatmentName = words.slice(0, 3).join(' ');
-      if (/^[A-Za-z\s]+$/.test(treatmentName)) {
-        treatmentName = toTitleCase(treatmentName);
-      }
     }
   }
 
-  const resolvedName =
-    normalizeText(treatmentName) ||
-    resolveBaseName(fallbackName, fallbackCode);
-
+  const resolvedName = resolveCanonicalTreatmentName({
+    name_en: treatmentName,
+    name_th: fallbackName,
+    treatment_code: fallbackCode,
+    fallback_name: fallbackName,
+  });
   const resolvedSessions = Number.isFinite(sessions) && sessions > 0 ? sessions : 1;
   const resolvedMask = Number.isFinite(mask) && mask >= 0 ? mask : 0;
   const resolvedPrice = Number.isFinite(price) ? price : null;
@@ -142,6 +126,7 @@ function parseLegacyTreatmentText(text, { fallbackName = '', fallbackCode = '' }
     treatment_price: resolvedPrice,
     treatment_display: formatTreatmentDisplay({
       treatmentName: resolvedName,
+      treatmentCode: fallbackCode,
       treatmentSessions: resolvedSessions,
       treatmentMask: resolvedMask,
       treatmentPrice: resolvedPrice,
@@ -152,6 +137,8 @@ function parseLegacyTreatmentText(text, { fallbackName = '', fallbackCode = '' }
 function resolveTreatmentDisplay({
   treatmentId = '',
   treatmentName = '',
+  treatmentNameEn = '',
+  treatmentNameTh = '',
   treatmentCode = '',
   treatmentSessions = 1,
   treatmentMask = 0,
@@ -171,18 +158,23 @@ function resolveTreatmentDisplay({
     const hasCatalogMetadata =
       Number.isFinite(catalogSessions) || Number.isFinite(catalogMask) || Number.isFinite(catalogPrice);
 
-    if (!hasCatalogMetadata && parsedLegacy) {
-      return {
-        ...parsedLegacy,
-        treatment_display_source: 'legacy_text',
-      };
-    }
-
-    const resolvedName = resolveBaseName(treatmentName, treatmentCode);
-    const sessionsRaw = Number.isFinite(catalogSessions) ? catalogSessions : 1;
+    const resolvedName = resolveCanonicalTreatmentName({
+      name_en: treatmentNameEn || treatmentName,
+      name_th: treatmentNameTh,
+      treatment_code: treatmentCode,
+      fallback_name: treatmentName,
+    });
+    const sessionsRaw = Number.isFinite(catalogSessions)
+      ? catalogSessions
+      : parsedLegacy?.treatment_sessions ?? 1;
     const sessions = sessionsRaw > 0 ? sessionsRaw : 1;
-    const mask = Number.isFinite(catalogMask) ? catalogMask : 0;
-    const price = Number.isFinite(catalogPrice) ? catalogPrice : null;
+    const mask = Number.isFinite(catalogMask)
+      ? catalogMask
+      : parsedLegacy?.treatment_mask ?? 0;
+    const price = Number.isFinite(catalogPrice)
+      ? catalogPrice
+      : parsedLegacy?.treatment_price ?? null;
+
     return {
       treatment_name: resolvedName,
       treatment_sessions: sessions,
@@ -190,11 +182,16 @@ function resolveTreatmentDisplay({
       treatment_price: Number.isFinite(price) ? price : null,
       treatment_display: formatTreatmentDisplay({
         treatmentName: resolvedName,
+        treatmentCode,
         treatmentSessions: sessions,
         treatmentMask: mask,
         treatmentPrice: price,
       }),
-      treatment_display_source: hasCatalogMetadata ? 'catalog' : 'catalog_name_only',
+      treatment_display_source: hasCatalogMetadata
+        ? 'catalog'
+        : parsedLegacy
+          ? 'catalog_with_legacy_defaults'
+          : 'catalog_name_only',
     };
   }
 
@@ -205,7 +202,12 @@ function resolveTreatmentDisplay({
     };
   }
 
-  const fallbackName = resolveBaseName(treatmentName, treatmentCode);
+  const fallbackName = resolveCanonicalTreatmentName({
+    name_en: treatmentName,
+    name_th: '',
+    treatment_code: treatmentCode,
+    fallback_name: treatmentName,
+  });
   return {
     treatment_name: fallbackName,
     treatment_sessions: 1,
