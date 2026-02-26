@@ -1,3 +1,5 @@
+import { resolveTreatmentDisplay } from "../../utils/treatmentDisplay";
+
 function sanitizeDisplayLineId(value) {
   const text = String(value ?? "").trim();
   if (!text) return "";
@@ -9,6 +11,24 @@ function sanitizeDisplayLineId(value) {
 
 export function normalizeRow(row = {}) {
   const appointmentId = row.appointment_id ?? row.appointmentId ?? row.id ?? "";
+  const treatmentResolution = resolveTreatmentDisplay({
+    treatmentId: row.treatment_id ?? row.treatmentId ?? "",
+    treatmentName: row.treatment_name ?? row.treatmentName ?? "",
+    treatmentCode: row.treatment_code ?? row.treatmentCode ?? "",
+    treatmentSessions: row.treatment_sessions ?? row.treatmentSessions ?? 1,
+    treatmentMask: row.treatment_mask ?? row.treatmentMask ?? 0,
+    treatmentPrice: row.treatment_price ?? row.treatmentPrice ?? null,
+    legacyText:
+      row.treatment_display ??
+      row.treatmentDisplay ??
+      row.treatment_item_text ??
+      row.treatmentItem ??
+      row.treatmentItemDisplay ??
+      "",
+  });
+  const treatmentDisplay =
+    row.treatment_display ?? row.treatmentDisplay ?? treatmentResolution.treatment_display;
+
   return {
     // Canonical UI identity: always appointment_id (appointments.id UUID).
     id: appointmentId,
@@ -19,8 +39,16 @@ export function normalizeRow(row = {}) {
     customerName: row.customerName ?? "",
     phone: row.phone ?? "",
     lineId: sanitizeDisplayLineId(row.lineId),
-    treatmentItem: row.treatment_item_text ?? row.treatmentItem ?? row.treatmentItemDisplay ?? "",
-    treatmentItemDisplay: row.treatmentItemDisplay ?? row.treatmentItem ?? "",
+    // Homepage table reads canonical queue field treatment_display.
+    treatmentItem: treatmentDisplay,
+    treatmentDisplay,
+    treatment_display: treatmentDisplay,
+    treatmentDisplaySource:
+      row.treatment_display_source ??
+      row.treatmentDisplaySource ??
+      treatmentResolution.treatment_display_source ??
+      "",
+    treatmentItemDisplay: treatmentDisplay,
     staffName: row.staffName ?? row.staff_name ?? "",
     datetime: row.datetime ?? "", // backward compatibility for sorting fallback
     treatmentPlanMode:

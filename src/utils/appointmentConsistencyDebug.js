@@ -1,4 +1,5 @@
 import * as appointmentsApi from "./appointmentsApi";
+import { formatTreatmentDisplay } from "./treatmentDisplay";
 
 const TARGET_APPOINTMENT_IDS = [
   "216cb944-5d28-4945-b4a8-56c90b42cc89",
@@ -213,4 +214,61 @@ export async function runAppointmentConsistencyDebug({
 
   console.groupEnd();
   return { ran: true, rows: summary };
+}
+
+export async function runTreatmentDisplayDebugPreview({ signal } = {}) {
+  if (!shouldRunDebug()) return { ran: false };
+  if (typeof appointmentsApi.getAppointmentsQueue !== "function") {
+    return { ran: false };
+  }
+
+  const canonicalExamples = [
+    {
+      treatmentName: "Smooth",
+      treatmentSessions: 1,
+      treatmentMask: 0,
+      treatmentPrice: 399,
+    },
+    {
+      treatmentName: "Smooth",
+      treatmentSessions: 3,
+      treatmentMask: 1,
+      treatmentPrice: 999,
+    },
+    {
+      treatmentName: "Smooth",
+      treatmentSessions: 10,
+      treatmentMask: 3,
+      treatmentPrice: 2999,
+    },
+  ].map((row) => ({
+    ...row,
+    expected_display: formatTreatmentDisplay(row),
+  }));
+
+  let queueRows = [];
+  try {
+    const queueResponse = await appointmentsApi.getAppointmentsQueue({ limit: 5 }, signal);
+    queueRows = Array.isArray(queueResponse?.rows) ? queueResponse.rows : [];
+  } catch (error) {
+    console.error("[treatment-display-debug] queue preview fetch failed", error);
+  }
+
+  console.groupCollapsed("[treatment-display-debug] canonical examples + queue preview");
+  console.table(canonicalExamples);
+  console.table(
+    queueRows.map((row) => ({
+      appointment_id: normalizeText(row?.appointment_id || row?.id),
+      treatment_display: normalizeText(row?.treatment_display || row?.treatmentDisplay),
+      treatment_display_source: normalizeText(row?.treatment_display_source),
+      treatment_name: normalizeText(row?.treatment_name),
+      treatment_sessions: normalizeText(row?.treatment_sessions),
+      treatment_mask: normalizeText(row?.treatment_mask),
+      treatment_price: normalizeText(row?.treatment_price),
+      treatment_item_text: normalizeText(row?.treatment_item_text || row?.treatmentItem),
+    }))
+  );
+  console.groupEnd();
+
+  return { ran: true, rows: queueRows };
 }

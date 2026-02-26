@@ -1,4 +1,5 @@
 import { normalizeDateString, parseTimeToMinutes } from "../../../utils/bookingTimeUtils";
+import { formatTreatmentDisplay, resolveTreatmentDisplay } from "../../../utils/treatmentDisplay";
 
 export function normalizeRow(row = {}) {
   const appointmentId = row.appointment_id ?? row.appointmentId ?? row.id ?? "";
@@ -16,6 +17,22 @@ export function normalizeRow(row = {}) {
     (Boolean(row.smooth_customer_package_id ?? row.smoothCustomerPackageId) &&
       smoothSessionsRemaining > 0 &&
       (smoothPackageStatus === "active" || smoothPackageStatus === ""));
+  const treatmentResolution = resolveTreatmentDisplay({
+    treatmentId: row.treatment_id ?? row.treatmentId ?? "",
+    treatmentName: row.treatment_name ?? row.treatmentName ?? "",
+    treatmentCode: row.treatment_code ?? row.treatmentCode ?? "",
+    treatmentSessions: row.treatment_sessions ?? row.treatmentSessions ?? 1,
+    treatmentMask: row.treatment_mask ?? row.treatmentMask ?? 0,
+    treatmentPrice: row.treatment_price ?? row.treatmentPrice ?? null,
+    legacyText:
+      row.treatment_display ??
+      row.treatmentDisplay ??
+      row.treatment_item_text ??
+      row.treatmentItem ??
+      "",
+  });
+  const treatmentDisplay =
+    row.treatment_display ?? row.treatmentDisplay ?? treatmentResolution.treatment_display;
 
   return {
     // Canonical UI identity: appointment_id only (never raw_sheet_uuid).
@@ -24,7 +41,15 @@ export function normalizeRow(row = {}) {
     bookingTime: row.bookingTime ?? "",
     customerName: row.customerName ?? "",
     phone: row.phone ?? "",
-    treatmentItem: row.treatment_item_text ?? row.treatmentItem ?? "",
+    // Booking queue also renders canonical treatment_display to match Homepage/Admin semantics.
+    treatmentItem: treatmentDisplay,
+    treatmentDisplay,
+    treatment_display: treatmentDisplay,
+    treatmentDisplaySource:
+      row.treatment_display_source ??
+      row.treatmentDisplaySource ??
+      treatmentResolution.treatment_display_source ??
+      "",
     staffName: row.staffName ?? "",
     datetime: row.datetime ?? "",
     status: row.status ?? "",
@@ -98,11 +123,40 @@ export function getRowTimestamp(row) {
 
 export function normalizeTreatmentOptionRow(row = {}) {
   const value = String(row.value ?? "").trim();
-  const label = String(row.label ?? "").trim();
   const treatmentId = String(row.treatment_id ?? row.treatmentId ?? "").trim();
-  const treatmentItemText = String(
-    row.treatment_item_text ?? row.treatmentItemText ?? label
+  const treatmentName = String(
+    row.treatment_name ?? row.treatmentName ?? row.label ?? ""
   ).trim();
+  const treatmentCode = String(row.treatment_code ?? row.treatmentCode ?? "").trim();
+  const sessionsTotal = Number(row.sessions_total ?? row.sessionsTotal ?? row.treatment_sessions ?? row.treatmentSessions) || 0;
+  const maskTotal = Number(row.mask_total ?? row.maskTotal ?? row.treatment_mask ?? row.treatmentMask) || 0;
+  const priceThb = Number(row.price_thb ?? row.priceThb ?? row.treatment_price ?? row.treatmentPrice) || 0;
+  const resolved = resolveTreatmentDisplay({
+    treatmentId,
+    treatmentName,
+    treatmentCode,
+    treatmentSessions: sessionsTotal || 1,
+    treatmentMask: maskTotal,
+    treatmentPrice: priceThb || null,
+    legacyText:
+      row.treatment_display ??
+      row.treatmentDisplay ??
+      row.treatment_item_text ??
+      row.treatmentItemText ??
+      row.label ??
+      "",
+  });
+  const displayLabel =
+    String(row.treatment_display ?? row.treatmentDisplay ?? "").trim() ||
+    resolved.treatment_display ||
+    formatTreatmentDisplay({
+      treatmentName: treatmentName || treatmentCode || "Treatment",
+      treatmentSessions: sessionsTotal || 1,
+      treatmentMask: maskTotal,
+      treatmentPrice: priceThb || null,
+    });
+  const treatmentItemText = displayLabel;
+  const label = displayLabel;
 
   if (!value || !label || !treatmentItemText) return null;
 
@@ -111,11 +165,21 @@ export function normalizeTreatmentOptionRow(row = {}) {
     label,
     treatmentId,
     treatmentItemText,
+    treatmentDisplay: displayLabel,
+    treatment_display: displayLabel,
+    treatmentName: resolved.treatment_name || treatmentName,
+    treatment_name: resolved.treatment_name || treatmentName,
+    treatmentSessions: sessionsTotal || resolved.treatment_sessions || 1,
+    treatment_sessions: sessionsTotal || resolved.treatment_sessions || 1,
+    treatmentMask: maskTotal || resolved.treatment_mask || 0,
+    treatment_mask: maskTotal || resolved.treatment_mask || 0,
+    treatmentPrice: priceThb || resolved.treatment_price || 0,
+    treatment_price: priceThb || resolved.treatment_price || 0,
     source: String(row.source ?? "").trim(),
     packageId: String(row.package_id ?? row.packageId ?? "").trim(),
     packageCode: String(row.package_code ?? row.packageCode ?? "").trim(),
-    sessionsTotal: Number(row.sessions_total ?? row.sessionsTotal) || 0,
-    maskTotal: Number(row.mask_total ?? row.maskTotal) || 0,
-    priceThb: Number(row.price_thb ?? row.priceThb) || 0,
+    sessionsTotal: sessionsTotal || resolved.treatment_sessions || 1,
+    maskTotal: maskTotal || resolved.treatment_mask || 0,
+    priceThb: priceThb || resolved.treatment_price || 0,
   };
 }

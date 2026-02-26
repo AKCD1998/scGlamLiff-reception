@@ -6,6 +6,7 @@ import {
   RESOLVED_STAFF_NAME_SQL,
   assertSsotStaffRows,
 } from '../services/appointmentIdentitySql.js';
+import { formatTreatmentDisplay, resolveTreatmentDisplay } from '../utils/treatmentDisplay.js';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const BRANCH_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -106,64 +107,40 @@ function sanitizeDisplayLineId(value) {
   return text;
 }
 
-function getTreatmentTitle(row) {
-  return (
-    normalizeText(row.treatment_item_text_override) ||
-    normalizeText(row.treatment_name) ||
-    normalizeText(row.treatmentItem) ||
-    normalizeText(row.treatment_title_en) ||
-    normalizeText(row.treatment_code)
-  );
-}
-
-function buildTreatmentItemDisplay(row) {
-  const fallback = getTreatmentTitle(row);
-  const treatmentCode = normalizeText(row.treatment_code).toLowerCase();
-  if (treatmentCode !== SMOOTH_CODE) {
-    return fallback;
-  }
-
-  const totalSessions = Math.max(0, toInt(row.smooth_sessions_total));
-  const maskTotal = Math.max(0, toInt(row.smooth_mask_total));
-  const usedMask = Math.max(0, toInt(row.smooth_mask_used));
-  const price = Math.max(0, toInt(row.smooth_price_thb));
-  const courseName = price > 0 ? `Smooth (${price})` : 'Smooth';
-
-  if (totalSessions <= 1) {
-    return `1/1 ${courseName} | Mask 0/0`;
-  }
-
-  const usedSessions = Math.max(0, toInt(row.smooth_sessions_used));
-
-  return `${usedSessions}/${totalSessions} ${courseName} | Mask ${Math.min(usedMask, maskTotal)}/${maskTotal}`;
-}
-
-function formatSmoothPackageLabel(pkgRow) {
-  const sessions = Math.max(0, toInt(pkgRow.sessions_total));
-  const masks = Math.max(0, toInt(pkgRow.mask_total));
-  const price = Math.max(0, toInt(pkgRow.price_thb));
-  const priceText = price > 0 ? ` (${price})` : '';
-
-  if (sessions > 1) {
-    return `${sessions}x Smooth${priceText} | Mask ${masks}`;
-  }
-  return `Smooth${priceText}`;
+function formatPackageLabel(pkgRow, treatmentName) {
+  return formatTreatmentDisplay({
+    treatmentName,
+    treatmentSessions: Math.max(0, toInt(pkgRow.sessions_total)) || 1,
+    treatmentMask: Math.max(0, toInt(pkgRow.mask_total)),
+    treatmentPrice: Math.max(0, toInt(pkgRow.price_thb)) || null,
+  });
 }
 
 function mapTreatmentToOption(row) {
   const treatmentId = normalizeText(row.id);
-  const title =
-    normalizeText(row.title_th) ||
-    normalizeText(row.title_en) ||
-    normalizeText(row.code) ||
-    'Treatment';
+  const title = normalizeText(row.treatment_name);
+  const sessions = Math.max(0, toInt(row.sessions_included)) || 1;
+  const mask = Math.max(0, toInt(row.mask_included));
+  const price = Math.max(0, toInt(row.price_thb)) || null;
+  const display = formatTreatmentDisplay({
+    treatmentName: title,
+    treatmentSessions: sessions,
+    treatmentMask: mask,
+    treatmentPrice: price,
+  });
 
   return {
     value: `treatment:${treatmentId}`,
-    label: title,
+    label: display,
     source: 'treatment',
     treatment_id: treatmentId,
-    treatment_item_text: title,
+    treatment_item_text: display,
+    treatment_name: title,
+    treatment_sessions: sessions,
+    treatment_mask: mask,
+    treatment_price: price,
+    treatment_display: display,
+    treatment_display_source: 'catalog',
   };
 }
 
@@ -190,12 +167,33 @@ export async function listBookingTreatmentOptions(req, res) {
     const treatmentResult = await query(
       `
         SELECT
-          id,
-          code,
-          title_th,
-          title_en,
-          is_active
-        FROM treatments
+          t.id,
+          t.code,
+          t.title_th,
+          t.title_en,
+          t.is_active,
+          COALESCE(
+            NULLIF(t.title_th, ''),
+            NULLIF(t.title_en, ''),
+            NULLIF(t.code, ''),
+            'Treatment'
+          ) AS treatment_name,
+          CASE
+            WHEN COALESCE(to_jsonb(t)->>'price_thb', '') ~ '^[0-9]+$'
+              THEN (to_jsonb(t)->>'price_thb')::int
+            ELSE NULL
+          END AS price_thb,
+          CASE
+            WHEN COALESCE(to_jsonb(t)->>'sessions_included', '') ~ '^[0-9]+$'
+              THEN (to_jsonb(t)->>'sessions_included')::int
+            ELSE NULL
+          END AS sessions_included,
+          CASE
+            WHEN COALESCE(to_jsonb(t)->>'mask_included', '') ~ '^[0-9]+$'
+              THEN (to_jsonb(t)->>'mask_included')::int
+            ELSE NULL
+          END AS mask_included
+        FROM treatments t
         WHERE is_active = true
         ORDER BY code ASC, created_at ASC
       `
@@ -209,6 +207,7 @@ export async function listBookingTreatmentOptions(req, res) {
     );
 
     if (smoothTreatment) {
+      const smoothDisplayName = normalizeText(smoothTreatment.treatment_name) || 'Smooth';
       const packageResult = await query(
         `
           SELECT
@@ -227,18 +226,27 @@ export async function listBookingTreatmentOptions(req, res) {
       for (const pkg of packageResult.rows || []) {
         const value = normalizeText(pkg.id);
         if (!value) continue;
-        const label = formatSmoothPackageLabel(pkg);
+        const sessions = Math.max(0, toInt(pkg.sessions_total)) || 1;
+        const mask = Math.max(0, toInt(pkg.mask_total));
+        const price = Math.max(0, toInt(pkg.price_thb)) || null;
+        const label = formatPackageLabel(pkg, smoothDisplayName);
         options.push({
           value: `package:${value}`,
           label,
           source: 'package',
           treatment_id: smoothTreatment.id,
-          treatment_item_text: normalizeText(pkg.title) || label,
+          treatment_item_text: label,
+          treatment_name: smoothDisplayName,
+          treatment_sessions: sessions,
+          treatment_mask: mask,
+          treatment_price: price,
+          treatment_display: label,
+          treatment_display_source: 'catalog',
           package_id: value,
           package_code: normalizeText(pkg.code),
-          sessions_total: Math.max(0, toInt(pkg.sessions_total)),
-          mask_total: Math.max(0, toInt(pkg.mask_total)),
-          price_thb: Math.max(0, toInt(pkg.price_thb)),
+          sessions_total: sessions,
+          mask_total: mask,
+          price_thb: price || 0,
         });
       }
 
@@ -325,6 +333,42 @@ export async function listAppointmentsQueue(req, res) {
             NULLIF(t.code, ''),
             ''
           ) AS treatment_item_text,
+          COALESCE(
+            plan_pkg.sessions_total,
+            CASE
+              WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) = 'one_off'
+                THEN 1
+              WHEN LOWER(COALESCE(t.code, '')) = 'smooth'
+                THEN smooth_default.sessions_total
+              WHEN COALESCE(to_jsonb(t)->>'sessions_included', '') ~ '^[0-9]+$'
+                THEN (to_jsonb(t)->>'sessions_included')::int
+              ELSE 1
+            END,
+            1
+          ) AS treatment_sessions_catalog,
+          COALESCE(
+            plan_pkg.mask_total,
+            CASE
+              WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) = 'one_off'
+                THEN 0
+              WHEN LOWER(COALESCE(t.code, '')) = 'smooth'
+                THEN smooth_default.mask_total
+              WHEN COALESCE(to_jsonb(t)->>'mask_included', '') ~ '^[0-9]+$'
+                THEN (to_jsonb(t)->>'mask_included')::int
+              ELSE 0
+            END,
+            0
+          ) AS treatment_mask_catalog,
+          COALESCE(
+            plan_pkg.price_thb,
+            CASE
+              WHEN LOWER(COALESCE(t.code, '')) = 'smooth'
+                THEN smooth_default.price_thb
+              WHEN COALESCE(to_jsonb(t)->>'price_thb', '') ~ '^[0-9]+$'
+                THEN (to_jsonb(t)->>'price_thb')::int
+              ELSE NULL
+            END
+          ) AS treatment_price_catalog,
           COALESCE(NULLIF(plan_evt.treatment_item_text, ''), '') AS treatment_item_text_override,
           COALESCE(NULLIF(plan_evt.treatment_plan_mode, ''), '') AS treatment_plan_mode,
           COALESCE(NULLIF(plan_evt.package_id, ''), '') AS treatment_plan_package_id,
@@ -480,9 +524,18 @@ export async function listAppointmentsQueue(req, res) {
     const normalizedRows = rows.map((row) => {
       const rawPhone = normalizeText(row.phone);
       const normalizedPhone = sanitizeThaiPhone(rawPhone);
-      const treatmentItemDisplay = buildTreatmentItemDisplay(row);
-      const canonicalTreatmentItem =
+      const legacyTreatmentText =
         normalizeText(row.treatment_item_text) || normalizeText(row.treatmentItem);
+      // Catalog-first treatment display; only parse legacy text when appointment has no treatment_id.
+      const resolvedTreatment = resolveTreatmentDisplay({
+        treatmentId: row.treatment_id,
+        treatmentName: row.treatment_name,
+        treatmentCode: row.treatment_code,
+        treatmentSessions: row.treatment_sessions_catalog,
+        treatmentMask: row.treatment_mask_catalog,
+        treatmentPrice: row.treatment_price_catalog,
+        legacyText: legacyTreatmentText,
+      });
 
       if (DEBUG_PHONE_FRAGMENT) {
         const rawDigits = rawPhone.replace(/\D+/g, '');
@@ -500,9 +553,16 @@ export async function listAppointmentsQueue(req, res) {
         lineId: sanitizeDisplayLineId(row.lineId),
         staffName: normalizeText(row.staffName),
         staff_name: normalizeText(row.staff_name || row.staffName),
-        treatment_item_text: canonicalTreatmentItem,
-        treatmentItem: canonicalTreatmentItem,
-        treatmentItemDisplay: treatmentItemDisplay || canonicalTreatmentItem,
+        treatment_name: resolvedTreatment.treatment_name,
+        treatment_sessions: resolvedTreatment.treatment_sessions,
+        treatment_mask: resolvedTreatment.treatment_mask,
+        treatment_price: resolvedTreatment.treatment_price,
+        treatment_display: resolvedTreatment.treatment_display,
+        treatment_display_source: resolvedTreatment.treatment_display_source,
+        treatment_item_text: legacyTreatmentText || resolvedTreatment.treatment_display,
+        treatmentItem: resolvedTreatment.treatment_display,
+        treatmentItemDisplay: resolvedTreatment.treatment_display,
+        treatmentDisplay: resolvedTreatment.treatment_display,
         smooth_customer_package_status: normalizeText(row.smooth_customer_package_status).toLowerCase(),
         smooth_sessions_remaining: Math.max(
           0,

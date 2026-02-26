@@ -55,7 +55,7 @@ export default function QueueTable({
               <td>{row.phone}</td>
               <td>
                 <div className="booking-treatment-cell">
-                  <span>{row.treatmentItem}</span>
+                  <span>{row.treatmentDisplay || row.treatmentItem}</span>
                   {row.hasContinuousCourse ? (
                     <span className="booking-badge booking-badge--continuous">คอร์สต่อเนื่อง</span>
                   ) : null}

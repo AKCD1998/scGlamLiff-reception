@@ -7,6 +7,7 @@ import {
   revertService,
   syncAppointmentCourse,
 } from "../utils/appointmentsApi";
+import { parseLegacyTreatmentText } from "../utils/treatmentDisplay";
 import ProgressDots from "./ProgressDots";
 import "./ServiceConfirmationModal.css";
 
@@ -168,13 +169,20 @@ export default function ServiceConfirmationModal({
     [booking?.treatmentPlanPackageId, booking?.treatment_plan_package_id]
   );
   const bookingTreatmentText = useMemo(
-    () => String(booking?.treatmentItem || "").trim(),
-    [booking?.treatmentItem]
+    () => String(booking?.treatmentDisplay || booking?.treatmentItem || "").trim(),
+    [booking?.treatmentDisplay, booking?.treatmentItem]
+  );
+  const parsedTreatmentMeta = useMemo(
+    () => parseLegacyTreatmentText(bookingTreatmentText),
+    [bookingTreatmentText]
   );
   const looksLikeOneOffByText = useMemo(() => {
-    const text = bookingTreatmentText.toLowerCase();
-    return /\b1\s*\/\s*1\b/.test(text) && /\bmask\s*0\s*\/\s*0\b/.test(text);
-  }, [bookingTreatmentText]);
+    if (!parsedTreatmentMeta) return false;
+    return (
+      Number(parsedTreatmentMeta.treatment_sessions) <= 1 &&
+      Number(parsedTreatmentMeta.treatment_mask) <= 0
+    );
+  }, [parsedTreatmentMeta]);
   const oneOffCardCode = useMemo(
     () => bookingTreatmentText || "NO COURSE DEDUCTION",
     [bookingTreatmentText]
@@ -185,15 +193,24 @@ export default function ServiceConfirmationModal({
     if (bookingPlanPackageId) return false;
 
     const text = bookingTreatmentText.toLowerCase();
-    // Fallback heuristic for older rows without treatment plan mode metadata.
+    if (parsedTreatmentMeta) {
+      return (
+        Number(parsedTreatmentMeta.treatment_sessions) <= 1 &&
+        Number(parsedTreatmentMeta.treatment_mask) <= 0
+      );
+    }
+
+    // Legacy fallback when parsing fails.
     if (/\b1\s*\/\s*1\b/.test(text) && /\bmask\s*0\s*\/\s*0\b/.test(text)) {
       return true;
     }
 
-    // Sheet/course strings look like "1/3 ..." or "2/10 ..." etc. If it's not a progress string,
-    // allow completing without deducting any package (one-off services like "smooth 399 free").
-    return !/\b\d+\s*\/\s*\d+\b/.test(text);
-  }, [bookingPlanMode, bookingPlanPackageId, bookingTreatmentText]);
+    if (/\b\d+\s*x\b/.test(text) || /\bmask\s*\d+\b/.test(text)) {
+      return false;
+    }
+
+    return true;
+  }, [bookingPlanMode, bookingPlanPackageId, bookingTreatmentText, parsedTreatmentMeta]);
 
   const showOnlyOneOffOption = bookingPlanMode === "one_off" || looksLikeOneOffByText;
   const effectiveNoCourseCompletion = allowNoCourseCompletion || showOnlyOneOffOption;
@@ -329,6 +346,7 @@ export default function ServiceConfirmationModal({
     booking?.customerId,
     booking?.customer_id,
     booking?.status,
+    booking?.treatmentDisplay,
     booking?.treatmentItem,
     bookingPlanMode,
     bookingPlanPackageId,
@@ -639,7 +657,7 @@ export default function ServiceConfirmationModal({
               </div>
               <div>
                 <div className="scm-label">การรักษา</div>
-                <div className="scm-value">{booking?.treatmentItem || "-"}</div>
+                <div className="scm-value">{booking?.treatmentDisplay || booking?.treatmentItem || "-"}</div>
               </div>
               <div>
                 <div className="scm-label">ผู้ให้บริการ</div>

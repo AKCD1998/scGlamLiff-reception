@@ -17,7 +17,10 @@ import { useAppointments } from "./workbench/useAppointments";
 import { useHomePickerState } from "./workbench/useHomePickerState";
 import { useTheme } from "./workbench/useTheme";
 import { useMe } from "./workbench/useMe";
-import { runAppointmentConsistencyDebug } from "../utils/appointmentConsistencyDebug";
+import {
+  runAppointmentConsistencyDebug,
+  runTreatmentDisplayDebugPreview,
+} from "../utils/appointmentConsistencyDebug";
 
 
 
@@ -118,6 +121,7 @@ export default function WorkbenchPage() {
     debugConsistencyRanRef.current = true;
     const controller = new AbortController();
     void runAppointmentConsistencyDebug({ signal: controller.signal });
+    void runTreatmentDisplayDebugPreview({ signal: controller.signal });
     return () => controller.abort();
   }, []);
 

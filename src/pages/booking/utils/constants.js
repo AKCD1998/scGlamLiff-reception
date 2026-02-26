@@ -1,3 +1,5 @@
+import { formatTreatmentDisplay } from "../../../utils/treatmentDisplay";
+
 export const TIME_CFG = {
   open: "08:00",
   close: "20:00",
@@ -11,36 +13,85 @@ export const TIME_CFG = {
 };
 
 export function buildFallbackTreatmentOptions() {
+  const smoothName = "Smooth";
   return [
     {
       value: "fallback:smooth-1x",
-      label: "Smooth 399 thb",
+      label: formatTreatmentDisplay({
+        treatmentName: smoothName,
+        treatmentSessions: 1,
+        treatmentMask: 0,
+        treatmentPrice: 399,
+      }),
       treatmentId: "",
-      treatmentItemText: "smooth 399 free",
-    },
-    {
-      value: "fallback:renew",
-      label: "Renew 599 thb",
-      treatmentId: "",
-      treatmentItemText: "renew 599",
-    },
-    {
-      value: "fallback:acne-care",
-      label: "Acne Care 899 thb",
-      treatmentId: "",
-      treatmentItemText: "acne care 899",
+      treatmentName: smoothName,
+      treatmentSessions: 1,
+      treatmentMask: 0,
+      treatmentPrice: 399,
+      treatmentItemText: formatTreatmentDisplay({
+        treatmentName: smoothName,
+        treatmentSessions: 1,
+        treatmentMask: 0,
+        treatmentPrice: 399,
+      }),
+      treatmentDisplay: formatTreatmentDisplay({
+        treatmentName: smoothName,
+        treatmentSessions: 1,
+        treatmentMask: 0,
+        treatmentPrice: 399,
+      }),
     },
     {
       value: "fallback:smooth-3x",
-      label: "1/3 Smooth 999 thb 1 mask",
+      label: formatTreatmentDisplay({
+        treatmentName: smoothName,
+        treatmentSessions: 3,
+        treatmentMask: 1,
+        treatmentPrice: 999,
+      }),
       treatmentId: "",
-      treatmentItemText: "1/3 smooth 999 1 mask",
+      treatmentName: smoothName,
+      treatmentSessions: 3,
+      treatmentMask: 1,
+      treatmentPrice: 999,
+      treatmentItemText: formatTreatmentDisplay({
+        treatmentName: smoothName,
+        treatmentSessions: 3,
+        treatmentMask: 1,
+        treatmentPrice: 999,
+      }),
+      treatmentDisplay: formatTreatmentDisplay({
+        treatmentName: smoothName,
+        treatmentSessions: 3,
+        treatmentMask: 1,
+        treatmentPrice: 999,
+      }),
     },
     {
       value: "fallback:smooth-10x",
-      label: "1/10 Smooth 2999 thb 3 mask",
+      label: formatTreatmentDisplay({
+        treatmentName: smoothName,
+        treatmentSessions: 10,
+        treatmentMask: 3,
+        treatmentPrice: 2999,
+      }),
       treatmentId: "",
-      treatmentItemText: "1/10 smooth 2999 3 mask",
+      treatmentName: smoothName,
+      treatmentSessions: 10,
+      treatmentMask: 3,
+      treatmentPrice: 2999,
+      treatmentItemText: formatTreatmentDisplay({
+        treatmentName: smoothName,
+        treatmentSessions: 10,
+        treatmentMask: 3,
+        treatmentPrice: 2999,
+      }),
+      treatmentDisplay: formatTreatmentDisplay({
+        treatmentName: smoothName,
+        treatmentSessions: 10,
+        treatmentMask: 3,
+        treatmentPrice: 2999,
+      }),
     },
   ];
 }

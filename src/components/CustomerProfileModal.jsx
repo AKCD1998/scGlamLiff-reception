@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./CustomerProfileModal.css";
 import ProgressDots from "./ProgressDots";
+import { formatTreatmentDisplay, resolveTreatmentDisplay } from "../utils/treatmentDisplay";
 
 const SHOP_TZ = "Asia/Bangkok";
 
@@ -258,13 +259,22 @@ export default function CustomerProfileModal({
                     const maskTotal = Number(pkg.package?.mask_total) || 0;
                     const maskUsed = Number(pkg.usage?.mask_used) || 0;
                     const maskRemaining = Number(pkg.usage?.mask_remaining) || 0;
+                    const packageDisplay =
+                      pkg.treatment_display ||
+                      pkg.package?.treatment_display ||
+                      formatTreatmentDisplay({
+                        treatmentName: pkg.package?.title || pkg.package?.code || "Treatment",
+                        treatmentSessions: sessionsTotal || 1,
+                        treatmentMask: maskTotal,
+                        treatmentPrice: Number(pkg.package?.price_thb) || null,
+                      });
 
                     return (
                       <div key={pkg.customer_package_id} className="cpm-course-card">
                         <div className="cpm-course-header">
                           <div>
                             <div className="customer-profile-strong">
-                              {pkg.package?.title || pkg.package?.code || "-"}
+                              {packageDisplay || "-"}
                             </div>
                             <div className="customer-profile-muted">
                               {pkg.package?.code || "-"}
@@ -351,12 +361,24 @@ export default function CustomerProfileModal({
                       <tr key={`${item.appointment_id || "usage"}-${idx}`}>
                         <td>{formatDateTime(item.used_at)}</td>
                         <td className="cpm-cell-wrap">
-                          <div className="customer-profile-strong">
-                            {item.package_title || item.package_code || "-"}
-                          </div>
-                          <div className="customer-profile-muted">
-                            {item.package_code || "-"}
-                          </div>
+                          {(() => {
+                            const usageDisplay =
+                              item.treatment_display ||
+                              formatTreatmentDisplay({
+                                treatmentName: item.package_title || item.package_code || "Treatment",
+                                treatmentSessions: Number(item.sessions_total) || 1,
+                                treatmentMask: Number(item.mask_total) || 0,
+                                treatmentPrice: Number(item.price_thb) || null,
+                              });
+                            return (
+                              <>
+                                <div className="customer-profile-strong">{usageDisplay}</div>
+                                <div className="customer-profile-muted">
+                                  {item.package_code || "-"}
+                                </div>
+                              </>
+                            );
+                          })()}
                         </td>
                         <td>{item.session_no ?? "-"}</td>
                         <td>{item.used_mask ? "Yes" : "No"}</td>
@@ -406,7 +428,22 @@ export default function CustomerProfileModal({
                   </thead>
                   <tbody>
                     {appointmentHistory.map((item, idx) => {
+                      const resolvedTreatment = resolveTreatmentDisplay({
+                        treatmentId: item.treatment_id || "",
+                        treatmentName:
+                          item.treatment_name ||
+                          item.treatment_title_th ||
+                          item.treatment_title_en ||
+                          "",
+                        treatmentCode: item.treatment_code || "",
+                        treatmentSessions: item.treatment_sessions ?? 1,
+                        treatmentMask: item.treatment_mask ?? 0,
+                        treatmentPrice: item.treatment_price ?? null,
+                        legacyText: item.treatment_item_text || "",
+                      });
                       const title =
+                        item.treatment_display ||
+                        resolvedTreatment.treatment_display ||
                         item.treatment_title_th ||
                         item.treatment_title_en ||
                         item.treatment_code ||
