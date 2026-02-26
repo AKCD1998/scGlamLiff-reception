@@ -27,16 +27,51 @@ export default function BookingFormPanel({
   submitError,
   submitSuccess,
   onSave,
+  guideSpotlight,
+  onDismissGuide,
+  onFocusGuideField,
   SELECT_STYLES,
 }) {
+  const spotlightField = String(guideSpotlight?.fieldKey || "").trim();
+  const hasGuide = Boolean(spotlightField);
+
+  const spotlightClass = (fieldKey, baseClass = "booking-field") =>
+    `${baseClass}${spotlightField === fieldKey ? " booking-field--spotlight" : ""}`;
+
   return (
     <section className="booking-panel">
       <div className="booking-panel-header">+ เพิ่มบริการจองคิว</div>
       <div className="booking-panel-body">
         <form className="booking-form">
           <div className="booking-card">
+            {hasGuide && (
+              <div className="booking-guide-spotlight" role="status" aria-live="polite">
+                <div className="booking-guide-title">
+                  {guideSpotlight?.title || "ยังกรอกข้อมูลไม่ครบ"}
+                </div>
+                <div className="booking-guide-detail">
+                  {guideSpotlight?.detail || "กรุณาตรวจสอบช่องที่ไฮไลต์"}
+                </div>
+                <div className="booking-guide-actions">
+                  <button
+                    type="button"
+                    className="booking-guide-btn"
+                    onClick={() => onFocusGuideField?.(spotlightField)}
+                  >
+                    พาไปช่องนี้
+                  </button>
+                  <button
+                    type="button"
+                    className="booking-guide-btn booking-guide-btn--ghost"
+                    onClick={onDismissGuide}
+                  >
+                    ซ่อน
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="booking-row">
-              <div className="booking-field">
+              <div className={spotlightClass("date")}>
                 <label htmlFor="booking-date">
                   วันที่ <span className="booking-required">*</span>
                 </label>
@@ -47,7 +82,7 @@ export default function BookingFormPanel({
                   onChange={(event) => onBookingDateChange(event.target.value)}
                 />
               </div>
-              <div className="booking-field">
+              <div className={spotlightClass("customer")}>
                 <label htmlFor="booking-name">
                   ชื่อ-นามสกุล <span className="booking-required">*</span>
                 </label>
@@ -62,7 +97,11 @@ export default function BookingFormPanel({
             </div>
 
             <div className="booking-row">
-              <div className="booking-time-card">
+              <div
+                className={`booking-time-card${
+                  spotlightField === "time" ? " booking-time-card--spotlight" : ""
+                }`}
+              >
                 <label htmlFor="booking-time">
                   เวลา <span className="booking-required">*</span>
                 </label>
@@ -100,7 +139,7 @@ export default function BookingFormPanel({
                   )}
                 </div>
               </div>
-              <div className="booking-field">
+              <div className={spotlightClass("phone")}>
                 <label htmlFor="booking-phone">
                   เบอร์โทร <span className="booking-required">*</span>
                 </label>
@@ -123,7 +162,7 @@ export default function BookingFormPanel({
 
             <div className="booking-row">
               <div className="booking-field booking-spacer" aria-hidden="true" />
-              <div className="booking-field">
+              <div className={spotlightClass("line")}>
                 <label htmlFor="booking-line">ไลน์ไอดี</label>
                 <input
                   id="booking-line"
@@ -139,7 +178,7 @@ export default function BookingFormPanel({
             </div>
 
             <div className="booking-row">
-              <div className="booking-field">
+              <div className={spotlightClass("service")}>
                 <label htmlFor="booking-service">
                   บริการที่เลือกใช้ <span className="booking-required">*</span>
                 </label>
@@ -163,7 +202,7 @@ export default function BookingFormPanel({
                   <div className="booking-time-error">{treatmentOptionsError}</div>
                 )}
               </div>
-              <div className="booking-field">
+              <div className={spotlightClass("staff")}>
                 <label htmlFor="booking-provider">
                   ผู้ให้บริการ <span className="booking-required">*</span>
                 </label>

@@ -92,6 +92,7 @@ export default function Bookingpage() {
   const [phoneError, setPhoneError] = useState("");
   const [lineIdError, setLineIdError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
+  const [guideSpotlight, setGuideSpotlight] = useState(null);
   const [saving, setSaving] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [statusMode, setStatusMode] = useState("idle");
@@ -107,6 +108,58 @@ export default function Bookingpage() {
   const [serviceModalOpen, setServiceModalOpen] = useState(false);
   const [selectedBookingRow, setSelectedBookingRow] = useState(null);
   const isAdmin = useMemo(() => isAdminRole(me?.role_name), [me?.role_name]);
+
+  const focusGuideField = useCallback((fieldKey) => {
+    const fieldToId = {
+      date: "booking-date",
+      customer: "booking-name",
+      time: "booking-time",
+      phone: "booking-phone",
+      line: "booking-line",
+      service: "booking-service",
+      staff: "booking-provider",
+    };
+
+    const targetId = fieldToId[fieldKey];
+    if (!targetId) return;
+
+    const byId = document.getElementById(targetId);
+    const serviceInput =
+      targetId === "booking-service"
+        ? document.querySelector('input[id^="react-select-booking-service-"][id$="-input"]')
+        : null;
+    const target = byId || serviceInput;
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (typeof target.focus === "function") {
+      target.focus();
+    }
+  }, []);
+
+  const openGuideSpotlight = useCallback(
+    (fieldKey, title, detail) => {
+      setGuideSpotlight({
+        fieldKey: String(fieldKey || "").trim(),
+        title: String(title || "").trim(),
+        detail: String(detail || "").trim(),
+      });
+      window.requestAnimationFrame(() => {
+        focusGuideField(fieldKey);
+      });
+    },
+    [focusGuideField]
+  );
+
+  const clearGuideSpotlight = useCallback(() => {
+    setGuideSpotlight(null);
+  }, []);
+
+  const clearGuideIfField = useCallback((fieldKey) => {
+    setGuideSpotlight((prev) => {
+      if (!prev) return prev;
+      return prev.fieldKey === fieldKey ? null : prev;
+    });
+  }, []);
 
   const resetStatus = useCallback(() => {
     setStatusOpen(false);
@@ -497,9 +550,73 @@ export default function Bookingpage() {
     const cleanTreatmentId = selectedTreatmentOption?.treatmentId?.trim() || "";
     const cleanPackageId = selectedTreatmentOption?.packageId?.trim() || "";
     const cleanStaff = staffName.trim();
+    const selectedSessions = Number(
+      selectedTreatmentOption?.treatmentSessions ?? selectedTreatmentOption?.sessionsTotal ?? 0
+    );
+    const selectedMask = Number(
+      selectedTreatmentOption?.treatmentMask ?? selectedTreatmentOption?.maskTotal ?? 0
+    );
+    const isPackageStyleSelection =
+      String(selectedTreatmentOption?.source || "").trim().toLowerCase() === "package" ||
+      selectedSessions > 1 ||
+      selectedMask > 0;
 
-    if (!dateKey || !timeKey || !cleanName || !rawPhone || !cleanTreatment || !cleanStaff) {
-      setSubmitError("กรุณากรอกข้อมูลที่จำเป็นให้ครบ");
+    if (!dateKey) {
+      setSubmitError("กรุณาเลือกวันที่นัด");
+      openGuideSpotlight("date", "ยังเลือกวันที่ไม่ครบ", "โปรดเลือกวันที่ก่อนบันทึก");
+      resetStatus();
+      return;
+    }
+
+    if (!cleanName) {
+      setSubmitError("กรุณากรอกชื่อลูกค้า");
+      openGuideSpotlight("customer", "ยังกรอกชื่อไม่ครบ", "ใส่ชื่อ-นามสกุลลูกค้าก่อนบันทึก");
+      resetStatus();
+      return;
+    }
+
+    if (!timeKey) {
+      setSubmitError("กรุณาเลือกเวลานัด");
+      openGuideSpotlight("time", "ยังเลือกเวลาไม่ครบ", "เลือกเวลาจองให้เรียบร้อยก่อนบันทึก");
+      resetStatus();
+      return;
+    }
+
+    if (!rawPhone) {
+      setSubmitError("กรุณากรอกเบอร์โทร");
+      openGuideSpotlight("phone", "ยังกรอกเบอร์โทรไม่ครบ", "ใส่เบอร์โทรลูกค้าก่อนบันทึก");
+      resetStatus();
+      return;
+    }
+
+    if (!treatmentOptionValues.has(treatmentItem) || !selectedTreatmentOption) {
+      setSubmitError("กรุณาเลือกบริการจากรายการที่กำหนด");
+      openGuideSpotlight("service", "ยังเลือกบริการไม่ครบ", "เลือกบริการจากรายการก่อนบันทึก");
+      resetStatus();
+      return;
+    }
+
+    if (!cleanTreatment) {
+      setSubmitError("ยังไม่พบข้อความบริการ กรุณาเลือกบริการใหม่");
+      openGuideSpotlight("service", "ข้อมูลบริการยังไม่ครบ", "เลือกบริการใหม่อีกครั้งเพื่อเติมข้อมูลให้ครบ");
+      resetStatus();
+      return;
+    }
+
+    if (isPackageStyleSelection && !cleanPackageId) {
+      setSubmitError("บริการแบบคอร์สต้องมี package_id กรุณาเลือกบริการจากรายการอีกครั้ง");
+      openGuideSpotlight(
+        "service",
+        "บริการคอร์สยังไม่ครบ",
+        "รายการนี้ไม่มี package_id กรุณาเลือกบริการใหม่จากลิสต์"
+      );
+      resetStatus();
+      return;
+    }
+
+    if (!cleanStaff) {
+      setSubmitError("กรุณาเลือกผู้ให้บริการ");
+      openGuideSpotlight("staff", "ยังเลือกผู้ให้บริการไม่ครบ", "เลือกผู้ให้บริการก่อนบันทึก");
       resetStatus();
       return;
     }
@@ -508,6 +625,7 @@ export default function Bookingpage() {
       const message = "เบอร์โทรไม่ถูกต้อง";
       setPhoneError(message);
       setSubmitError(message);
+      openGuideSpotlight("phone", "รูปแบบเบอร์โทรไม่ถูกต้อง", "กรอกเบอร์ 9-10 หลักที่ใช้งานได้");
       resetStatus();
       return;
     }
@@ -516,18 +634,14 @@ export default function Bookingpage() {
       const message = "Line ID/Email ไม่ถูกต้อง";
       setLineIdError(message);
       setSubmitError(message);
-      resetStatus();
-      return;
-    }
-
-    if (!treatmentOptionValues.has(treatmentItem) || !selectedTreatmentOption) {
-      setSubmitError("กรุณาเลือกบริการจากรายการที่กำหนด");
+      openGuideSpotlight("line", "Line ID / Email ไม่ถูกต้อง", "แก้รูปแบบ Line ID หรือ Email ให้ถูกต้อง");
       resetStatus();
       return;
     }
 
     if (timeError && !allowTimeOverride) {
       setSubmitError(timeError);
+      openGuideSpotlight("time", "เวลานัดยังมีปัญหา", timeError);
       resetStatus();
       return;
     }
@@ -535,12 +649,14 @@ export default function Bookingpage() {
     const candidateMin = parseTimeToMinutes(timeKey);
     if (!Number.isFinite(candidateMin)) {
       setSubmitError("รูปแบบเวลาไม่ถูกต้อง");
+      openGuideSpotlight("time", "รูปแบบเวลาไม่ถูกต้อง", "เลือกเวลาจากตัวเลือกหรือกรอก HH:MM");
       resetStatus();
       return;
     }
     const lastBookingMin = parseTimeToMinutes(TIME_CFG.lastBooking);
     if (!allowTimeOverride && Number.isFinite(lastBookingMin) && candidateMin > lastBookingMin) {
       setSubmitError("เวลาสุดท้ายในการจองคือ 19:00");
+      openGuideSpotlight("time", "เลยเวลาปิดรับจอง", "กรุณาเลือกเวลาไม่เกิน 19:00");
       resetStatus();
       return;
     }
@@ -550,6 +666,7 @@ export default function Bookingpage() {
     const occupied = buildOccupiedRanges(rowsForDay, TIME_CFG);
     if (!allowTimeOverride && !isTimeAvailable(candidateMin, occupied, TIME_CFG)) {
       setSubmitError("ช่วงเวลานี้ชนกับคิวที่มีอยู่แล้ว กรุณาเลือกเวลาอื่น");
+      openGuideSpotlight("time", "เวลานัดชนกับคิวอื่น", "เลือกช่วงเวลาอื่นที่ยังว่างอยู่");
       resetStatus();
       return;
     }
@@ -576,6 +693,7 @@ export default function Bookingpage() {
       // Identifier flow: backend returns appointment_id; subsequent queue reads return the same id as row.appointment_id.
       await appendAppointment(payload, overrideMeta ? { override: overrideMeta } : undefined);
       setSubmitSuccess("บันทึกแล้ว");
+      setGuideSpotlight(null);
       setBookingTime("");
       setCustomerName("");
       setPhone("");
@@ -633,38 +751,46 @@ export default function Bookingpage() {
     setBookingDate(value);
     setSubmitError("");
     setSubmitSuccess("");
-  }, []);
+    clearGuideIfField("date");
+  }, [clearGuideIfField]);
 
   const handleCustomerNameChange = useCallback((value) => {
     setCustomerName(value);
-  }, []);
+    clearGuideIfField("customer");
+  }, [clearGuideIfField]);
 
   const handleBookingTimeChange = useCallback((value) => {
     setBookingTime(value);
-  }, []);
+    clearGuideIfField("time");
+  }, [clearGuideIfField]);
 
   const handlePickRecommendedSlot = useCallback((slot) => {
     setBookingTime(slot);
-  }, []);
+    clearGuideIfField("time");
+  }, [clearGuideIfField]);
 
   const handlePhoneChange = useCallback((rawValue) => {
     const digitsOnly = rawValue.replace(/\D+/g, "").slice(0, 11);
     setPhone(digitsOnly);
     setPhoneError("");
-  }, []);
+    clearGuideIfField("phone");
+  }, [clearGuideIfField]);
 
   const handleLineIdChange = useCallback((value) => {
     setLineId(value);
     setLineIdError("");
-  }, []);
+    clearGuideIfField("line");
+  }, [clearGuideIfField]);
 
   const handleTreatmentChange = useCallback((value) => {
     setTreatmentItem(value);
-  }, []);
+    clearGuideIfField("service");
+  }, [clearGuideIfField]);
 
   const handleStaffChange = useCallback((value) => {
     setStaffName(value);
-  }, []);
+    clearGuideIfField("staff");
+  }, [clearGuideIfField]);
 
   const isQueueTab = activeTab === "queue";
   const isQueueInitialLoading = isQueueTab && !queueHasLoadedOnce;
@@ -731,6 +857,9 @@ export default function Bookingpage() {
           submitError={submitError}
           submitSuccess={submitSuccess}
           onSave={handleSaveClick}
+          guideSpotlight={guideSpotlight}
+          onDismissGuide={clearGuideSpotlight}
+          onFocusGuideField={focusGuideField}
           SELECT_STYLES={SELECT_STYLES}
         />
         <LoadingOverlay

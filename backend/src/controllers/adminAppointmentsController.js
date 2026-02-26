@@ -8,7 +8,10 @@ import {
 } from '../services/appointmentIdentitySql.js';
 import { assertEventStaffIdentity } from '../services/appointmentEventStaffGuard.js';
 import { resolveAppointmentFields } from '../utils/resolveAppointmentFields.js';
-import { resolvePackageIdForBooking } from '../utils/resolvePackageIdForBooking.js';
+import {
+  isPackageStyleTreatmentText,
+  resolvePackageIdForBooking,
+} from '../utils/resolvePackageIdForBooking.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -1449,8 +1452,16 @@ export async function adminBackdateAppointment(req, res) {
     });
 
     let resolvedPlanMode = requestedPlanMode;
+    const packageStyleTreatment = isPackageStyleTreatmentText(treatmentItemText);
     if (!resolvedPlanMode && resolvedPackageId) {
       resolvedPlanMode = 'package';
+    }
+    if (packageStyleTreatment && !resolvedPackageId) {
+      await client.query('ROLLBACK');
+      return res.status(422).json({
+        ok: false,
+        error: 'package_id is required for package-style treatment',
+      });
     }
     if (resolvedPlanMode === 'package' && !resolvedPackageId) {
       await client.query('ROLLBACK');

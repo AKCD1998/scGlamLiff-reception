@@ -38,6 +38,12 @@ function normalizeTreatmentOptionRow(row = {}) {
   const treatmentItemText = String(
     row.treatment_item_text ?? row.treatmentItemText ?? label
   ).trim();
+  const packageId = String(row.package_id ?? row.packageId ?? "").trim();
+  const source = String(row.source ?? "").trim().toLowerCase();
+  const treatmentSessions =
+    Number(row.treatment_sessions ?? row.treatmentSessions ?? row.sessions_total ?? row.sessionsTotal) || 0;
+  const treatmentMask =
+    Number(row.treatment_mask ?? row.treatmentMask ?? row.mask_total ?? row.maskTotal) || 0;
 
   if (!value || !label || !treatmentId || !treatmentItemText) return null;
 
@@ -46,6 +52,10 @@ function normalizeTreatmentOptionRow(row = {}) {
     label,
     treatmentId,
     treatmentItemText,
+    packageId,
+    source,
+    treatmentSessions,
+    treatmentMask,
   };
 }
 
@@ -98,6 +108,7 @@ export default function AdminBackdate({ currentUser }) {
   const [scheduledAtLocal, setScheduledAtLocal] = useState(defaultScheduledAt);
   const [branchId, setBranchId] = useState("mk1");
   const [treatmentId, setTreatmentId] = useState("");
+  const [packageId, setPackageId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [emailOrLineid, setEmailOrLineid] = useState("");
@@ -163,6 +174,14 @@ export default function AdminBackdate({ currentUser }) {
     if (!branchId.trim()) return "กรุณากรอก branch_id";
     if (!treatmentOptionValue) return "กรุณาเลือกบริการ";
     if (!treatmentId.trim()) return "ไม่พบ treatment_id ของบริการที่เลือก";
+    const selected = treatmentOptions.find((item) => item.value === treatmentOptionValue) || null;
+    const packageStyle =
+      String(selected?.source || "") === "package" ||
+      Number(selected?.treatmentSessions || 0) > 1 ||
+      Number(selected?.treatmentMask || 0) > 0;
+    if (packageStyle && !packageId.trim()) {
+      return "บริการแบบคอร์สต้องมี package_id กรุณาเลือกบริการจากรายการใหม่";
+    }
     if (!customerName.trim()) return "กรุณากรอกชื่อลูกค้า";
     if (!phone.trim()) return "กรุณากรอกเบอร์โทร";
     if (!staffName.trim()) return "กรุณากรอกชื่อพนักงาน";
@@ -176,6 +195,7 @@ export default function AdminBackdate({ currentUser }) {
     const selected = treatmentOptions.find((item) => item.value === nextValue) || null;
     setTreatmentOptionValue(nextValue);
     setTreatmentId(selected?.treatmentId || "");
+    setPackageId(selected?.packageId || "");
     setTreatmentItemText(selected?.treatmentItemText || "");
   };
 
@@ -207,6 +227,8 @@ export default function AdminBackdate({ currentUser }) {
       reason: reason.trim(),
       raw_sheet_uuid: rawSheetUuid.trim() || undefined,
       status: status.trim(),
+      package_id: packageId.trim() || undefined,
+      treatment_plan_mode: packageId.trim() ? "package" : undefined,
     };
 
     try {

@@ -1,6 +1,9 @@
 import { pool } from '../db.js';
 import { assertEventStaffIdentity } from '../services/appointmentEventStaffGuard.js';
-import { resolvePackageIdForBooking } from '../utils/resolvePackageIdForBooking.js';
+import {
+  isPackageStyleTreatmentText,
+  resolvePackageIdForBooking,
+} from '../utils/resolvePackageIdForBooking.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -395,6 +398,15 @@ export async function createStaffAppointment(req, res) {
       explicitPackageId: packageId,
       treatmentItemText,
     });
+    const packageStyleTreatment = isPackageStyleTreatmentText(treatmentItemText);
+    if (packageStyleTreatment && !resolvedPackageId) {
+      await client.query('ROLLBACK');
+      return res.status(422).json({
+        ok: false,
+        error: 'package_id is required for package-style treatment',
+      });
+    }
+    const resolvedPlanMode = resolvedPackageId ? 'package' : '';
 
     const inserted = await client.query(
       `
@@ -443,6 +455,7 @@ export async function createStaffAppointment(req, res) {
         normalizeText(req.user?.username) ||
         null,
       treatment_item_text: treatmentItemText || null,
+      treatment_plan_mode: resolvedPlanMode || null,
       package_id: resolvedPackageId || null,
       customer_package_id: customerPackageId || null,
       staff_user_id: req.user?.id || null,

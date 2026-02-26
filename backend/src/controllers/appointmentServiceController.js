@@ -7,7 +7,10 @@ import {
   toNonNegativeInt,
 } from '../services/packageContinuity.js';
 import { resolveAppointmentFields } from '../utils/resolveAppointmentFields.js';
-import { resolvePackageIdForBooking } from '../utils/resolvePackageIdForBooking.js';
+import {
+  isPackageStyleTreatmentText,
+  resolvePackageIdForBooking,
+} from '../utils/resolvePackageIdForBooking.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -350,17 +353,6 @@ async function getAppointmentTreatmentPlanFromEvents(client, appointmentId) {
   };
 }
 
-async function ensureCustomerPackageFromTreatmentItem(client, { customerId, treatmentItemText, sheetUuid }) {
-  if (!customerId) return null;
-  const packageId = await resolvePackageIdFromTreatmentItem(client, treatmentItemText);
-  if (!packageId) return null;
-  return ensureActiveCustomerPackage(client, {
-    customerId,
-    packageId,
-    note: sheetUuid ? `auto:sheet:${sheetUuid}` : 'auto:sheet',
-  });
-}
-
 export async function ensureAppointmentFromSheet(req, res) {
   const sheetUuid = String(req.params?.sheetUuid || '').trim();
   if (!UUID_PATTERN.test(sheetUuid)) {
@@ -495,11 +487,23 @@ export async function ensureAppointmentFromSheet(req, res) {
     }
 
     // Auto-create a customer package for course-style sheet entries so staff can deduct usage.
-    await ensureCustomerPackageFromTreatmentItem(client, {
-      customerId,
-      treatmentItemText: sheet.treatment_item_text,
-      sheetUuid,
-    });
+    const inferredPackageId = await resolvePackageIdFromTreatmentItem(client, sheet.treatment_item_text);
+    const packageStyleTreatment = isPackageStyleTreatmentText(sheet.treatment_item_text);
+    if (packageStyleTreatment && !inferredPackageId) {
+      await client.query('ROLLBACK');
+      return res.status(422).json({
+        ok: false,
+        error: 'package_id is required for package-style treatment',
+      });
+    }
+
+    const inferredCustomerPackageId = inferredPackageId
+      ? await ensureActiveCustomerPackage(client, {
+        customerId,
+        packageId: inferredPackageId,
+        note: sheetUuid ? `auto:sheet:${sheetUuid}` : 'auto:sheet',
+      })
+      : null;
 
     if (appointment) {
       await client.query('COMMIT');
@@ -565,6 +569,10 @@ export async function ensureAppointmentFromSheet(req, res) {
       staff_name: normalizeText(sheet.staff_name) || safeDisplayName(req.user),
       staff_user_id: req.user?.id || null,
       staff_display_name: safeDisplayName(req.user),
+      treatment_item_text: normalizeText(sheet.treatment_item_text) || null,
+      treatment_plan_mode: inferredPackageId ? 'package' : null,
+      package_id: inferredPackageId || null,
+      customer_package_id: inferredCustomerPackageId || null,
     };
     assertEventStaffIdentity(sheetCreateEventMeta, 'ensureAppointmentFromSheet');
 

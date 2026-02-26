@@ -356,6 +356,54 @@ body[data-theme="dark"] .booking-table tbody tr:nth-child(even) {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
+.booking-guide-spotlight {
+  border: 1.5px solid #b23b2a;
+  border-radius: 12px;
+  background: rgba(178, 59, 42, 0.08);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.booking-guide-title {
+  font-weight: 800;
+  color: #8b2f22;
+  font-size: 0.95rem;
+}
+
+.booking-guide-detail {
+  color: var(--booking-soft);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.booking-guide-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.booking-guide-btn {
+  border: 1px solid #8b2f22;
+  background: #8b2f22;
+  color: #fff4ef;
+  border-radius: 9px;
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.booking-guide-btn--ghost {
+  background: transparent;
+  color: #8b2f22;
+}
+
+.booking-guide-btn:focus-visible {
+  outline: 2px solid var(--booking-focus);
+  outline-offset: 2px;
+}
+
 .booking-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -419,6 +467,13 @@ body[data-theme="dark"] .booking-table tbody tr:nth-child(even) {
   color: var(--booking-soft);
   font-weight: 600;
   font-size: 0.95rem;
+}
+
+.booking-field--spotlight {
+  border-radius: 12px;
+  padding: 8px;
+  background: rgba(178, 59, 42, 0.1);
+  box-shadow: 0 0 0 1.5px rgba(178, 59, 42, 0.55);
 }
 
 .booking-field input,
@@ -510,6 +565,11 @@ body[data-theme="dark"] .booking-field input::placeholder {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.booking-time-card--spotlight {
+  background: rgba(178, 59, 42, 0.1);
+  box-shadow: 0 0 0 1.5px rgba(178, 59, 42, 0.55);
 }
 
 .booking-time-input {

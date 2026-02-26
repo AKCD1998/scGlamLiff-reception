@@ -46,6 +46,12 @@ export function inferSmoothPackageHint(raw) {
   return { sessionsTotal, price, maskTotal };
 }
 
+export function isPackageStyleTreatmentText(raw) {
+  const hint = inferSmoothPackageHint(raw);
+  if (!hint) return false;
+  return Number(hint.sessionsTotal) > 1 || Number(hint.maskTotal) > 0;
+}
+
 export async function resolvePackageIdForBooking(client, { explicitPackageId, treatmentItemText }) {
   const packageId = normalizeText(explicitPackageId);
   if (packageId) {
