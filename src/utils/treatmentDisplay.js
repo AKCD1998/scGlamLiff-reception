@@ -72,6 +72,10 @@ export function parseLegacyTreatmentText(text, { fallbackName = "", fallbackCode
     const xSessions = lowered.match(/\b(\d+)\s*x\b/);
     if (xSessions) sessions = toNonNegativeInt(xSessions[1], null);
   }
+  if (!Number.isFinite(sessions)) {
+    const sessionWord = lowered.match(/\b(\d+)\s*(sessions|session|ครั้ง)\b/);
+    if (sessionWord) sessions = toNonNegativeInt(sessionWord[1], null);
+  }
 
   const maskPair = lowered.match(/mask\s*(\d+)\s*\/\s*(\d+)/);
   if (maskPair) {
@@ -154,13 +158,30 @@ export function resolveTreatmentDisplay({
   legacyText = "",
 } = {}) {
   const hasCatalogId = Boolean(normalizeText(treatmentId));
+  const parsed = parseLegacyTreatmentText(legacyText, {
+    fallbackName: treatmentName,
+    fallbackCode: treatmentCode,
+  });
 
   if (hasCatalogId) {
+    const catalogSessions = toNonNegativeInt(treatmentSessions, null);
+    const catalogMask = toNonNegativeInt(treatmentMask, null);
+    const catalogPrice = toNonNegativeInt(treatmentPrice, null);
+    const hasCatalogMetadata =
+      Number.isFinite(catalogSessions) || Number.isFinite(catalogMask) || Number.isFinite(catalogPrice);
+
+    if (!hasCatalogMetadata && parsed) {
+      return {
+        ...parsed,
+        treatment_display_source: "legacy_text",
+      };
+    }
+
     const resolvedName = resolveBaseName(treatmentName, treatmentCode);
-    const sessionsRaw = toNonNegativeInt(treatmentSessions, 1);
+    const sessionsRaw = Number.isFinite(catalogSessions) ? catalogSessions : 1;
     const sessions = sessionsRaw > 0 ? sessionsRaw : 1;
-    const mask = toNonNegativeInt(treatmentMask, 0) || 0;
-    const price = toNonNegativeInt(treatmentPrice, null);
+    const mask = Number.isFinite(catalogMask) ? catalogMask : 0;
+    const price = Number.isFinite(catalogPrice) ? catalogPrice : null;
 
     return {
       treatment_name: resolvedName,
@@ -173,14 +194,10 @@ export function resolveTreatmentDisplay({
         treatmentMask: mask,
         treatmentPrice: price,
       }),
-      treatment_display_source: "catalog",
+      treatment_display_source: hasCatalogMetadata ? "catalog" : "catalog_name_only",
     };
   }
 
-  const parsed = parseLegacyTreatmentText(legacyText, {
-    fallbackName: treatmentName,
-    fallbackCode: treatmentCode,
-  });
   if (parsed) {
     return {
       ...parsed,
@@ -198,4 +215,3 @@ export function resolveTreatmentDisplay({
     treatment_display_source: "legacy_text",
   };
 }
-

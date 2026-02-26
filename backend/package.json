@@ -16,7 +16,8 @@
     "report:ssot-mismatches": "node scripts/report_ssot_mismatches.js",
     "migrate:appointment-events": "node scripts/migrate_appointment_events_constraints.js",
     "verify:admin-edit": "node scripts/verify_admin_edit_patch.js",
-    "verify:appointment-consistency": "node scripts/verify_appointment_consistency.js"
+    "verify:appointment-consistency": "node scripts/verify_appointment_consistency.js",
+    "backfill:missing-package-meta": "node scripts/backfill_missing_package_meta.js"
   },
   "keywords": [],
   "author": "",

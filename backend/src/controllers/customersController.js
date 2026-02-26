@@ -1,8 +1,82 @@
 import { query } from '../db.js';
 import { formatTreatmentDisplay, resolveTreatmentDisplay } from '../utils/treatmentDisplay.js';
+import { resolveAppointmentFieldsByAppointmentId } from '../utils/resolveAppointmentFields.js';
 
-const UUID_PATTERN_SQL =
-  '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$';
+const UUID_PATTERN_RE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
+
+function normalizeText(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
+function toInt(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.trunc(parsed);
+}
+
+async function fetchResolvedPlanByAppointmentIds(appointmentIds) {
+  const ids = [...new Set((appointmentIds || []).map((value) => normalizeText(value)).filter(Boolean))].filter(
+    (id) => UUID_PATTERN_RE.test(id)
+  );
+  if (ids.length === 0) return new Map();
+
+  const result = await query(
+    `
+      SELECT
+        ae.appointment_id,
+        ae.id,
+        ae.event_type,
+        ae.event_at,
+        ae.meta
+      FROM appointment_events ae
+      WHERE ae.appointment_id = ANY($1::uuid[])
+        AND (
+          COALESCE(ae.meta->'after', '{}'::jsonb) ? 'treatment_item_text'
+          OR ae.meta ? 'treatment_item_text'
+          OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'treatment_plan_mode'
+          OR ae.meta ? 'treatment_plan_mode'
+          OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'package_id'
+          OR ae.meta ? 'package_id'
+          OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'unlink_package'
+          OR ae.meta ? 'unlink_package'
+          OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'package_unlinked'
+          OR ae.meta ? 'package_unlinked'
+        )
+      ORDER BY ae.appointment_id ASC, ae.event_at DESC NULLS LAST, ae.id DESC
+    `,
+    [ids]
+  );
+
+  return resolveAppointmentFieldsByAppointmentId(result.rows || []);
+}
+
+async function fetchPackageCatalogByIds(packageIds) {
+  const ids = [...new Set((packageIds || []).map((value) => normalizeText(value)).filter(Boolean))].filter((id) =>
+    UUID_PATTERN_RE.test(id)
+  );
+  if (ids.length === 0) return new Map();
+
+  const result = await query(
+    `
+      SELECT
+        p.id,
+        p.sessions_total,
+        p.mask_total,
+        p.price_thb
+      FROM packages p
+      WHERE p.id = ANY($1::uuid[])
+    `,
+    [ids]
+  );
+
+  const byId = new Map();
+  for (const row of result.rows || []) {
+    byId.set(normalizeText(row.id), row);
+  }
+  return byId;
+}
 
 export async function listCustomers(req, res) {
   try {
@@ -217,92 +291,28 @@ export async function getCustomerProfile(req, res) {
               'Treatment'
             ) AS treatment_name,
             COALESCE(
-              NULLIF(plan_evt.treatment_item_text, ''),
               NULLIF(t.title_th, ''),
               NULLIF(t.title_en, ''),
               NULLIF(t.code, ''),
               ''
             ) AS treatment_item_text,
-            COALESCE(
-              plan_pkg.sessions_total,
-              CASE
-                WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) = 'one_off'
-                  THEN 1
-                WHEN LOWER(COALESCE(t.code, '')) = 'smooth'
-                  THEN smooth_default.sessions_total
-                WHEN COALESCE(to_jsonb(t)->>'sessions_included', '') ~ '^[0-9]+$'
-                  THEN (to_jsonb(t)->>'sessions_included')::int
-                ELSE 1
-              END,
-              1
-            ) AS treatment_sessions_catalog,
-            COALESCE(
-              plan_pkg.mask_total,
-              CASE
-                WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) = 'one_off'
-                  THEN 0
-                WHEN LOWER(COALESCE(t.code, '')) = 'smooth'
-                  THEN smooth_default.mask_total
-                WHEN COALESCE(to_jsonb(t)->>'mask_included', '') ~ '^[0-9]+$'
-                  THEN (to_jsonb(t)->>'mask_included')::int
-                ELSE 0
-              END,
-              0
-            ) AS treatment_mask_catalog,
-            COALESCE(
-              plan_pkg.price_thb,
-              CASE
-                WHEN LOWER(COALESCE(t.code, '')) = 'smooth'
-                  THEN smooth_default.price_thb
-                WHEN COALESCE(to_jsonb(t)->>'price_thb', '') ~ '^[0-9]+$'
-                  THEN (to_jsonb(t)->>'price_thb')::int
-                ELSE NULL
-              END
-            ) AS treatment_price_catalog
+            CASE
+              WHEN COALESCE(to_jsonb(t)->>'sessions_included', '') ~ '^[0-9]+$'
+                THEN (to_jsonb(t)->>'sessions_included')::int
+              ELSE NULL
+            END AS treatment_sessions_base,
+            CASE
+              WHEN COALESCE(to_jsonb(t)->>'mask_included', '') ~ '^[0-9]+$'
+                THEN (to_jsonb(t)->>'mask_included')::int
+              ELSE NULL
+            END AS treatment_mask_base,
+            CASE
+              WHEN COALESCE(to_jsonb(t)->>'price_thb', '') ~ '^[0-9]+$'
+                THEN (to_jsonb(t)->>'price_thb')::int
+              ELSE NULL
+            END AS treatment_price_base
           FROM appointments a
           LEFT JOIN treatments t ON t.id = a.treatment_id
-          LEFT JOIN LATERAL (
-            SELECT
-              p.sessions_total,
-              p.mask_total,
-              p.price_thb
-            FROM packages p
-            WHERE LOWER(COALESCE(p.code, '')) LIKE 'smooth%'
-              AND COALESCE(p.sessions_total, 0) = 1
-            ORDER BY p.price_thb ASC NULLS LAST, p.id ASC
-            LIMIT 1
-          ) smooth_default ON true
-          LEFT JOIN LATERAL (
-            SELECT
-              COALESCE(
-                NULLIF(ae.meta->'after'->>'treatment_item_text', ''),
-                NULLIF(ae.meta->>'treatment_item_text', '')
-              ) AS treatment_item_text,
-              COALESCE(
-                NULLIF(ae.meta->'after'->>'treatment_plan_mode', ''),
-                NULLIF(ae.meta->>'treatment_plan_mode', '')
-              ) AS treatment_plan_mode,
-              COALESCE(
-                NULLIF(ae.meta->'after'->>'package_id', ''),
-                NULLIF(ae.meta->>'package_id', '')
-              ) AS package_id
-            FROM appointment_events ae
-            WHERE ae.appointment_id = a.id
-              AND (
-                COALESCE(ae.meta->'after', '{}'::jsonb) ? 'treatment_item_text'
-                OR ae.meta ? 'treatment_item_text'
-                OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'treatment_plan_mode'
-                OR ae.meta ? 'treatment_plan_mode'
-                OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'package_id'
-                OR ae.meta ? 'package_id'
-              )
-            ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
-            LIMIT 1
-          ) plan_evt ON true
-          LEFT JOIN packages plan_pkg ON (
-            plan_evt.package_id ~* '${UUID_PATTERN_SQL}'
-            AND plan_pkg.id = plan_evt.package_id::uuid
-          )
           WHERE a.customer_id = $1
           ORDER BY a.scheduled_at DESC
           LIMIT $2
@@ -318,6 +328,19 @@ export async function getCustomerProfile(req, res) {
         throw error;
       }
     }
+
+    const appointmentIds = [...new Set(
+      appointmentRows
+        .map((row) => normalizeText(row.id))
+        .filter((id) => UUID_PATTERN_RE.test(id))
+    )];
+    const resolvedPlanByAppointmentId = await fetchResolvedPlanByAppointmentIds(appointmentIds);
+    const resolvedPackageIds = [...new Set(
+      [...resolvedPlanByAppointmentId.values()]
+        .map((resolved) => normalizeText(resolved?.package_id))
+        .filter((id) => UUID_PATTERN_RE.test(id))
+    )];
+    const resolvedPlanPackageById = await fetchPackageCatalogByIds(resolvedPackageIds);
 
     return res.json({
       ok: true,
@@ -344,14 +367,49 @@ export async function getCustomerProfile(req, res) {
         branch_id: row.branch_id,
       })),
       appointment_history: appointmentRows.map((row) => {
+        const appointmentId = normalizeText(row.id);
+        const resolvedPlan = resolvedPlanByAppointmentId.get(appointmentId) || {
+          package_id: '',
+          treatment_plan_mode: '',
+          treatment_item_text: '',
+        };
+        const resolvedPlanMode = normalizeText(resolvedPlan.treatment_plan_mode);
+        const resolvedPlanPackageIdRaw = normalizeText(resolvedPlan.package_id);
+        const resolvedPlanPackageId = UUID_PATTERN_RE.test(resolvedPlanPackageIdRaw)
+          ? resolvedPlanPackageIdRaw
+          : '';
+        const resolvedPlanText = normalizeText(resolvedPlan.treatment_item_text);
+        const resolvedPlanPackage = resolvedPlanPackageId
+          ? resolvedPlanPackageById.get(resolvedPlanPackageId) || null
+          : null;
+
+        const treatmentSessionsBase = Math.max(0, toInt(row.treatment_sessions_base));
+        const treatmentMaskBase = Math.max(0, toInt(row.treatment_mask_base));
+        const treatmentPriceBase = Math.max(0, toInt(row.treatment_price_base));
+        const treatmentSessionsCatalog = resolvedPlanPackage
+          ? Math.max(0, toInt(resolvedPlanPackage.sessions_total))
+          : resolvedPlanMode === 'one_off'
+            ? 1
+            : treatmentSessionsBase || null;
+        const treatmentMaskCatalog = resolvedPlanPackage
+          ? Math.max(0, toInt(resolvedPlanPackage.mask_total))
+          : resolvedPlanMode === 'one_off'
+            ? 0
+            : treatmentMaskBase || null;
+        const treatmentPriceCatalog = resolvedPlanPackage
+          ? Math.max(0, toInt(resolvedPlanPackage.price_thb))
+          : treatmentPriceBase || null;
+        const legacyTreatmentText =
+          resolvedPlanText || normalizeText(row.treatment_item_text) || normalizeText(row.treatment_name);
+
         const resolvedTreatment = resolveTreatmentDisplay({
           treatmentId: row.treatment_id,
           treatmentName: row.treatment_name,
           treatmentCode: row.treatment_code,
-          treatmentSessions: row.treatment_sessions_catalog,
-          treatmentMask: row.treatment_mask_catalog,
-          treatmentPrice: row.treatment_price_catalog,
-          legacyText: row.treatment_item_text,
+          treatmentSessions: treatmentSessionsCatalog,
+          treatmentMask: treatmentMaskCatalog,
+          treatmentPrice: treatmentPriceCatalog,
+          legacyText: legacyTreatmentText,
         });
 
         return {
@@ -369,7 +427,9 @@ export async function getCustomerProfile(req, res) {
           treatment_price: resolvedTreatment.treatment_price,
           treatment_display: resolvedTreatment.treatment_display,
           treatment_display_source: resolvedTreatment.treatment_display_source,
-          treatment_item_text: row.treatment_item_text,
+          treatment_plan_mode: resolvedPlanMode,
+          treatment_plan_package_id: resolvedPlanPackageId,
+          treatment_item_text: legacyTreatmentText || resolvedTreatment.treatment_display,
         };
       }),
     });

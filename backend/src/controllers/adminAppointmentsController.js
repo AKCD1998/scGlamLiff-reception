@@ -7,6 +7,8 @@ import {
   assertSsotStaffRow,
 } from '../services/appointmentIdentitySql.js';
 import { assertEventStaffIdentity } from '../services/appointmentEventStaffGuard.js';
+import { resolveAppointmentFields } from '../utils/resolveAppointmentFields.js';
+import { resolvePackageIdForBooking } from '../utils/resolvePackageIdForBooking.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -467,18 +469,10 @@ async function getAppointmentTreatmentPlan(client, appointmentId) {
   const result = await client.query(
     `
       SELECT
-        COALESCE(
-          NULLIF(ae.meta->'after'->>'treatment_item_text', ''),
-          NULLIF(ae.meta->>'treatment_item_text', '')
-        ) AS treatment_item_text,
-        COALESCE(
-          NULLIF(ae.meta->'after'->>'treatment_plan_mode', ''),
-          NULLIF(ae.meta->>'treatment_plan_mode', '')
-        ) AS treatment_plan_mode,
-        COALESCE(
-          NULLIF(ae.meta->'after'->>'package_id', ''),
-          NULLIF(ae.meta->>'package_id', '')
-        ) AS package_id
+        ae.id,
+        ae.event_type,
+        ae.event_at,
+        ae.meta
       FROM appointment_events ae
       WHERE ae.appointment_id = $1
         AND (
@@ -488,17 +482,22 @@ async function getAppointmentTreatmentPlan(client, appointmentId) {
           OR ae.meta ? 'treatment_plan_mode'
           OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'package_id'
           OR ae.meta ? 'package_id'
+          OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'unlink_package'
+          OR ae.meta ? 'unlink_package'
+          OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'package_unlinked'
+          OR ae.meta ? 'package_unlinked'
         )
       ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
-      LIMIT 1
     `,
     [appointmentId]
   );
 
-  const row = result.rows[0] || {};
-  const normalizedMode = normalizeTreatmentPlanMode(row.treatment_plan_mode);
-  const normalizedPackageId = normalizeText(row.package_id);
-  const normalizedText = normalizeText(row.treatment_item_text);
+  // Event-sourced plan fields: resolve per field from newest->oldest events.
+  // A newer event missing package_id must not erase historical package linkage.
+  const resolved = resolveAppointmentFields(result.rows || []);
+  const normalizedMode = normalizeTreatmentPlanMode(resolved.treatment_plan_mode);
+  const normalizedPackageId = normalizeText(resolved.package_id);
+  const normalizedText = normalizeText(resolved.treatment_item_text);
 
   return {
     treatment_item_text: normalizedText,
@@ -558,6 +557,36 @@ async function listActivePackagesForCustomer(client, customerId) {
       price_thb: row.price_thb,
     };
   });
+}
+
+async function ensureActiveCustomerPackage(client, { customerId, packageId, note }) {
+  if (!customerId || !packageId) return null;
+
+  const existing = await client.query(
+    `
+      SELECT id
+      FROM customer_packages
+      WHERE customer_id = $1
+        AND package_id = $2
+        AND LOWER(COALESCE(status, '')) = 'active'
+      ORDER BY purchased_at DESC NULLS LAST, id DESC
+      LIMIT 1
+    `,
+    [customerId, packageId]
+  );
+
+  if (existing.rowCount > 0) return existing.rows[0].id;
+
+  const inserted = await client.query(
+    `
+      INSERT INTO customer_packages (customer_id, package_id, status, purchased_at, note)
+      VALUES ($1, $2, 'active', now(), $3)
+      RETURNING id
+    `,
+    [customerId, packageId, note || 'auto:admin-backdate']
+  );
+
+  return inserted.rows[0]?.id || null;
 }
 
 async function createPackageUsageByAdmin(
@@ -873,15 +902,26 @@ export async function patchAdminAppointment(req, res) {
       }
     }
 
+    let packageUnlinkRequested = false;
+
     const planFieldProvided =
       hasOwnField(req.body, 'treatment_item_text') ||
       hasOwnField(req.body, 'treatment_plan_mode') ||
-      hasOwnField(req.body, 'package_id');
+      hasOwnField(req.body, 'package_id') ||
+      hasOwnField(req.body, 'unlink_package');
 
     if (planFieldProvided) {
       let nextTreatmentItemText = beforePlan.treatment_item_text;
       let nextTreatmentPlanMode = beforePlan.treatment_plan_mode;
       let nextPackageId = beforePlan.package_id;
+      const unlinkRaw = req.body?.unlink_package;
+      if (hasOwnField(req.body, 'unlink_package')) {
+        if (typeof unlinkRaw !== 'boolean') {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ ok: false, error: 'unlink_package must be boolean' });
+        }
+        packageUnlinkRequested = Boolean(unlinkRaw);
+      }
 
       if (hasOwnField(req.body, 'treatment_item_text')) {
         nextTreatmentItemText = requireText(req.body?.treatment_item_text, 'treatment_item_text');
@@ -900,6 +940,15 @@ export async function patchAdminAppointment(req, res) {
 
       if (hasOwnField(req.body, 'package_id')) {
         nextPackageId = normalizeText(req.body?.package_id);
+        if (!nextPackageId && !packageUnlinkRequested) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            ok: false,
+            error: 'Clearing package_id requires unlink_package=true',
+          });
+        }
+      } else if (packageUnlinkRequested) {
+        nextPackageId = '';
       }
 
       if (nextPackageId && !UUID_PATTERN.test(nextPackageId)) {
@@ -912,7 +961,16 @@ export async function patchAdminAppointment(req, res) {
       }
 
       if (nextTreatmentPlanMode === 'one_off') {
-        nextPackageId = '';
+        if (nextPackageId && !packageUnlinkRequested) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            ok: false,
+            error: 'Switching to one_off requires unlink_package=true before clearing package linkage',
+          });
+        }
+        if (packageUnlinkRequested) {
+          nextPackageId = '';
+        }
       }
 
       if (nextTreatmentPlanMode === 'package' && !nextPackageId) {
@@ -1130,6 +1188,17 @@ export async function patchAdminAppointment(req, res) {
       staff_id: eventStaffId,
       staff_name: eventStaffName,
     };
+
+    if (Object.prototype.hasOwnProperty.call(after, 'package_id')) {
+      appointmentUpdateEventMeta.package_change_audit = {
+        before_package_id: before.package_id || null,
+        after_package_id: after.package_id || null,
+        unlink_package: Boolean(packageUnlinkRequested),
+        changed_by_user_id: actorUserId,
+        changed_by_username: normalizeText(req.user?.username) || null,
+      };
+    }
+
     assertEventStaffIdentity(appointmentUpdateEventMeta, 'patchAdminAppointment');
 
     await client.query(
@@ -1277,6 +1346,8 @@ export async function adminBackdateAppointment(req, res) {
   let status;
   let selectedToppings;
   let addonsTotal;
+  let explicitPackageId;
+  let requestedPlanMode;
 
   try {
     scheduledAtRaw = requireIsoDatetimeInPast(req.body?.scheduled_at);
@@ -1310,6 +1381,20 @@ export async function adminBackdateAppointment(req, res) {
     rawSheetUuid = normalizeText(req.body?.raw_sheet_uuid);
     if (rawSheetUuid && !UUID_PATTERN.test(rawSheetUuid)) {
       const err = new Error('Invalid raw_sheet_uuid');
+      err.status = 400;
+      throw err;
+    }
+
+    explicitPackageId = normalizeText(req.body?.package_id);
+    if (explicitPackageId && !UUID_PATTERN.test(explicitPackageId)) {
+      const err = new Error('Invalid package_id');
+      err.status = 400;
+      throw err;
+    }
+
+    requestedPlanMode = normalizeTreatmentPlanMode(req.body?.treatment_plan_mode);
+    if (!ALLOWED_TREATMENT_PLAN_MODES.has(requestedPlanMode)) {
+      const err = new Error('treatment_plan_mode must be one of one_off|package (or empty)');
       err.status = 400;
       throw err;
     }
@@ -1357,6 +1442,32 @@ export async function adminBackdateAppointment(req, res) {
       await client.query('ROLLBACK');
       return res.status(422).json({ ok: false, error: 'Unable to resolve customer' });
     }
+
+    let resolvedPackageId = await resolvePackageIdForBooking(client, {
+      explicitPackageId,
+      treatmentItemText,
+    });
+
+    let resolvedPlanMode = requestedPlanMode;
+    if (!resolvedPlanMode && resolvedPackageId) {
+      resolvedPlanMode = 'package';
+    }
+    if (resolvedPlanMode === 'package' && !resolvedPackageId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        ok: false,
+        error: 'package_id is required when treatment_plan_mode=package',
+      });
+    }
+    if (resolvedPlanMode === 'one_off') {
+      resolvedPackageId = '';
+    }
+
+    const customerPackageId = await ensureActiveCustomerPackage(client, {
+      customerId,
+      packageId: resolvedPackageId || null,
+      note: 'auto:admin-backdate',
+    });
 
     await ensureBackdateLineUserRow(client);
 
@@ -1423,6 +1534,9 @@ export async function adminBackdateAppointment(req, res) {
       staff_id: eventStaffId,
       staff_name: staffName,
       treatment_item_text: treatmentItemText,
+      treatment_plan_mode: resolvedPlanMode || null,
+      package_id: resolvedPackageId || null,
+      customer_package_id: customerPackageId || null,
       raw_sheet_uuid: rawSheetUuid || null,
       selected_toppings: selectedToppings,
       addons_total_thb: addonsTotal,
@@ -1447,7 +1561,12 @@ export async function adminBackdateAppointment(req, res) {
     );
 
     await client.query('COMMIT');
-    return res.json({ ok: true, appointment_id: appointmentId, customer_id: customerId });
+    return res.json({
+      ok: true,
+      appointment_id: appointmentId,
+      customer_id: customerId,
+      customer_package_id: customerPackageId || null,
+    });
   } catch (error) {
     await client.query('ROLLBACK');
     if (error?.status) {

@@ -7,11 +7,12 @@ import {
   assertSsotStaffRows,
 } from '../services/appointmentIdentitySql.js';
 import { formatTreatmentDisplay, resolveTreatmentDisplay } from '../utils/treatmentDisplay.js';
+import { resolveAppointmentFieldsByAppointmentId } from '../utils/resolveAppointmentFields.js';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const BRANCH_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const UUID_PATTERN =
-  '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$';
+const UUID_PATTERN_RE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
 const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 500;
 const DEBUG_PHONE_FRAGMENT = String(process.env.DEBUG_QUEUE_PHONE_FRAGMENT || '').replace(/\D+/g, '');
@@ -160,6 +161,70 @@ function buildQueueFilters({ date, branchId }) {
   }
 
   return { params, whereParts };
+}
+
+async function fetchResolvedPlanByAppointmentIds(appointmentIds) {
+  const ids = [...new Set((appointmentIds || []).map((value) => normalizeText(value)).filter(Boolean))].filter(
+    (value) => UUID_PATTERN_RE.test(value)
+  );
+  if (ids.length === 0) return new Map();
+
+  const result = await query(
+    `
+      SELECT
+        ae.appointment_id,
+        ae.id,
+        ae.event_type,
+        ae.event_at,
+        ae.meta
+      FROM appointment_events ae
+      WHERE ae.appointment_id = ANY($1::uuid[])
+        AND (
+          COALESCE(ae.meta->'after', '{}'::jsonb) ? 'treatment_item_text'
+          OR ae.meta ? 'treatment_item_text'
+          OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'treatment_plan_mode'
+          OR ae.meta ? 'treatment_plan_mode'
+          OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'package_id'
+          OR ae.meta ? 'package_id'
+          OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'unlink_package'
+          OR ae.meta ? 'unlink_package'
+          OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'package_unlinked'
+          OR ae.meta ? 'package_unlinked'
+        )
+      ORDER BY ae.appointment_id ASC, ae.event_at DESC NULLS LAST, ae.id DESC
+    `,
+    [ids]
+  );
+
+  return resolveAppointmentFieldsByAppointmentId(result.rows || []);
+}
+
+async function fetchPackageCatalogByIds(packageIds) {
+  const ids = [...new Set((packageIds || []).map((value) => normalizeText(value)).filter(Boolean))].filter((id) =>
+    UUID_PATTERN_RE.test(id)
+  );
+  if (ids.length === 0) return new Map();
+
+  const result = await query(
+    `
+      SELECT
+        p.id,
+        p.code,
+        p.title,
+        COALESCE(p.sessions_total, 0)::int AS sessions_total,
+        COALESCE(p.mask_total, 0)::int AS mask_total,
+        COALESCE(p.price_thb, 0)::int AS price_thb
+      FROM packages p
+      WHERE p.id = ANY($1::uuid[])
+    `,
+    [ids]
+  );
+
+  const byId = new Map();
+  for (const row of result.rows || []) {
+    byId.set(normalizeText(row.id), row);
+  }
+  return byId;
 }
 
 export async function listBookingTreatmentOptions(req, res) {
@@ -327,90 +392,64 @@ export async function listAppointmentsQueue(req, res) {
             ''
           ) AS "treatmentItem",
           COALESCE(
-            NULLIF(plan_evt.treatment_item_text, ''),
             NULLIF(t.title_th, ''),
             NULLIF(t.title_en, ''),
             NULLIF(t.code, ''),
             ''
           ) AS treatment_item_text,
-          COALESCE(
-            plan_pkg.sessions_total,
-            CASE
-              WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) = 'one_off'
-                THEN 1
-              WHEN LOWER(COALESCE(t.code, '')) = 'smooth'
-                THEN smooth_default.sessions_total
-              WHEN COALESCE(to_jsonb(t)->>'sessions_included', '') ~ '^[0-9]+$'
-                THEN (to_jsonb(t)->>'sessions_included')::int
-              ELSE 1
-            END,
-            1
-          ) AS treatment_sessions_catalog,
-          COALESCE(
-            plan_pkg.mask_total,
-            CASE
-              WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) = 'one_off'
-                THEN 0
-              WHEN LOWER(COALESCE(t.code, '')) = 'smooth'
-                THEN smooth_default.mask_total
-              WHEN COALESCE(to_jsonb(t)->>'mask_included', '') ~ '^[0-9]+$'
-                THEN (to_jsonb(t)->>'mask_included')::int
-              ELSE 0
-            END,
-            0
-          ) AS treatment_mask_catalog,
-          COALESCE(
-            plan_pkg.price_thb,
-            CASE
-              WHEN LOWER(COALESCE(t.code, '')) = 'smooth'
-                THEN smooth_default.price_thb
-              WHEN COALESCE(to_jsonb(t)->>'price_thb', '') ~ '^[0-9]+$'
-                THEN (to_jsonb(t)->>'price_thb')::int
-              ELSE NULL
-            END
-          ) AS treatment_price_catalog,
-          COALESCE(NULLIF(plan_evt.treatment_item_text, ''), '') AS treatment_item_text_override,
-          COALESCE(NULLIF(plan_evt.treatment_plan_mode, ''), '') AS treatment_plan_mode,
-          COALESCE(NULLIF(plan_evt.package_id, ''), '') AS treatment_plan_package_id,
+          CASE
+            WHEN COALESCE(to_jsonb(t)->>'sessions_included', '') ~ '^[0-9]+$'
+              THEN (to_jsonb(t)->>'sessions_included')::int
+            ELSE NULL
+          END AS treatment_sessions_base,
+          CASE
+            WHEN COALESCE(to_jsonb(t)->>'mask_included', '') ~ '^[0-9]+$'
+              THEN (to_jsonb(t)->>'mask_included')::int
+            ELSE NULL
+          END AS treatment_mask_base,
+          CASE
+            WHEN COALESCE(to_jsonb(t)->>'price_thb', '') ~ '^[0-9]+$'
+              THEN (to_jsonb(t)->>'price_thb')::int
+            ELSE NULL
+          END AS treatment_price_base,
+          CASE
+            WHEN COALESCE(to_jsonb(t)->>'sessions_included', '') ~ '^[0-9]+$'
+              THEN (to_jsonb(t)->>'sessions_included')::int
+            ELSE NULL
+          END AS treatment_sessions_catalog,
+          CASE
+            WHEN COALESCE(to_jsonb(t)->>'mask_included', '') ~ '^[0-9]+$'
+              THEN (to_jsonb(t)->>'mask_included')::int
+            ELSE NULL
+          END AS treatment_mask_catalog,
+          CASE
+            WHEN COALESCE(to_jsonb(t)->>'price_thb', '') ~ '^[0-9]+$'
+              THEN (to_jsonb(t)->>'price_thb')::int
+            ELSE NULL
+          END AS treatment_price_catalog,
+          ''::text AS treatment_item_text_override,
+          ''::text AS treatment_plan_mode,
+          ''::text AS treatment_plan_package_id,
           COALESCE(pu_current.customer_package_id, NULL) AS smooth_usage_customer_package_id,
-          COALESCE(pkg_ctx.customer_package_id, NULL) AS smooth_customer_package_id,
-          COALESCE(NULLIF(pkg_ctx.customer_package_status, ''), '') AS smooth_customer_package_status,
+          COALESCE(smooth_pkg.customer_package_id, NULL) AS smooth_customer_package_id,
+          COALESCE(NULLIF(smooth_pkg.customer_package_status, ''), '') AS smooth_customer_package_status,
           COALESCE(
-            pkg_ctx.sessions_total,
-            CASE
-              WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) = 'package'
-                THEN plan_pkg.sessions_total
-              WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) = 'one_off'
-                THEN 1
-              ELSE NULL
-            END,
+            smooth_pkg.sessions_total,
             smooth_default.sessions_total,
             0
           ) AS smooth_sessions_total,
           COALESCE(
-            pkg_ctx.mask_total,
-            CASE
-              WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) = 'package'
-                THEN plan_pkg.mask_total
-              WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) = 'one_off'
-                THEN 0
-              ELSE NULL
-            END,
+            smooth_pkg.mask_total,
             smooth_default.mask_total,
             0
           ) AS smooth_mask_total,
           COALESCE(
-            pkg_ctx.price_thb,
-            CASE
-              WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) = 'package'
-                THEN plan_pkg.price_thb
-              ELSE NULL
-            END,
+            smooth_pkg.price_thb,
             smooth_default.price_thb,
             0
           ) AS smooth_price_thb,
-          COALESCE(pkg_usage.sessions_used, 0) AS smooth_sessions_used,
-          COALESCE(pkg_usage.mask_used, 0) AS smooth_mask_used,
+          COALESCE(smooth_pkg.sessions_used, 0) AS smooth_sessions_used,
+          COALESCE(smooth_pkg.mask_used, 0) AS smooth_mask_used,
           ${RESOLVED_STAFF_NAME_SQL} AS "staffName",
           ${RESOLVED_STAFF_NAME_SQL} AS staff_name
         FROM appointments a
@@ -438,75 +477,28 @@ export async function listAppointmentsQueue(req, res) {
         ) pu_current ON true
         LEFT JOIN LATERAL (
           SELECT
-            cp.id AS customer_package_id
+            cp.id AS customer_package_id,
+            cp.status AS customer_package_status,
+            p.sessions_total,
+            p.mask_total,
+            p.price_thb,
+            COALESCE(u.sessions_used, 0) AS sessions_used,
+            COALESCE(u.mask_used, 0) AS mask_used
           FROM customer_packages cp
           JOIN packages p ON p.id = cp.package_id
+          LEFT JOIN LATERAL (
+            SELECT
+              COUNT(*)::int AS sessions_used,
+              COUNT(*) FILTER (WHERE used_mask IS TRUE)::int AS mask_used
+            FROM package_usages pu
+            WHERE pu.customer_package_id = cp.id
+          ) u ON true
           WHERE cp.customer_id = c.id
             AND LOWER(COALESCE(cp.status, '')) = 'active'
             AND LOWER(COALESCE(p.code, '')) LIKE 'smooth%'
           ORDER BY cp.purchased_at DESC NULLS LAST, cp.id DESC
           LIMIT 1
         ) smooth_pkg ON true
-        LEFT JOIN LATERAL (
-          SELECT
-            COALESCE(
-              NULLIF(ae.meta->'after'->>'treatment_item_text', ''),
-              NULLIF(ae.meta->>'treatment_item_text', '')
-            ) AS treatment_item_text,
-            COALESCE(
-              NULLIF(ae.meta->'after'->>'treatment_plan_mode', ''),
-              NULLIF(ae.meta->>'treatment_plan_mode', '')
-            ) AS treatment_plan_mode,
-            COALESCE(
-              NULLIF(ae.meta->'after'->>'package_id', ''),
-              NULLIF(ae.meta->>'package_id', '')
-            ) AS package_id
-          FROM appointment_events ae
-          WHERE ae.appointment_id = a.id
-            AND (
-              COALESCE(ae.meta->'after', '{}'::jsonb) ? 'treatment_item_text'
-              OR ae.meta ? 'treatment_item_text'
-              OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'treatment_plan_mode'
-              OR ae.meta ? 'treatment_plan_mode'
-              OR COALESCE(ae.meta->'after', '{}'::jsonb) ? 'package_id'
-              OR ae.meta ? 'package_id'
-            )
-          ORDER BY ae.event_at DESC NULLS LAST, ae.id DESC
-          LIMIT 1
-        ) plan_evt ON true
-        LEFT JOIN packages plan_pkg ON (
-          plan_evt.package_id ~* '${UUID_PATTERN}'
-          AND plan_pkg.id = plan_evt.package_id::uuid
-        )
-        LEFT JOIN LATERAL (
-          SELECT
-            cp.id AS customer_package_id,
-            cp.status AS customer_package_status,
-            p.code AS package_code,
-            p.title AS package_title,
-            p.sessions_total,
-            p.mask_total,
-            p.price_thb
-          FROM customer_packages cp
-          JOIN packages p ON p.id = cp.package_id
-          WHERE cp.id = (
-            CASE
-              WHEN pu_current.customer_package_id IS NOT NULL
-                THEN pu_current.customer_package_id
-              WHEN LOWER(COALESCE(plan_evt.treatment_plan_mode, '')) <> ''
-                THEN NULL
-              ELSE smooth_pkg.customer_package_id
-            END
-          )
-          LIMIT 1
-        ) pkg_ctx ON true
-        LEFT JOIN LATERAL (
-          SELECT
-            COUNT(*)::int AS sessions_used,
-            COUNT(*) FILTER (WHERE used_mask IS TRUE)::int AS mask_used
-          FROM package_usages pu
-          WHERE pu.customer_package_id = pkg_ctx.customer_package_id
-        ) pkg_usage ON true
         ${APPOINTMENT_IDENTITY_JOINS_SQL}
         ${whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : ''}
         ORDER BY ${orderBy}
@@ -521,21 +513,81 @@ export async function listAppointmentsQueue(req, res) {
       staffFields: ['staffName'],
     });
 
+    const appointmentIds = [...new Set(
+      rows
+        .map((row) => normalizeText(row.appointment_id || row.id))
+        .filter((id) => UUID_PATTERN_RE.test(id))
+    )];
+    // Resolve plan/package fields from event history per-field (not latest single row),
+    // so partial admin edits do not accidentally drop package linkage in queue rendering.
+    const resolvedPlanByAppointmentId = await fetchResolvedPlanByAppointmentIds(appointmentIds);
+    const resolvedPackageIds = [...new Set(
+      [...resolvedPlanByAppointmentId.values()]
+        .map((resolved) => normalizeText(resolved?.package_id))
+        .filter((id) => UUID_PATTERN_RE.test(id))
+    )];
+    const resolvedPlanPackageById = await fetchPackageCatalogByIds(resolvedPackageIds);
+
     const normalizedRows = rows.map((row) => {
+      const appointmentId = normalizeText(row.appointment_id || row.id);
+      const resolvedPlan = resolvedPlanByAppointmentId.get(appointmentId) || {
+        package_id: '',
+        treatment_plan_mode: '',
+        treatment_item_text: '',
+      };
+      const resolvedPlanMode = normalizeText(resolvedPlan.treatment_plan_mode);
+      const resolvedPlanPackageIdRaw = normalizeText(resolvedPlan.package_id);
+      const resolvedPlanPackageId = UUID_PATTERN_RE.test(resolvedPlanPackageIdRaw)
+        ? resolvedPlanPackageIdRaw
+        : '';
+      const resolvedPlanText = normalizeText(resolvedPlan.treatment_item_text);
+      const resolvedPlanPackage = resolvedPlanPackageId
+        ? resolvedPlanPackageById.get(resolvedPlanPackageId) || null
+        : null;
+
+      const treatmentSessionsBase = Math.max(0, toInt(row.treatment_sessions_base));
+      const treatmentMaskBase = Math.max(0, toInt(row.treatment_mask_base));
+      const treatmentPriceBase = Math.max(0, toInt(row.treatment_price_base));
+      const treatmentSessionsCatalog = resolvedPlanPackage
+        ? Math.max(0, toInt(resolvedPlanPackage.sessions_total))
+        : resolvedPlanMode === 'one_off'
+          ? 1
+          : treatmentSessionsBase || null;
+      const treatmentMaskCatalog = resolvedPlanPackage
+        ? Math.max(0, toInt(resolvedPlanPackage.mask_total))
+        : resolvedPlanMode === 'one_off'
+          ? 0
+          : treatmentMaskBase || null;
+      const treatmentPriceCatalog = resolvedPlanPackage
+        ? Math.max(0, toInt(resolvedPlanPackage.price_thb))
+        : treatmentPriceBase || null;
+
       const rawPhone = normalizeText(row.phone);
       const normalizedPhone = sanitizeThaiPhone(rawPhone);
       const legacyTreatmentText =
-        normalizeText(row.treatment_item_text) || normalizeText(row.treatmentItem);
+        resolvedPlanText || normalizeText(row.treatment_item_text) || normalizeText(row.treatmentItem);
       // Catalog-first treatment display; only parse legacy text when appointment has no treatment_id.
       const resolvedTreatment = resolveTreatmentDisplay({
         treatmentId: row.treatment_id,
         treatmentName: row.treatment_name,
         treatmentCode: row.treatment_code,
-        treatmentSessions: row.treatment_sessions_catalog,
-        treatmentMask: row.treatment_mask_catalog,
-        treatmentPrice: row.treatment_price_catalog,
+        treatmentSessions: treatmentSessionsCatalog,
+        treatmentMask: treatmentMaskCatalog,
+        treatmentPrice: treatmentPriceCatalog,
         legacyText: legacyTreatmentText,
       });
+
+      const smoothUsagePackageId = normalizeText(row.smooth_usage_customer_package_id);
+      const smoothFallbackPackageId = normalizeText(row.smooth_customer_package_id);
+      // Do not auto-fallback to unrelated packages when an explicit plan mode exists.
+      const smoothCustomerPackageId =
+        smoothUsagePackageId || (!resolvedPlanMode ? smoothFallbackPackageId : '');
+      const smoothCustomerPackageStatus = smoothCustomerPackageId
+        ? normalizeText(row.smooth_customer_package_status).toLowerCase()
+        : '';
+      const smoothSessionsTotal = Math.max(0, toInt(row.smooth_sessions_total));
+      const smoothSessionsUsed = Math.max(0, toInt(row.smooth_sessions_used));
+      const smoothSessionsRemaining = Math.max(0, smoothSessionsTotal - smoothSessionsUsed);
 
       if (DEBUG_PHONE_FRAGMENT) {
         const rawDigits = rawPhone.replace(/\D+/g, '');
@@ -553,27 +605,29 @@ export async function listAppointmentsQueue(req, res) {
         lineId: sanitizeDisplayLineId(row.lineId),
         staffName: normalizeText(row.staffName),
         staff_name: normalizeText(row.staff_name || row.staffName),
+        treatment_plan_mode: resolvedPlanMode,
+        treatment_plan_package_id: resolvedPlanPackageId,
+        treatment_item_text_override: resolvedPlanText,
         treatment_name: resolvedTreatment.treatment_name,
         treatment_sessions: resolvedTreatment.treatment_sessions,
         treatment_mask: resolvedTreatment.treatment_mask,
         treatment_price: resolvedTreatment.treatment_price,
         treatment_display: resolvedTreatment.treatment_display,
         treatment_display_source: resolvedTreatment.treatment_display_source,
+        treatment_sessions_catalog: treatmentSessionsCatalog,
+        treatment_mask_catalog: treatmentMaskCatalog,
+        treatment_price_catalog: treatmentPriceCatalog,
         treatment_item_text: legacyTreatmentText || resolvedTreatment.treatment_display,
         treatmentItem: resolvedTreatment.treatment_display,
         treatmentItemDisplay: resolvedTreatment.treatment_display,
         treatmentDisplay: resolvedTreatment.treatment_display,
-        smooth_customer_package_status: normalizeText(row.smooth_customer_package_status).toLowerCase(),
-        smooth_sessions_remaining: Math.max(
-          0,
-          Math.max(0, toInt(row.smooth_sessions_total)) - Math.max(0, toInt(row.smooth_sessions_used))
-        ),
+        smooth_customer_package_id: smoothCustomerPackageId || null,
+        smooth_customer_package_status: smoothCustomerPackageStatus,
+        smooth_sessions_remaining: smoothSessionsRemaining,
         has_continuous_course: Boolean(
-          normalizeText(row.smooth_customer_package_id) &&
-            ((normalizeText(row.smooth_customer_package_status).toLowerCase() === 'active' &&
-              Math.max(0, toInt(row.smooth_sessions_total)) - Math.max(0, toInt(row.smooth_sessions_used)) > 0) ||
-              (normalizeText(row.smooth_customer_package_status).toLowerCase() === '' &&
-                Math.max(0, toInt(row.smooth_sessions_total)) - Math.max(0, toInt(row.smooth_sessions_used)) > 0))
+          smoothCustomerPackageId &&
+            ((smoothCustomerPackageStatus === 'active' && smoothSessionsRemaining > 0) ||
+              (smoothCustomerPackageStatus === '' && smoothSessionsRemaining > 0))
         ),
       };
     });
