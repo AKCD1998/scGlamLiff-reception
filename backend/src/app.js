@@ -20,6 +20,16 @@ const ALLOWED_ORIGINS = [
   FRONTEND_ORIGIN,
   ...FRONTEND_ORIGINS,
 ];
+const IS_PRODUCTION = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+const LOCALHOST_ORIGIN_PATTERN = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i;
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  // Allow any localhost frontend port only in non-production to simplify local testing.
+  if (!IS_PRODUCTION && LOCALHOST_ORIGIN_PATTERN.test(origin)) return true;
+  return false;
+}
 
 export function createApp() {
   const app = express();
@@ -27,8 +37,7 @@ export function createApp() {
   app.use(
     cors({
       origin: (origin, callback) => {
-        if (!origin) return callback(null, true);
-        if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+        if (isAllowedOrigin(origin)) return callback(null, true);
         return callback(new Error('Not allowed by CORS'));
       },
       credentials: true,

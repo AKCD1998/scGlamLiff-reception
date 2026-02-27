@@ -40,24 +40,46 @@ In production, the static frontend URL must not be used as API base unless `/api
 
 ## Local Development (FE + BE)
 1. Prepare backend env locally in `backend/.env` (do not commit secrets).
-2. Start backend:
+2. Install backend dependencies once:
 
 ```bash
 cd backend
 npm ci
+cd ..
+```
+
+3. Start frontend + backend together (recommended):
+
+```bash
+npm run dev:local
+```
+
+If backend port `5050` is already occupied by a healthy local API, `dev:local` reuses that backend and starts frontend only.
+
+4. Or start each service separately:
+
+```bash
+cd backend
 npm run dev
 ```
 
-3. Start frontend (repo root):
+```bash
+npm run dev
+```
+
+5. Open frontend in browser:
 
 ```bash
-npm ci
-npm run dev
+http://localhost:5173
 ```
 
 Default local FE/BE pairing from `.env.development`:
 - Frontend: `http://localhost:5173`
 - API base: `http://localhost:5050`
+
+Notes:
+- Backend CORS now allows localhost origins with any port in non-production mode (for example `5173`, `5174`, `4173`).
+- Production mode (`NODE_ENV=production`) still uses explicit allowlist from `FRONTEND_ORIGIN` and `FRONTEND_ORIGINS`.
 
 ## Choose env per stage (no hardcoding)
 - Dev: `npm run dev -- --mode development`
