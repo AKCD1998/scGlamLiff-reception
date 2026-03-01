@@ -120,6 +120,31 @@
   font-weight: 700;
 }
 
+.aed-info {
+  margin-top: 12px;
+  color: #2f6b2f;
+  font-weight: 700;
+}
+
+.aed-notice {
+  margin-top: 10px;
+  border: 1px solid rgba(168, 117, 48, 0.4);
+  background: rgba(168, 117, 48, 0.08);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.aed-notice-title {
+  font-weight: 800;
+  color: var(--text-soft);
+  margin-bottom: 6px;
+}
+
+.aed-notice-item {
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
 .aed-empty {
   color: var(--text-muted);
   font-weight: 600;

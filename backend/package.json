@@ -21,7 +21,9 @@
     "verify:appointment-consistency": "node scripts/verify_appointment_consistency.js",
     "verify:treatment-display": "node scripts/verify_treatment_display_consistency.js",
     "backfill:missing-package-meta": "node scripts/backfill_missing_package_meta.js",
-    "backfill:treatment-id-from-text": "node scripts/backfill_treatment_id_from_text.js"
+    "backfill:treatment-id-from-text": "node scripts/backfill_treatment_id_from_text.js",
+    "fix:booked-usage-consistency:dry": "node scripts/fix_booked_usage_inconsistencies.js",
+    "fix:booked-usage-consistency:apply": "node scripts/fix_booked_usage_inconsistencies.js --apply"
   },
   "keywords": [],
   "author": "",

@@ -85,6 +85,28 @@ Responses:
 - Success: `{ ok: true, data: ... }`
 - Error: `{ ok: false, error: "..." }`
 
+## Admin PATCH Status Rollback Behavior
+- Endpoint: `PATCH /api/admin/appointments/:appointmentId`
+- When admin patches status to a pre-service state (`booked`, `rescheduled`, `ensured`, `confirmed`, `check_in`, `checked_in`, `pending`), backend will automatically remove all `package_usages` rows for that `appointment_id` in the same DB transaction.
+- Invariant: for pre-service status, `package_usages` for that appointment must be `0` after commit.
+- When admin patches to `completed`, backend does not auto-create usage rows. It may return a warning if no usage exists so operators can use the proper complete/deduction flow.
+
+### One-off consistency cleanup tool
+Dry-run scan:
+
+```powershell
+npm run fix:booked-usage-consistency:dry
+```
+
+Apply cleanup (deletes usage rows for inconsistent pre-service appointments):
+
+```powershell
+npm run fix:booked-usage-consistency:apply
+```
+
+Optional SQL guardrail (manual run, not automatic):
+- `backend/scripts/sql/2026-03-01_package_usages_unique_appointment.sql`
+
 ## Vite proxy note
 Add this to `vite.config.js` on the frontend if you want `/api` to proxy to the backend:
 

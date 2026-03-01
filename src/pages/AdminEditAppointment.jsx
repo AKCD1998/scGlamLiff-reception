@@ -16,6 +16,11 @@ const ALLOWED_STATUSES = new Set([
   "cancelled",
   "no_show",
   "rescheduled",
+  "ensured",
+  "confirmed",
+  "check_in",
+  "checked_in",
+  "pending",
 ]);
 const DEFAULT_STAFF_OPTIONS = ["ส้ม", "โบว์", "เบนซ์", "แพร"];
 
@@ -40,6 +45,11 @@ function formatStatus(status) {
   if (value === "cancelled") return "cancelled";
   if (value === "no_show") return "no_show";
   if (value === "rescheduled") return "rescheduled";
+  if (value === "ensured") return "ensured";
+  if (value === "confirmed") return "confirmed";
+  if (value === "check_in") return "check_in";
+  if (value === "checked_in") return "checked_in";
+  if (value === "pending") return "pending";
   return value || "-";
 }
 
@@ -173,6 +183,8 @@ export default function AdminEditAppointment({ currentUser }) {
   const [statusOpen, setStatusOpen] = useState(false);
   const [statusMode, setStatusMode] = useState("idle");
   const [result, setResult] = useState(null);
+  const [statusWarnings, setStatusWarnings] = useState([]);
+  const [statusInfoMessage, setStatusInfoMessage] = useState("");
 
   const currentStatusNormalized = normalizeStatus(appointment?.status);
   const selectedStatusNormalized = normalizeStatus(status);
@@ -289,6 +301,8 @@ export default function AdminEditAppointment({ currentUser }) {
   const loadAppointment = async () => {
     setLookupError("");
     setSubmitError("");
+    setStatusWarnings([]);
+    setStatusInfoMessage("");
     const id = String(appointmentIdInput || "").trim();
     if (!isUuid(id)) {
       setLookupError("appointment_id ไม่ถูกต้อง");
@@ -561,6 +575,18 @@ export default function AdminEditAppointment({ currentUser }) {
       // Backend mutation target: single appointments row by a.id, with event history keyed by ae.appointment_id = a.id.
       const data = await patchAdminAppointment(appointment.id, pendingPayload);
       setResult(data);
+      const revertedUsageCount = Number(data?.revertedUsageCount || 0);
+      const warnings = Array.isArray(data?.warnings)
+        ? data.warnings.map((item) => String(item || "").trim()).filter(Boolean)
+        : [];
+      setStatusWarnings(warnings);
+      if (revertedUsageCount > 0) {
+        const message = `Rollback: reverted ${revertedUsageCount} package usage rows because status moved to BOOKED.`;
+        setStatusInfoMessage(message);
+        window.alert(message);
+      } else {
+        setStatusInfoMessage("");
+      }
       setStatusMode("success");
 
       const refreshed = await getAdminAppointmentById(appointment.id);
@@ -690,6 +716,11 @@ export default function AdminEditAppointment({ currentUser }) {
                   <option value="cancelled">cancelled</option>
                   <option value="no_show">no_show</option>
                   <option value="rescheduled">rescheduled</option>
+                  <option value="ensured">ensured</option>
+                  <option value="confirmed">confirmed</option>
+                  <option value="check_in">check_in</option>
+                  <option value="checked_in">checked_in</option>
+                  <option value="pending">pending</option>
                 </select>
               </div>
 
@@ -857,6 +888,17 @@ export default function AdminEditAppointment({ currentUser }) {
               </button>
               {submitError && <div className="aed-error">{submitError}</div>}
             </div>
+            {statusInfoMessage ? <div className="aed-info">{statusInfoMessage}</div> : null}
+            {statusWarnings.length > 0 ? (
+              <div className="aed-notice">
+                <div className="aed-notice-title">Warnings</div>
+                {statusWarnings.map((warning) => (
+                  <div key={warning} className="aed-notice-item">
+                    {warning}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </form>
         ) : (
           <div className="aed-empty">กรอก appointment_id แล้วกด “โหลดข้อมูล” เพื่อเริ่มแก้ไข</div>
@@ -915,6 +957,17 @@ export default function AdminEditAppointment({ currentUser }) {
                   {statusMode === "success" ? (
                     <>
                       แก้ไข appointment เรียบร้อย
+                      {Number(result?.revertedUsageCount || 0) > 0 ? (
+                        <div className="aed-status-sub">
+                          Rollback: reverted {Number(result?.revertedUsageCount || 0)} package
+                          usage rows because status moved to BOOKED.
+                        </div>
+                      ) : null}
+                      {Array.isArray(result?.warnings) && result.warnings.length > 0 ? (
+                        <div className="aed-status-sub">
+                          {result.warnings.map((warning) => String(warning || "")).join(" | ")}
+                        </div>
+                      ) : null}
                       {result?.appointment_id ? (
                         <div className="aed-status-sub">
                           appointment_id: <code>{result.appointment_id}</code>

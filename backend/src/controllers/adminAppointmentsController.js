@@ -7,6 +7,7 @@ import {
   assertSsotStaffRow,
 } from '../services/appointmentIdentitySql.js';
 import { assertEventStaffIdentity } from '../services/appointmentEventStaffGuard.js';
+import { adminPatchAppointmentStatusInTransaction } from '../services/adminAppointmentStatusService.js';
 import { resolveAppointmentFields } from '../utils/resolveAppointmentFields.js';
 import {
   isPackageStyleTreatmentText,
@@ -26,6 +27,11 @@ const ALLOWED_ADMIN_EDIT_STATUSES = new Set([
   'cancelled',
   'no_show',
   'rescheduled',
+  'ensured',
+  'confirmed',
+  'check_in',
+  'checked_in',
+  'pending',
 ]);
 const ALLOWED_TREATMENT_PLAN_MODES = new Set(['', 'one_off', 'package']);
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -863,6 +869,8 @@ export async function patchAdminAppointment(req, res) {
     const before = {};
     const after = {};
     const appointmentUpdateFields = {};
+    let statusPatch = null;
+    let statusPatchResult = null;
 
     if (hasOwnField(req.body, 'scheduled_at')) {
       const nextScheduledAt = requireIsoDatetime(req.body?.scheduled_at);
@@ -1027,7 +1035,8 @@ export async function patchAdminAppointment(req, res) {
         await client.query('ROLLBACK');
         return res.status(400).json({
           ok: false,
-          error: 'status must be one of booked|completed|cancelled|no_show|rescheduled',
+          error:
+            'status must be one of booked|completed|cancelled|no_show|rescheduled|ensured|confirmed|check_in|checked_in|pending',
         });
       }
 
@@ -1044,33 +1053,7 @@ export async function patchAdminAppointment(req, res) {
           error: 'Transition cancelled -> completed requires confirm_cancelled_to_completed=true',
         });
       }
-
-      if (currentStatus !== nextStatus) {
-        if (nextStatus !== 'completed') {
-          const existingUsage = await client.query(
-            `
-              SELECT id
-              FROM package_usages
-              WHERE appointment_id = $1
-              LIMIT 1
-              FOR UPDATE
-            `,
-            [appointmentId]
-          );
-          if (existingUsage.rowCount > 0) {
-            await client.query('ROLLBACK');
-            return res.status(409).json({
-              ok: false,
-              error:
-                'Cannot change appointment status while package usage exists. Use revert first to remove package deduction.',
-            });
-          }
-        }
-
-        appointmentUpdateFields.status = nextStatus;
-        before.status = beforeRecord.status;
-        after.status = nextStatus;
-      }
+      statusPatch = { status: nextStatus };
     }
 
     if (hasOwnField(req.body, 'raw_sheet_uuid')) {
@@ -1173,10 +1156,34 @@ export async function patchAdminAppointment(req, res) {
       );
     }
 
+    if (statusPatch) {
+      statusPatchResult = await adminPatchAppointmentStatusInTransaction({
+        client,
+        appointmentId,
+        patch: statusPatch,
+        actorUserId,
+      });
+
+      const beforeStatus = normalizeAppointmentStatus(beforeRecord.status);
+      const afterStatus = normalizeAppointmentStatus(statusPatchResult?.appointment?.status);
+      if (beforeStatus !== afterStatus) {
+        before.status = beforeRecord.status;
+        after.status = statusPatchResult?.appointment?.status || beforeRecord.status;
+      }
+
+      if (Number(statusPatchResult?.revertedUsageCount) > 0) {
+        before.package_usage_count = statusPatchResult.usageCountBefore;
+        after.package_usage_count = statusPatchResult.usageCountAfter;
+        after.reverted_package_usage_count = statusPatchResult.revertedUsageCount;
+      }
+
+      if (Array.isArray(statusPatchResult?.warnings) && statusPatchResult.warnings.length > 0) {
+        after.status_patch_warnings = statusPatchResult.warnings;
+      }
+    }
+
     const targetStatus = normalizeAppointmentStatus(
-      appointmentUpdateFields.status !== undefined
-        ? appointmentUpdateFields.status
-        : beforeRecord.status
+      statusPatchResult?.appointment?.status || beforeRecord.status
     );
     const createPackageUsage = Boolean(req.body?.create_package_usage);
     let deductionResult = null;
@@ -1198,6 +1205,12 @@ export async function patchAdminAppointment(req, res) {
         actorUserId,
         adminUser: req.user,
       });
+
+      if (Array.isArray(statusPatchResult?.warnings) && statusPatchResult.warnings.length > 0) {
+        statusPatchResult.warnings = [];
+        delete after.status_patch_warnings;
+      }
+
       before.package_usage = null;
       after.package_usage = deductionResult;
     }
@@ -1220,6 +1233,11 @@ export async function patchAdminAppointment(req, res) {
       admin_username: normalizeText(req.user?.username) || null,
       admin_display_name: normalizeText(req.user?.display_name) || null,
       created_package_usage: Boolean(deductionResult),
+      reverted_package_usage_count: Number(statusPatchResult?.revertedUsageCount) || 0,
+      status_patch_warnings:
+        Array.isArray(statusPatchResult?.warnings) && statusPatchResult.warnings.length > 0
+          ? statusPatchResult.warnings
+          : [],
       staff_id: eventStaffId,
       staff_name: eventStaffName,
     };
@@ -1260,6 +1278,11 @@ export async function patchAdminAppointment(req, res) {
       after,
       appointment: updatedRecord,
       package_usage: deductionResult,
+      revertedUsageCount: Number(statusPatchResult?.revertedUsageCount) || 0,
+      warnings:
+        Array.isArray(statusPatchResult?.warnings) && statusPatchResult.warnings.length > 0
+          ? statusPatchResult.warnings
+          : [],
     });
   } catch (error) {
     await client.query('ROLLBACK');

@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser';
 import authRoutes from './routes/auth.js';
 import appointmentRoutes from './routes/appointments.js';
 import adminAppointmentRoutes from './routes/adminAppointments.js';
+import debugRoutes from './routes/debugRoutes.js';
 import customersRoutes from './routes/customers.js';
 import visitsRoutes from './routes/visits.js';
 import sheetVisitsRoutes from './routes/sheetVisits.js';
@@ -56,6 +57,9 @@ export function createApp() {
   app.use('/api/auth', authRoutes);
   app.use('/api/appointments', appointmentRoutes);
   app.use('/api/admin', adminAppointmentRoutes);
+  if (!IS_PRODUCTION) {
+    app.use('/api/debug', debugRoutes);
+  }
   app.use('/api/customers', customersRoutes);
   app.use('/api/visits', visitsRoutes);
   app.use('/api/sheet-visits', sheetVisitsRoutes);
