@@ -46,8 +46,10 @@ function statusLabel(status) {
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
-export function isRevertableStatus(status) {
+export function isRevertableStatus(status, options = {}) {
+  const hasUsage = Boolean(options?.hasUsage);
   const s = normalizeStatus(status);
+  if (s === "booked" && hasUsage) return true;
   return ["completed", "no_show", "cancelled", "canceled"].includes(s);
 }
 
@@ -372,7 +374,11 @@ export default function ServiceConfirmationModal({
   const canMutate = useMemo(() => {
     return canMutateFromStatus(appointmentStatusNormalized);
   }, [appointmentStatusNormalized]);
-  const canRevert = isAdmin && isRevertableStatus(appointmentStatusNormalized);
+  const canRevert =
+    isAdmin &&
+    isRevertableStatus(appointmentStatusNormalized, {
+      hasUsage: hasUsageRecordedForAppointment,
+    });
 
   const activePackages = useMemo(() => {
     return buildActivePackages(packages);
@@ -588,7 +594,20 @@ export default function ServiceConfirmationModal({
       await onAfterAction?.(actionResult);
       onClose?.();
     } catch (e) {
-      setSubmitError(e?.message || "ทำรายการไม่สำเร็จ");
+      const rawMessage = String(e?.message || "");
+      if (
+        /Cannot complete appointment in status:\s*completed/i.test(rawMessage) ||
+        /Service usage already recorded for this appointment/i.test(rawMessage)
+      ) {
+        setSubmitError(
+          "นัดนี้ถูกตัดคอร์สไปแล้ว กรุณาใช้นัดใหม่สำหรับครั้งถัดไป หรือให้แอดมินกด Revert เพื่อล้างประวัติการตัด"
+        );
+        if (/Cannot complete appointment in status:\s*completed/i.test(rawMessage)) {
+          setAppointment((prev) => (prev ? { ...prev, status: "completed" } : prev));
+        }
+        return;
+      }
+      setSubmitError(rawMessage || "ทำรายการไม่สำเร็จ");
     } finally {
       setSubmitting(false);
     }
@@ -597,7 +616,13 @@ export default function ServiceConfirmationModal({
   const handleRevert = async () => {
     if (!canRevert || submitting) return;
     if (!appointment?.id) return;
-    const confirmed = window.confirm("ยืนยันย้อนกลับเป็นสถานะจองแล้ว/ยืนยันแล้ว ?");
+    const isBookedWithUsage =
+      appointmentStatusNormalized === "booked" && hasUsageRecordedForAppointment;
+    const confirmed = window.confirm(
+      isBookedWithUsage
+        ? "ยืนยันล้างประวัติการตัดคอร์สของนัดนี้ ?"
+        : "ยืนยันย้อนกลับเป็นสถานะจองแล้ว/ยืนยันแล้ว ?"
+    );
     if (!confirmed) return;
 
     setSubmitError("");
@@ -969,7 +994,9 @@ export default function ServiceConfirmationModal({
                   onClick={handleRevert}
                   disabled={submitting}
                 >
-                  ย้อนกลับเป็นสถานะจอง/ยืนยันแล้ว
+                  {appointmentStatusNormalized === "booked" && hasUsageRecordedForAppointment
+                    ? "ล้างประวัติการตัดคอร์สของนัดนี้"
+                    : "ย้อนกลับเป็นสถานะจอง/ยืนยันแล้ว"}
                 </button>
               ) : null}
 

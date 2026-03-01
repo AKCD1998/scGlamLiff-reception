@@ -1046,6 +1046,27 @@ export async function patchAdminAppointment(req, res) {
       }
 
       if (currentStatus !== nextStatus) {
+        if (nextStatus !== 'completed') {
+          const existingUsage = await client.query(
+            `
+              SELECT id
+              FROM package_usages
+              WHERE appointment_id = $1
+              LIMIT 1
+              FOR UPDATE
+            `,
+            [appointmentId]
+          );
+          if (existingUsage.rowCount > 0) {
+            await client.query('ROLLBACK');
+            return res.status(409).json({
+              ok: false,
+              error:
+                'Cannot change appointment status while package usage exists. Use revert first to remove package deduction.',
+            });
+          }
+        }
+
         appointmentUpdateFields.status = nextStatus;
         before.status = beforeRecord.status;
         after.status = nextStatus;

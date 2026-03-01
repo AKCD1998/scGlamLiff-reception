@@ -107,6 +107,11 @@ describe("isRevertableStatus", () => {
     expect(isRevertableStatus("ensured")).toBe(false);
     expect(isRevertableStatus("rescheduled")).toBe(false);
   });
+
+  it("allows booked when appointment already has usage record", () => {
+    expect(isRevertableStatus("booked", { hasUsage: true })).toBe(true);
+    expect(isRevertableStatus("booked", { hasUsage: false })).toBe(false);
+  });
 });
 
 describe("canMutateFromStatus", () => {

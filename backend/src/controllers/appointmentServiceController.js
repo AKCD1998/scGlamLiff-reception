@@ -1170,7 +1170,20 @@ export async function revertAppointment(req, res) {
     }
 
     const currentStatus = String(appointment.status || '').toLowerCase();
-    if (!canRevertFromStatus(currentStatus)) {
+    const usageResult = await client.query(
+      `
+        SELECT id, customer_package_id, session_no, used_mask
+        FROM package_usages
+        WHERE appointment_id = $1
+        ORDER BY session_no ASC, used_at ASC, id ASC
+        FOR UPDATE
+      `,
+      [appointment.id]
+    );
+    const usageRows = usageResult.rows || [];
+    const hasUsageRows = usageRows.length > 0;
+    const canRevertBookedWithUsage = currentStatus === 'booked' && hasUsageRows;
+    if (!canRevertFromStatus(currentStatus) && !canRevertBookedWithUsage) {
       await client.query('ROLLBACK');
       return res.status(409).json({
         ok: false,
@@ -1180,23 +1193,10 @@ export async function revertAppointment(req, res) {
 
     // Revert policy:
     // - completed: undo all package usages recorded by this appointment.
-    // - no_show / cancelled(canceled): status-only revert, no package usage mutation.
-    let usageRows = [];
-    if (currentStatus === 'completed') {
-      const usageResult = await client.query(
-        `
-          SELECT id, customer_package_id, session_no, used_mask
-          FROM package_usages
-          WHERE appointment_id = $1
-          ORDER BY session_no ASC, used_at ASC, id ASC
-          FOR UPDATE
-        `,
-        [appointment.id]
-      );
-      if (usageResult.rowCount > 0) {
-        usageRows = usageResult.rows;
-        await client.query('DELETE FROM package_usages WHERE appointment_id = $1', [appointment.id]);
-      }
+    // - booked with lingering usage (inconsistent admin edits): allow cleanup.
+    // - no_show / cancelled(canceled): status-only revert unless lingering usage exists.
+    if (hasUsageRows) {
+      await client.query('DELETE FROM package_usages WHERE appointment_id = $1', [appointment.id]);
     }
 
     await client.query(
