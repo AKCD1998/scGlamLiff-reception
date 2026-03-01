@@ -3,6 +3,8 @@ import { formatTreatmentDisplay, resolveTreatmentDisplay } from "../../../utils/
 
 export function normalizeRow(row = {}) {
   const appointmentId = row.appointment_id ?? row.appointmentId ?? row.id ?? "";
+  const smoothUsageCustomerPackageId =
+    row.smooth_usage_customer_package_id ?? row.smoothUsageCustomerPackageId ?? "";
   const smoothSessionsTotal = Number(row.smooth_sessions_total ?? row.smoothSessionsTotal) || 0;
   const smoothSessionsUsed = Number(row.smooth_sessions_used ?? row.smoothSessionsUsed) || 0;
   const smoothSessionsRemaining = Math.max(smoothSessionsTotal - smoothSessionsUsed, 0);
@@ -64,6 +66,8 @@ export function normalizeRow(row = {}) {
       row.treatment_plan_package_id ?? row.treatmentPlanPackageId ?? "",
     smoothCustomerPackageId:
       row.smooth_customer_package_id ?? row.smoothCustomerPackageId ?? "",
+    smoothUsageCustomerPackageId,
+    smooth_usage_customer_package_id: smoothUsageCustomerPackageId,
     smoothCustomerPackageStatus: smoothPackageStatus,
     smoothSessionsTotal,
     smoothSessionsUsed,

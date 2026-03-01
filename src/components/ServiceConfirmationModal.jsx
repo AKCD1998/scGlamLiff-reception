@@ -168,6 +168,14 @@ export default function ServiceConfirmationModal({
       ),
     [booking?.treatmentPlanPackageId, booking?.treatment_plan_package_id]
   );
+  const bookingUsagePackageId = useMemo(
+    () =>
+      normalizePackageId(
+        booking?.smoothUsageCustomerPackageId ?? booking?.smooth_usage_customer_package_id
+      ),
+    [booking?.smoothUsageCustomerPackageId, booking?.smooth_usage_customer_package_id]
+  );
+  const hasUsageRecordedForAppointment = Boolean(bookingUsagePackageId);
   const bookingTreatmentText = useMemo(
     () => String(booking?.treatmentDisplay || booking?.treatmentItem || "").trim(),
     [booking?.treatmentDisplay, booking?.treatmentItem]
@@ -479,16 +487,18 @@ export default function ServiceConfirmationModal({
   const preview = useMemo(() => {
     if (!selectedPkg) return null;
     const { sessionsRemaining, maskRemaining } = selectedPkg._computed;
+    const shouldPreviewDeduction =
+      actionStatus === "completed" && !hasUsageRecordedForAppointment;
     const nextSessions =
-      actionStatus === "completed"
+      shouldPreviewDeduction
         ? Math.max(sessionsRemaining - 1, 0)
         : Math.max(sessionsRemaining, 0);
     const nextMask =
-      actionStatus === "completed" && useMask
+      shouldPreviewDeduction && useMask
         ? Math.max(maskRemaining - 1, 0)
         : Math.max(maskRemaining, 0);
     return { nextSessions, nextMask };
-  }, [actionStatus, selectedPkg, useMask]);
+  }, [actionStatus, hasUsageRecordedForAppointment, selectedPkg, useMask]);
 
   const isConfirmDisabled = useMemo(() => {
     if (submitting || !canMutate) return true;
@@ -524,6 +534,10 @@ export default function ServiceConfirmationModal({
     }
 
     if (actionStatus === "completed") {
+      if (hasUsageRecordedForAppointment) {
+        setSubmitError("รายการนี้มีการตัดคอร์สแล้ว กรุณาเลือกนัดใหม่สำหรับการตัดครั้งถัดไป");
+        return;
+      }
       if (completingWithoutCourse) {
         // One-off completion: no course/package deduction.
       } else if (!selectedPackageId) {
@@ -826,6 +840,11 @@ export default function ServiceConfirmationModal({
               <div className="scm-state">เลือกคอร์ส 1 รายการเพื่อดูตัวเลือก</div>
             ) : (
               <>
+                {hasUsageRecordedForAppointment ? (
+                  <div className="scm-state scm-state--notice">
+                    พบประวัติการตัดคอร์สในนัดนี้แล้ว ระบบจะแสดงจำนวนคงเหลือปัจจุบันโดยไม่หักซ้ำ
+                  </div>
+                ) : null}
                 {isContinuousCourseSelected ? (
                   <div>
                     <span className="scm-badge scm-badge--continuous">คอร์สต่อเนื่อง</span>
@@ -874,7 +893,11 @@ export default function ServiceConfirmationModal({
                 </label>
                 <div className="scm-preview">
                   <div>
-                    <div className="scm-label">Preview หลังยืนยัน (ตัด 1 ครั้งต่อ 1 การให้บริการ)</div>
+                    <div className="scm-label">
+                      {hasUsageRecordedForAppointment
+                        ? "Preview ปัจจุบัน (นัดนี้ถูกตัดคอร์สแล้ว)"
+                        : "Preview หลังยืนยัน (ตัด 1 ครั้งต่อ 1 การให้บริการ)"}
+                    </div>
                     <div className="scm-value">
                       จำนวนการให้บริการที่เหลือ: {preview?.nextSessions ?? "-"}
                     </div>
