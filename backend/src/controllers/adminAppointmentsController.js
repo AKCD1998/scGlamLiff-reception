@@ -833,6 +833,18 @@ export async function patchAdminAppointment(req, res) {
       err.status = 400;
       throw err;
     }
+    if (hasOwnField(req.body, 'reassign_customer_by_phone')) {
+      if (typeof req.body?.reassign_customer_by_phone !== 'boolean') {
+        const err = new Error('reassign_customer_by_phone must be boolean');
+        err.status = 400;
+        throw err;
+      }
+      if (req.body?.reassign_customer_by_phone && !hasOwnField(req.body, 'phone')) {
+        const err = new Error('reassign_customer_by_phone=true requires phone');
+        err.status = 400;
+        throw err;
+      }
+    }
   } catch (error) {
     return res
       .status(error?.status || 400)
@@ -864,6 +876,7 @@ export async function patchAdminAppointment(req, res) {
       await client.query('ROLLBACK');
       return res.status(422).json({ ok: false, error: 'Appointment missing customer_id' });
     }
+    let targetCustomerId = beforeRecord.customer_id;
     const beforePlan = await getAppointmentTreatmentPlan(client, appointmentId);
 
     const before = {};
@@ -1083,22 +1096,6 @@ export async function patchAdminAppointment(req, res) {
       }
     }
 
-    if (hasOwnField(req.body, 'customer_full_name')) {
-      const nextCustomerName = requireText(req.body?.customer_full_name, 'customer_full_name');
-      if (normalizeText(beforeRecord.customer_full_name) !== nextCustomerName) {
-        await client.query(
-          `
-            UPDATE customers
-            SET full_name = $2
-            WHERE id = $1
-          `,
-          [beforeRecord.customer_id, nextCustomerName]
-        );
-        before.customer_full_name = beforeRecord.customer_full_name;
-        after.customer_full_name = nextCustomerName;
-      }
-    }
-
     if (hasOwnField(req.body, 'staff_name')) {
       const nextStaffName = requireText(req.body?.staff_name, 'staff_name');
       if (normalizeText(beforeRecord.staff_name) !== nextStaffName) {
@@ -1108,25 +1105,126 @@ export async function patchAdminAppointment(req, res) {
     }
 
     if (hasOwnField(req.body, 'phone')) {
+      const reassignCustomerByPhone = Boolean(req.body?.reassign_customer_by_phone);
       const normalizedPhone = normalizeThaiPhone(req.body?.phone);
       if (!normalizedPhone) {
         await client.query('ROLLBACK');
         return res.status(400).json({ ok: false, error: 'Invalid phone' });
       }
-      const phoneSync = await setIdentityProviderValue(client, {
-        customerId: beforeRecord.customer_id,
-        provider: 'PHONE',
-        nextValue: normalizedPhone,
-      });
-      if (phoneSync.changed) {
-        before.phone = phoneSync.beforeValue;
-        after.phone = phoneSync.afterValue;
+
+      const ownerResult = await client.query(
+        `
+          SELECT
+            ci.id,
+            ci.customer_id,
+            ci.is_active,
+            COALESCE(c.full_name, '') AS customer_full_name
+          FROM customer_identities
+          ci
+          LEFT JOIN customers c ON c.id = ci.customer_id
+          WHERE ci.provider = 'PHONE'
+            AND ci.provider_user_id = $1
+          LIMIT 1
+          FOR UPDATE
+        `,
+        [normalizedPhone]
+      );
+      const ownerRow = ownerResult.rows[0] || null;
+      const ownerCustomerId = ownerRow?.customer_id || null;
+      const ownerBelongsAnotherCustomer =
+        Boolean(ownerCustomerId) && String(ownerCustomerId) !== String(beforeRecord.customer_id);
+
+      if (ownerBelongsAnotherCustomer && !reassignCustomerByPhone) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          ok: false,
+          error:
+            'Phone belongs to another customer. Set reassign_customer_by_phone=true to move appointment to that customer.',
+          code: 'PHONE_BELONGS_ANOTHER_CUSTOMER',
+          conflict: {
+            customer_id: ownerCustomerId,
+            customer_full_name: ownerRow?.customer_full_name || '',
+            phone: normalizedPhone,
+          },
+        });
+      }
+
+      if (ownerBelongsAnotherCustomer && reassignCustomerByPhone) {
+        targetCustomerId = ownerCustomerId;
+        appointmentUpdateFields.customer_id = targetCustomerId;
+        before.customer_id = beforeRecord.customer_id;
+        after.customer_id = targetCustomerId;
+
+        if (!ownerRow.is_active) {
+          await client.query(
+            `
+              UPDATE customer_identities
+              SET is_active = true
+              WHERE id = $1
+            `,
+            [ownerRow.id]
+          );
+        }
+
+        await client.query(
+          `
+            UPDATE customer_identities
+            SET is_active = false
+            WHERE customer_id = $1
+              AND provider = 'PHONE'
+              AND is_active = true
+              AND id <> $2
+          `,
+          [targetCustomerId, ownerRow.id]
+        );
+
+        if (normalizeText(beforeRecord.phone) !== normalizedPhone) {
+          before.phone = beforeRecord.phone;
+          after.phone = normalizedPhone;
+        }
+      } else {
+        const phoneSync = await setIdentityProviderValue(client, {
+          customerId: targetCustomerId,
+          provider: 'PHONE',
+          nextValue: normalizedPhone,
+        });
+        if (phoneSync.changed) {
+          before.phone = phoneSync.beforeValue;
+          after.phone = phoneSync.afterValue;
+        }
+      }
+    }
+
+    if (hasOwnField(req.body, 'customer_full_name')) {
+      const nextCustomerName = requireText(req.body?.customer_full_name, 'customer_full_name');
+      const currentCustomerRow = await client.query(
+        `
+          SELECT full_name
+          FROM customers
+          WHERE id = $1
+          LIMIT 1
+          FOR UPDATE
+        `,
+        [targetCustomerId]
+      );
+      const currentCustomerName = normalizeText(currentCustomerRow.rows[0]?.full_name);
+      if (currentCustomerName !== nextCustomerName) {
+        await client.query(
+          `
+            UPDATE customers
+            SET full_name = $2
+            WHERE id = $1
+          `,
+          [targetCustomerId, nextCustomerName]
+        );
+        before.customer_full_name = currentCustomerName || null;
+        after.customer_full_name = nextCustomerName;
       }
     }
 
     if (hasOwnField(req.body, 'email_or_lineid')) {
       const emailOrLineSync = await setEmailOrLineIdentity(client, {
-        customerId: beforeRecord.customer_id,
+        customerId: targetCustomerId,
         rawValue: req.body?.email_or_lineid,
       });
       if (emailOrLineSync.changed) {
@@ -1199,7 +1297,7 @@ export async function patchAdminAppointment(req, res) {
       const customerPackageId = normalizeText(req.body?.customer_package_id);
       deductionResult = await createPackageUsageByAdmin(client, {
         appointmentId,
-        customerId: beforeRecord.customer_id,
+        customerId: targetCustomerId,
         customerPackageId,
         usedMask: Boolean(req.body?.used_mask),
         actorUserId,

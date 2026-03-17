@@ -573,7 +573,46 @@ export default function AdminEditAppointment({ currentUser }) {
       // Query params: none
       // Identifier: appointment_id in path (appointments.id UUID).
       // Backend mutation target: single appointments row by a.id, with event history keyed by ae.appointment_id = a.id.
-      const data = await patchAdminAppointment(appointment.id, pendingPayload);
+      let data;
+      try {
+        data = await patchAdminAppointment(appointment.id, pendingPayload);
+      } catch (err) {
+        const conflictCode = String(err?.response?.code || "").trim();
+        if (conflictCode !== "PHONE_BELONGS_ANOTHER_CUSTOMER") {
+          throw err;
+        }
+
+        const conflict = err?.response?.conflict || {};
+        const conflictName = String(conflict?.customer_full_name || "").trim();
+        const conflictCustomerId = String(conflict?.customer_id || "").trim();
+        const conflictPhone = String(conflict?.phone || pendingPayload?.phone || "").trim();
+        const conflictLabel = conflictName || conflictCustomerId || "ลูกค้าคนอื่น";
+
+        setStatusOpen(false);
+        setStatusMode("idle");
+        const confirmed = window.confirm(
+          [
+            `เบอร์ ${conflictPhone || "-"} เป็นของ ${conflictLabel}`,
+            "ต้องการย้ายนัดนี้ไปยังลูกค้าคนนี้หรือไม่?",
+            "กด OK = ใช่, กด Cancel = ไม่ใช่",
+          ].join("\n")
+        );
+
+        if (!confirmed) {
+          setSubmitError(
+            "ยกเลิกการย้ายลูกค้าแล้ว กรุณาแก้เบอร์โทร/ข้อมูลให้ถูกต้องก่อนบันทึกใหม่"
+          );
+          return;
+        }
+
+        setStatusOpen(true);
+        setStatusMode("loading");
+        data = await patchAdminAppointment(appointment.id, {
+          ...pendingPayload,
+          reassign_customer_by_phone: true,
+        });
+      }
+
       setResult(data);
       const revertedUsageCount = Number(data?.revertedUsageCount || 0);
       const warnings = Array.isArray(data?.warnings)

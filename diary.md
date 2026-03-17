@@ -433,6 +433,80 @@ Runtime behavior previously depended on sheet tables:
   - Slot collision (`409`) for a specific time, though this usually affects only one slot, not a short outage window.
 - Evidence limitation:
   - The provided log line does not include HTTP method, path, or status code, so this remains a best-effort root-cause hypothesis, not a confirmed RCA.
+
+## 2026-03-11 14:40 +07 - Incident: AdminEdit เปลี่ยนชื่อ 1 นัด แต่กระทบ 3 นัด (customer merge)
+
+- Symptom:
+  - แก้ `customer_full_name` ใน Admin Edit ของ appointment เดียว แต่ชื่อไปเปลี่ยนพร้อมกันทั้ง 3 appointment:
+    - `68f428bc-9c48-4ae0-a318-7068d28a9016`
+    - `92872229-18f6-4ce6-bf93-85093242acc0`
+    - `dc24e842-eb08-4769-abc3-6c3335c28683`
+- Root cause:
+  - ทั้ง 3 นัดใช้ `customer_id` เดียวกัน (`1c919204-8cb7-4b2f-97dc-28b41ae6386d`) อยู่แล้ว
+  - ระบบ resolve ลูกค้าด้วย `PHONE` identity ก่อน (`resolveOrCreateCustomerByPhone`) ไม่ได้แยกด้วยชื่อ
+  - Admin Edit อัปเดตชื่อที่ตาราง `customers.full_name` (ระดับ customer profile) ไม่ใช่ field แยกต่อ appointment
+- Why merged from the start:
+  - ตอนสร้าง/แก้บางจุดมีการใช้เบอร์เดียวกัน (`0618682365`) จึงถูก map ไป customer เดิม
+  - ต่อมามีการแก้เบอร์ไปมา ทำให้ identity บน customer เดียวกันมีทั้ง `0618682365` (active) และ `0661479765` (inactive) ชั่วคราว
+
+### Data fix performed (completed)
+
+- เป้าหมายที่ต้องการ:
+  - `68f428bc-9c48-4ae0-a318-7068d28a9016` = `ศรีรัตน์` / `0618682365`
+  - `92872229-18f6-4ce6-bf93-85093242acc0` + `dc24e842-eb08-4769-abc3-6c3335c28683` = `ศศิมา` / `0661479765`
+- สิ่งที่ทำใน transaction เดียว:
+  - สร้าง customer ใหม่ `9443abc5-35d7-40d4-a79d-6a58b9790ba2` สำหรับ `ศศิมา`
+  - ย้าย 2 appointment (`928...`, `dc24...`) ไป customer ใหม่
+  - ย้าย/activate PHONE identity `0661479765` ไป customer ใหม่
+  - คง PHONE identity `0618682365` เป็น active บน customer เดิม (`ศรีรัตน์`)
+  - ย้าย `customer_packages.customer_id` ของแพ็กที่ถูกใช้โดย `dc24...` ไป customer ใหม่
+    - เหตุผล: `dc24...` มี `package_usages` แล้ว 1 แถว ต้องย้าย owner แพ็กให้ตรงคน
+- Verification after fix:
+  - `68...` อยู่ customer เดิม + active phone `0618682365` + ชื่อ `ศรีรัตน์`
+  - `928...` และ `dc24...` อยู่ customer ใหม่ + active phone `0661479765` + ชื่อ `ศศิมา`
+  - package usage ของ `dc24...` ชี้ไป package ที่ owner เป็น customer ใหม่แล้ว
+
+### Operational note (important)
+
+- ระหว่างแก้ข้อมูลผ่าน PowerShell ครั้งแรก เจอ encoding issue ทำให้ชื่อไทยถูกเขียนเป็น `?` ใน DB
+  - แก้แล้วโดย update ซ้ำด้วย Unicode escape (`\\u....`) และ verify UTF-8 hex ใน Postgres
+- บทเรียน:
+  - เวลาอัปเดตชื่อไทยผ่าน shell script ให้ใช้ UTF-8 ที่แน่ใจได้ (เช่น Unicode escape) และ verify หลังเขียนทุกครั้ง
+
+### Runbook (next time, short version)
+
+1. ตรวจว่า appointment ที่มีปัญหา share `customer_id` เดียวกันหรือไม่
+2. ตรวจ PHONE identities (`provider='PHONE'`, `is_active`) ของ customer นั้น
+3. ถ้าต้องแยกคน:
+   - สร้าง customer ใหม่
+   - ย้าย appointment ที่เป็นอีกคนไป customer ใหม่
+   - ย้าย/activate เบอร์ของอีกคนไป customer ใหม่
+   - deactivate เบอร์ที่ไม่ควร active ในแต่ละ customer
+4. ถ้ามี `package_usages` บน appointment ที่ย้าย:
+   - ย้าย `customer_packages.customer_id` ของแพ็กที่เกี่ยวข้องให้ตรง customer ใหม่
+5. verify ซ้ำ: appointment -> customer_id -> customers.full_name -> active PHONE ต้องตรงกันทั้งหมด
+
+## 2026-03-11 - Follow-up: DB hotfix + Admin confirm flow before customer reassign
+
+- DB hotfix (Render Postgres `scglam`):
+  - อัปเดต `appointments.id = dc24e842-eb08-4769-abc3-6c3335c28683` ให้ชี้ `customer_id = 1c919204-8cb7-4b2f-97dc-28b41ae6386d` (เจ้าของเบอร์ `0618682365`)
+  - อัปเดต `customers.full_name` ของ customer ข้างต้นเป็น `คุณศรีรัตน์` และ verify UTF-8 ด้วย hex ใน Postgres
+  - ตรวจหลังแก้: appointment `dc24...` แสดงชื่อ `คุณศรีรัตน์` + active phone `0618682365` ถูกต้อง
+  - หมายเหตุ: `package_usages` ของ `dc24...` ยังอ้าง `customer_package` ที่ owner เป็น customer `9443abc5-35d7-40d4-a79d-6a58b9790ba2` (ยังไม่ realign ในรอบนี้)
+
+- Product/code change (ลดการแก้ DB ตรงในอนาคต):
+  - Backend `PATCH /api/admin/appointments/:appointmentId`:
+    - เพิ่ม conflict response เมื่อเบอร์ที่กรอกเป็นของลูกค้าอีกคน (`409`, `code=PHONE_BELONGS_ANOTHER_CUSTOMER`, พร้อมข้อมูล customer ที่ชน)
+    - รองรับ flag `reassign_customer_by_phone=true` เพื่อย้าย `appointments.customer_id` ไปเจ้าของเบอร์ใน transaction เดียว
+  - Frontend `AdminEditAppointment`:
+    - เมื่อเจอ `PHONE_BELONGS_ANOTHER_CUSTOMER` จะถาม admin ก่อนว่า “ใช่คนนี้ไหม”
+    - ถ้า `OK` -> ส่ง patch ซ้ำพร้อม `reassign_customer_by_phone=true`
+    - ถ้า `Cancel` -> ยกเลิกและให้แก้ข้อมูลก่อน
+
+- Validation:
+  - `node --check backend/src/controllers/adminAppointmentsController.js`
+  - `npx eslint backend/src/controllers/adminAppointmentsController.js`
+  - `npx eslint src/pages/AdminEditAppointment.jsx`
 <!-- ===== END legacy: diary.md ===== -->
 
 <!-- ===== BEGIN legacy: BLUNDER.md ===== -->
