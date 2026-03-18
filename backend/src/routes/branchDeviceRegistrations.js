@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import requireAuth from '../middlewares/requireAuth.js';
+import { createBranchDeviceGuardTraceMiddleware } from '../middlewares/branchDeviceGuardTrace.js';
 import {
   createOrUpdateBranchDeviceRegistrationHandler,
   getBranchDeviceRegistrationMeHandler,
@@ -9,8 +10,13 @@ import {
 
 const router = Router();
 
-router.get('/me', getBranchDeviceRegistrationMeHandler);
-router.post('/', requireAuth, createOrUpdateBranchDeviceRegistrationHandler);
+router.get('/me', createBranchDeviceGuardTraceMiddleware('me'), getBranchDeviceRegistrationMeHandler);
+router.post(
+  '/',
+  createBranchDeviceGuardTraceMiddleware('register'),
+  requireAuth,
+  createOrUpdateBranchDeviceRegistrationHandler
+);
 router.get('/', requireAuth, listBranchDeviceRegistrationsHandler);
 router.patch('/:id', requireAuth, patchBranchDeviceRegistrationHandler);
 

@@ -14,6 +14,23 @@ function normalizeNullableText(value) {
   return normalized || null;
 }
 
+function maskLineUserId(lineUserId) {
+  const normalized = normalizeText(lineUserId);
+  if (!normalized) return null;
+  if (normalized.length <= 8) {
+    return `${normalized.slice(0, 2)}***${normalized.slice(-2)}`;
+  }
+  return `${normalized.slice(0, 4)}***${normalized.slice(-4)}`;
+}
+
+function updateTrace(trace, patch = {}) {
+  if (!trace || typeof trace !== 'object') {
+    return;
+  }
+
+  Object.assign(trace, patch);
+}
+
 function toOutputDatetime(value) {
   if (value === null || value === undefined || value === '') return null;
   if (value instanceof Date) return value.toISOString();
@@ -24,9 +41,10 @@ function hasOwnField(objectValue, fieldName) {
   return Object.prototype.hasOwnProperty.call(objectValue || {}, fieldName);
 }
 
-function badRequest(message, details = null) {
+function badRequest(message, details = null, reason = 'bad_request') {
   const err = new Error(message);
   err.status = 400;
+  err.reason = reason;
   if (details) {
     err.details = details;
   }
@@ -84,7 +102,7 @@ function mapBranchDeviceRegistrationRow(row) {
 function buildRegistrationCreateValues({ body = {}, headers = {} } = {}) {
   const branchId = normalizeText(body?.branch_id);
   if (!branchId) {
-    throw badRequest('branch_id is required');
+    throw badRequest('branch_id is required', null, 'missing_branch_id');
   }
 
   return {
@@ -170,17 +188,50 @@ export async function createOrUpdateBranchDeviceRegistration({
   user,
   dbPool = null,
   verifyLineIdentityFn = verifyLineLiffIdentity,
+  trace = null,
 } = {}) {
   const values = buildRegistrationCreateValues({ body, headers });
-  const lineCredentialPayload = extractLineCredentialPayload({ headers, body });
-  const lineIdentity = await verifyLineIdentityFn(lineCredentialPayload);
+  let lineCredentialPayload;
+  try {
+    lineCredentialPayload = extractLineCredentialPayload({ headers, body });
+  } catch (error) {
+    updateTrace(trace, {
+      liffVerification: 'failure',
+      verificationReason: normalizeNullableText(error?.reason || 'missing_token'),
+    });
+    throw error;
+  }
+
+  let lineIdentity;
+  try {
+    lineIdentity = await verifyLineIdentityFn(lineCredentialPayload);
+  } catch (error) {
+    updateTrace(trace, {
+      liffVerification: 'failure',
+      verificationReason: normalizeNullableText(error?.reason || 'invalid_token'),
+    });
+    throw error;
+  }
+
   const lineUserId = normalizeText(lineIdentity?.line_user_id);
 
   if (!lineUserId) {
     const err = new Error('Unable to resolve verified LINE user id');
-    err.status = 422;
+    err.status = 401;
+    err.code = 'LINE_IDENTITY_UNAVAILABLE';
+    err.reason = 'invalid_token';
+    updateTrace(trace, {
+      liffVerification: 'failure',
+      verificationReason: 'invalid_token',
+    });
     throw err;
   }
+
+  updateTrace(trace, {
+    liffVerification: 'success',
+    verificationReason: null,
+    resolvedLineUserId: maskLineUserId(lineUserId),
+  });
 
   const resolvedDbPool = await resolveDbPool(dbPool);
   const client = await resolvedDbPool.connect();
@@ -190,6 +241,14 @@ export async function createOrUpdateBranchDeviceRegistration({
 
     const existing = await fetchRegistrationByLineUserId(client, lineUserId, {
       forUpdate: true,
+    });
+
+    updateTrace(trace, {
+      lookupResult: existing
+        ? normalizeText(existing?.status).toLowerCase() === 'active'
+          ? 'registration_found_active'
+          : 'registration_found_inactive'
+        : 'no_registration',
     });
 
     let result;
@@ -273,6 +332,10 @@ export async function createOrUpdateBranchDeviceRegistration({
 
     return {
       action,
+      created: action === 'created',
+      updated: action === 'updated',
+      active: true,
+      reason: action === 'created' ? 'created' : 'updated',
       registration: mapBranchDeviceRegistrationRow(result.rows[0] || null),
       line_identity: {
         line_user_id: lineUserId,
@@ -348,16 +411,49 @@ export async function getBranchDeviceRegistrationMe({
   body = {},
   dbPool = null,
   verifyLineIdentityFn = verifyLineLiffIdentity,
+  trace = null,
 } = {}) {
-  const lineCredentialPayload = extractLineCredentialPayload({ headers, body });
-  const lineIdentity = await verifyLineIdentityFn(lineCredentialPayload);
+  let lineCredentialPayload;
+  try {
+    lineCredentialPayload = extractLineCredentialPayload({ headers, body });
+  } catch (error) {
+    updateTrace(trace, {
+      liffVerification: 'failure',
+      verificationReason: normalizeNullableText(error?.reason || 'missing_token'),
+    });
+    throw error;
+  }
+
+  let lineIdentity;
+  try {
+    lineIdentity = await verifyLineIdentityFn(lineCredentialPayload);
+  } catch (error) {
+    updateTrace(trace, {
+      liffVerification: 'failure',
+      verificationReason: normalizeNullableText(error?.reason || 'invalid_token'),
+    });
+    throw error;
+  }
+
   const lineUserId = normalizeText(lineIdentity?.line_user_id);
 
   if (!lineUserId) {
     const err = new Error('Unable to resolve verified LINE user id');
-    err.status = 422;
+    err.status = 401;
+    err.code = 'LINE_IDENTITY_UNAVAILABLE';
+    err.reason = 'invalid_token';
+    updateTrace(trace, {
+      liffVerification: 'failure',
+      verificationReason: 'invalid_token',
+    });
     throw err;
   }
+
+  updateTrace(trace, {
+    liffVerification: 'success',
+    verificationReason: null,
+    resolvedLineUserId: maskLineUserId(lineUserId),
+  });
 
   const resolvedDbPool = await resolveDbPool(dbPool);
   const client = await resolvedDbPool.connect();
@@ -381,10 +477,20 @@ export async function getBranchDeviceRegistrationMe({
 
     const mapped = mapBranchDeviceRegistrationRow(registration);
     const isActive = normalizeText(mapped?.status).toLowerCase() === 'active';
+    const reason = !mapped ? 'not_registered' : isActive ? 'active' : 'inactive';
+
+    updateTrace(trace, {
+      lookupResult: !mapped
+        ? 'no_registration'
+        : isActive
+          ? 'registration_found_active'
+          : 'registration_found_inactive',
+    });
 
     return {
       registered: Boolean(mapped),
-      active: Boolean(mapped) && isActive,
+      active: Boolean(mapped) ? isActive : null,
+      reason,
       branch_id: mapped?.branch_id || null,
       device_label: mapped?.device_label || null,
       registration: mapped,
@@ -465,22 +571,142 @@ export async function patchBranchDeviceRegistration({
   }
 }
 
+function buildMeReason(result = {}) {
+  const explicitReason = normalizeText(result?.reason).toLowerCase();
+
+  if (explicitReason) {
+    return explicitReason;
+  }
+
+  if (!result?.registered) {
+    return 'not_registered';
+  }
+
+  return result?.active ? 'active' : 'inactive';
+}
+
+export function buildBranchDeviceRegistrationMeResponse(result = {}) {
+  const reason = buildMeReason(result);
+  const branchId =
+    normalizeNullableText(result?.branch_id) ||
+    normalizeNullableText(result?.registration?.branch_id);
+  const registrationId = normalizeNullableText(result?.registration?.id);
+  const deviceLabel =
+    normalizeNullableText(result?.device_label) ||
+    normalizeNullableText(result?.registration?.device_label);
+  const lineIdentity = result?.line_identity || null;
+
+  return {
+    ok: true,
+    success: true,
+    registered: Boolean(result?.registered),
+    active: reason === 'not_registered' ? null : Boolean(result?.active),
+    reason,
+    branchId,
+    registrationId,
+    branch_id: branchId,
+    device_label: deviceLabel,
+    registration: result?.registration || null,
+    lineIdentity,
+    line_identity: lineIdentity,
+  };
+}
+
+export function buildBranchDeviceRegistrationMutationResponse(result = {}) {
+  const registration = result?.registration || null;
+  const branchId = normalizeNullableText(registration?.branch_id);
+  const registrationId = normalizeNullableText(registration?.id);
+  const created =
+    typeof result?.created === 'boolean'
+      ? result.created
+      : normalizeText(result?.action) === 'created';
+  const updated =
+    typeof result?.updated === 'boolean'
+      ? result.updated
+      : normalizeText(result?.action) === 'updated';
+  const lineIdentity = result?.line_identity || null;
+
+  return {
+    ok: true,
+    success: true,
+    created,
+    updated,
+    active: normalizeText(registration?.status).toLowerCase() === 'active',
+    reason: normalizeText(result?.reason) || (created ? 'created' : 'updated'),
+    branchId,
+    registrationId,
+    registration,
+    lineIdentity,
+    line_identity: lineIdentity,
+  };
+}
+
+function getBranchDeviceErrorReason(error, { endpoint = 'generic' } = {}) {
+  const explicitReason = normalizeText(error?.reason);
+  if (explicitReason) {
+    return explicitReason;
+  }
+
+  if (normalizeText(error?.code) === 'LINE_LIFF_CONFIG_MISSING') {
+    return 'config_error';
+  }
+
+  if (error?.status === 400) {
+    return endpoint === 'me' ? 'missing_token' : 'bad_request';
+  }
+
+  if (error?.status === 401) {
+    return 'invalid_token';
+  }
+
+  if (error?.status >= 500) {
+    return 'server_error';
+  }
+
+  return 'bad_request';
+}
+
 export function buildBranchDeviceRegistrationErrorResponse(
   error,
   {
+    endpoint = 'generic',
     isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production',
   } = {}
 ) {
+  const reason = getBranchDeviceErrorReason(error, { endpoint });
+  const shouldExposeMessage =
+    Boolean(error?.status && error.status < 500) || reason === 'config_error';
+  const message = shouldExposeMessage
+    ? error?.message || 'Request failed'
+    : isProd
+      ? 'Server error'
+      : error?.message || 'Server error';
+
   if (error?.status) {
     const body = {
       ok: false,
-      error: error.message,
+      success: false,
+      reason,
+      error: message,
     };
     if (error?.code) {
       body.code = error.code;
     }
     if (error?.details) {
       body.details = error.details;
+    }
+    if (endpoint === 'me') {
+      body.registered = null;
+      body.active = null;
+      body.branchId = null;
+      body.registrationId = null;
+    }
+    if (endpoint === 'register') {
+      body.created = false;
+      body.updated = false;
+      body.active = null;
+      body.branchId = null;
+      body.registrationId = null;
     }
     return {
       status: error.status,
@@ -492,8 +718,27 @@ export function buildBranchDeviceRegistrationErrorResponse(
     status: 500,
     body: {
       ok: false,
+      success: false,
+      reason,
       error: isProd ? 'Server error' : error?.message || 'Server error',
       code: isProd ? undefined : error?.code || null,
+      ...(endpoint === 'me'
+        ? {
+            registered: null,
+            active: null,
+            branchId: null,
+            registrationId: null,
+          }
+        : {}),
+      ...(endpoint === 'register'
+        ? {
+            created: false,
+            updated: false,
+            active: null,
+            branchId: null,
+            registrationId: null,
+          }
+        : {}),
     },
   };
 }

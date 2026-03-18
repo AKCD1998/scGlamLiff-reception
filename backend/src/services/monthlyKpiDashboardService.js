@@ -1,4 +1,9 @@
 const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
+const REPORT_ERROR_CODE_MAP = {
+  '42P01': 'missing_relation',
+  '42703': 'missing_column',
+  '42883': 'schema_mismatch',
+};
 const THAI_MONTHS = [
   'มกราคม',
   'กุมภาพันธ์',
@@ -104,13 +109,157 @@ function buildCard({
   };
 }
 
-function buildNoDataSection({ title, reason, fallback = null }) {
+function buildNoDataSection({ title, reason, note = '', fallback = null }) {
   return {
     availability: 'unavailable',
     title,
     reason,
+    note: note || null,
     fallback,
   };
+}
+
+function buildUnavailableSection({
+  title,
+  reason,
+  note = '',
+  fallback = null,
+  rows = [],
+  top_packages = [],
+  daily_rows = [],
+  total_appointments = null,
+  completed_count = null,
+  cancelled_count = null,
+  no_show_count = null,
+  completion_rate_pct = null,
+  cancellation_rate_pct = null,
+  no_show_rate_pct = null,
+  total_sales_count = null,
+  total_buyer_count = null,
+  total_revenue_thb = null,
+  total_redemptions = null,
+  packages_used_count = null,
+  mask_redemptions_count = null,
+  packages_completed_count = null,
+  unique_buyers_count = null,
+  repeat_buyers_count = null,
+  first_time_buyers_count = null,
+  repurchase_rate_pct = null,
+} = {}) {
+  return {
+    availability: 'unavailable',
+    title,
+    reason,
+    note: note || null,
+    fallback,
+    rows,
+    top_packages,
+    daily_rows,
+    total_appointments,
+    completed_count,
+    cancelled_count,
+    no_show_count,
+    completion_rate_pct,
+    cancellation_rate_pct,
+    no_show_rate_pct,
+    total_sales_count,
+    total_buyer_count,
+    total_revenue_thb,
+    total_redemptions,
+    packages_used_count,
+    mask_redemptions_count,
+    packages_completed_count,
+    unique_buyers_count,
+    repeat_buyers_count,
+    first_time_buyers_count,
+    repurchase_rate_pct,
+  };
+}
+
+function getReportErrorCategory(error) {
+  const normalizedCode = normalizeText(error?.code).toUpperCase();
+  return REPORT_ERROR_CODE_MAP[normalizedCode] || 'query_failed';
+}
+
+function buildRecoverableSectionReason(error) {
+  const category = getReportErrorCategory(error);
+
+  if (category === 'missing_relation') {
+    return {
+      reason: 'ยังอ่านข้อมูลส่วนนี้ไม่ได้ เพราะฐานข้อมูล production ยังไม่มีตารางต้นทางบางตัวที่ KPI นี้ต้องใช้',
+      note: 'ระบบยังคงแสดง KPI ส่วนอื่นต่อได้ และควรตรวจสอบ migration/schema ของข้อมูลรายงานส่วนนี้ใน server logs',
+    };
+  }
+
+  if (category === 'missing_column') {
+    return {
+      reason: 'ยังอ่านข้อมูลส่วนนี้ไม่ได้ เพราะ schema production ยังขาดคอลัมน์ที่ KPI นี้ต้องใช้',
+      note: 'ระบบยังคงแสดง KPI ส่วนอื่นต่อได้ และควรตรวจสอบความตรงกันของ schema ระหว่างเครื่องพัฒนาและ production',
+    };
+  }
+
+  if (category === 'schema_mismatch') {
+    return {
+      reason: 'ยังอ่านข้อมูลส่วนนี้ไม่ได้ เพราะโครงสร้างข้อมูลใน production ยังไม่ตรงกับ query ของ KPI ชุดนี้',
+      note: 'ระบบยังคงแสดง KPI ส่วนอื่นต่อได้ และควรตรวจสอบ type/operator หรือ query compatibility ของฐานข้อมูลส่วนนี้',
+    };
+  }
+
+  return {
+    reason: 'ยังอ่านข้อมูลส่วนนี้ไม่ได้ในขณะนี้ ระบบข้าม KPI ส่วนนี้ชั่วคราวเพื่อไม่ให้ทั้ง dashboard ล้ม',
+    note: 'ส่วนนี้เป็นข้อมูลอ่านอย่างเดียว และไม่มีผลต่อข้อมูลธุรกรรมเดิม',
+  };
+}
+
+function logSectionFailure(sectionKey, error, { month } = {}) {
+  console.error('[monthlyKpiDashboard] section failed', {
+    section: sectionKey,
+    month: normalizeText(month) || null,
+    message: normalizeText(error?.message) || 'unknown error',
+    code: normalizeText(error?.code) || null,
+    detail: normalizeText(error?.detail) || null,
+    hint: normalizeText(error?.hint) || null,
+    table: normalizeText(error?.table) || null,
+    column: normalizeText(error?.column) || null,
+    constraint: normalizeText(error?.constraint) || null,
+    where: normalizeText(error?.where) || null,
+    stack: error?.stack || null,
+  });
+}
+
+function buildSectionWarning(sectionKey, error, title) {
+  const detail = buildRecoverableSectionReason(error);
+  return {
+    section: sectionKey,
+    title,
+    availability: 'unavailable',
+    reason: detail.reason,
+    note: detail.note || null,
+    category: getReportErrorCategory(error),
+  };
+}
+
+async function readSectionSafely({ sectionKey, title, month, run }) {
+  try {
+    const data = await run();
+    return {
+      ok: true,
+      sectionKey,
+      title,
+      data,
+      warning: null,
+    };
+  } catch (error) {
+    logSectionFailure(sectionKey, error, { month });
+    return {
+      ok: false,
+      sectionKey,
+      title,
+      data: null,
+      error,
+      warning: buildSectionWarning(sectionKey, error, title),
+    };
+  }
 }
 
 const STAFF_NAME_LATERAL_SQL = `
@@ -358,7 +507,7 @@ async function fetchCourseRedemptionSummary(queryFn, { startDate, endDate }) {
       SELECT
         COUNT(*)::int AS total_redemptions,
         COUNT(DISTINCT pu.customer_package_id)::int AS packages_used_count,
-        COUNT(*) FILTER (WHERE pu.used_mask IS TRUE)::int AS mask_redemptions_count
+        SUM(CASE WHEN pu.used_mask IS TRUE THEN 1 ELSE 0 END)::int AS mask_redemptions_count
       FROM package_usages pu
       JOIN customer_packages cp ON cp.id = pu.customer_package_id
       LEFT JOIN customers c ON c.id = cp.customer_id
@@ -504,54 +653,220 @@ export async function getMonthlyKpiDashboardReport({
 
   const period = resolveDashboardMonthRange(month, now);
   const [
-    appointmentOverview,
-    dailyOutcomeRows,
-    courseSalesMix,
-    staffRows,
-    courseRedemption,
-    repurchase,
-    receiptFallback,
+    appointmentOutcomeResult,
+    courseSalesMixResult,
+    staffRowsResult,
+    courseRedemptionResult,
+    repurchaseResult,
+    receiptFallbackResult,
   ] = await Promise.all([
-    fetchAppointmentOverview(queryFn, period),
-    fetchDailyOutcomeRows(queryFn, period),
-    fetchCourseSalesRows(queryFn, period),
-    fetchStaffPerformanceRows(queryFn, period),
-    fetchCourseRedemptionSummary(queryFn, period),
-    fetchRepurchaseSummary(queryFn, period),
-    fetchReceiptFallbackSummary(queryFn, period),
+    readSectionSafely({
+      sectionKey: 'appointment_outcomes',
+      title: 'ภาพรวมสถานะนัดหมาย',
+      month: period.month,
+      run: async () => {
+        const [overview, dailyRows] = await Promise.all([
+          fetchAppointmentOverview(queryFn, period),
+          fetchDailyOutcomeRows(queryFn, period),
+        ]);
+        return {
+          overview,
+          daily_rows: dailyRows,
+        };
+      },
+    }),
+    readSectionSafely({
+      sectionKey: 'course_sales_mix',
+      title: 'สัดส่วนยอดขายคอร์ส 399 / 999 / 2999',
+      month: period.month,
+      run: async () => fetchCourseSalesRows(queryFn, period),
+    }),
+    readSectionSafely({
+      sectionKey: 'staff_utilization',
+      title: 'การใช้กำลังคนพนักงาน',
+      month: period.month,
+      run: async () => fetchStaffPerformanceRows(queryFn, period),
+    }),
+    readSectionSafely({
+      sectionKey: 'course_redemption',
+      title: 'การตัดคอร์ส / การปิดคอร์ส',
+      month: period.month,
+      run: async () => fetchCourseRedemptionSummary(queryFn, period),
+    }),
+    readSectionSafely({
+      sectionKey: 'repurchase',
+      title: 'การต่อคอร์ส / ซื้อซ้ำ',
+      month: period.month,
+      run: async () => fetchRepurchaseSummary(queryFn, period),
+    }),
+    readSectionSafely({
+      sectionKey: 'revenue_mix_receipt_fallback',
+      title: 'ข้อมูลทดแทนจากใบเสร็จ',
+      month: period.month,
+      run: async () => fetchReceiptFallbackSummary(queryFn, period),
+    }),
   ]);
 
+  const warnings = [
+    appointmentOutcomeResult.warning,
+    courseSalesMixResult.warning,
+    staffRowsResult.warning,
+    courseRedemptionResult.warning,
+    repurchaseResult.warning,
+    receiptFallbackResult.warning,
+  ].filter(Boolean);
+
+  const appointmentOverview = appointmentOutcomeResult.data?.overview || null;
+  const dailyOutcomeRows = appointmentOutcomeResult.data?.daily_rows || [];
+  const staffRows = staffRowsResult.data || [];
+  const receiptFallback = receiptFallbackResult.data || null;
+
+  const appointmentSection = appointmentOutcomeResult.ok
+    ? {
+        availability: 'available',
+        title: appointmentOutcomeResult.title,
+        ...appointmentOverview,
+        daily_rows: dailyOutcomeRows,
+      }
+    : buildUnavailableSection({
+        title: appointmentOutcomeResult.title,
+        ...buildRecoverableSectionReason(appointmentOutcomeResult.error),
+      });
+
+  const noShowCancellationSection = appointmentOutcomeResult.ok
+    ? {
+        availability: 'available',
+        title: 'No-show / Cancellation',
+        no_show_count: appointmentOverview.no_show_count,
+        cancelled_count: appointmentOverview.cancelled_count,
+        no_show_rate_pct: appointmentOverview.no_show_rate_pct,
+        cancellation_rate_pct: appointmentOverview.cancellation_rate_pct,
+      }
+    : buildUnavailableSection({
+        title: 'No-show / Cancellation',
+        ...buildRecoverableSectionReason(appointmentOutcomeResult.error),
+      });
+
+  const courseSalesSection = courseSalesMixResult.ok
+    ? {
+        availability: 'available',
+        title: courseSalesMixResult.title,
+        ...courseSalesMixResult.data,
+      }
+    : buildUnavailableSection({
+        title: courseSalesMixResult.title,
+        ...buildRecoverableSectionReason(courseSalesMixResult.error),
+      });
+
+  const staffUtilizationSection = staffRowsResult.ok
+    ? {
+        availability: 'proxy',
+        title: staffRowsResult.title,
+        note: 'คำนวณแบบ proxy จากจำนวนเคสที่พนักงานถูกระบุใน appointment_events เพราะระบบยังไม่มีตารางกะงานหรือชั่วโมงทำงานจริง',
+        rows: staffRows,
+      }
+    : buildUnavailableSection({
+        title: staffRowsResult.title,
+        ...buildRecoverableSectionReason(staffRowsResult.error),
+      });
+
+  const courseRedemptionSection = courseRedemptionResult.ok
+    ? {
+        availability: 'available',
+        title: courseRedemptionResult.title,
+        ...courseRedemptionResult.data,
+      }
+    : buildUnavailableSection({
+        title: courseRedemptionResult.title,
+        ...buildRecoverableSectionReason(courseRedemptionResult.error),
+      });
+
+  const repurchaseSection = repurchaseResult.ok
+    ? {
+        availability: 'available',
+        title: repurchaseResult.title,
+        ...repurchaseResult.data,
+      }
+    : buildUnavailableSection({
+        title: repurchaseResult.title,
+        ...buildRecoverableSectionReason(repurchaseResult.error),
+      });
+
+  const revenueMixFallbackNote = receiptFallbackResult.ok
+    ? null
+    : buildRecoverableSectionReason(receiptFallbackResult.error).reason;
+
   const summaryCards = [
-    buildCard({
-      id: 'appointments_total',
-      label: 'นัดหมายทั้งหมด',
-      value: appointmentOverview.total_appointments,
-      unit: 'นัด',
-    }),
-    buildCard({
-      id: 'completion_rate',
-      label: 'อัตราเข้ารับบริการสำเร็จ',
-      value: appointmentOverview.completion_rate_pct,
-      unit: '%',
-    }),
-    buildCard({
-      id: 'course_sales_total',
-      label: 'ยอดขายคอร์ส',
-      value: courseSalesMix.total_sales_count,
-      unit: 'รายการ',
-    }),
-    buildCard({
-      id: 'repurchase_rate',
-      label: 'อัตราซื้อซ้ำ',
-      value: repurchase.repurchase_rate_pct,
-      unit: '%',
-    }),
-    buildCard({
-      id: 'redemptions_total',
-      label: 'การตัดคอร์ส',
-      value: courseRedemption.total_redemptions,
-      unit: 'ครั้ง',
-    }),
+    appointmentOutcomeResult.ok
+      ? buildCard({
+          id: 'appointments_total',
+          label: 'นัดหมายทั้งหมด',
+          value: appointmentOverview.total_appointments,
+          unit: 'นัด',
+        })
+      : buildCard({
+          id: 'appointments_total',
+          label: 'นัดหมายทั้งหมด',
+          availability: 'unavailable',
+          reason: buildRecoverableSectionReason(appointmentOutcomeResult.error).reason,
+          note: buildRecoverableSectionReason(appointmentOutcomeResult.error).note,
+        }),
+    appointmentOutcomeResult.ok
+      ? buildCard({
+          id: 'completion_rate',
+          label: 'อัตราเข้ารับบริการสำเร็จ',
+          value: appointmentOverview.completion_rate_pct,
+          unit: '%',
+        })
+      : buildCard({
+          id: 'completion_rate',
+          label: 'อัตราเข้ารับบริการสำเร็จ',
+          availability: 'unavailable',
+          reason: buildRecoverableSectionReason(appointmentOutcomeResult.error).reason,
+          note: buildRecoverableSectionReason(appointmentOutcomeResult.error).note,
+        }),
+    courseSalesMixResult.ok
+      ? buildCard({
+          id: 'course_sales_total',
+          label: 'ยอดขายคอร์ส',
+          value: courseSalesMixResult.data.total_sales_count,
+          unit: 'รายการ',
+        })
+      : buildCard({
+          id: 'course_sales_total',
+          label: 'ยอดขายคอร์ส',
+          availability: 'unavailable',
+          reason: buildRecoverableSectionReason(courseSalesMixResult.error).reason,
+          note: buildRecoverableSectionReason(courseSalesMixResult.error).note,
+        }),
+    repurchaseResult.ok
+      ? buildCard({
+          id: 'repurchase_rate',
+          label: 'อัตราซื้อซ้ำ',
+          value: repurchaseResult.data.repurchase_rate_pct,
+          unit: '%',
+        })
+      : buildCard({
+          id: 'repurchase_rate',
+          label: 'อัตราซื้อซ้ำ',
+          availability: 'unavailable',
+          reason: buildRecoverableSectionReason(repurchaseResult.error).reason,
+          note: buildRecoverableSectionReason(repurchaseResult.error).note,
+        }),
+    courseRedemptionResult.ok
+      ? buildCard({
+          id: 'redemptions_total',
+          label: 'การตัดคอร์ส',
+          value: courseRedemptionResult.data.total_redemptions,
+          unit: 'ครั้ง',
+        })
+      : buildCard({
+          id: 'redemptions_total',
+          label: 'การตัดคอร์ส',
+          availability: 'unavailable',
+          reason: buildRecoverableSectionReason(courseRedemptionResult.error).reason,
+          note: buildRecoverableSectionReason(courseRedemptionResult.error).note,
+        }),
     buildCard({
       id: 'free_scan_conversion',
       label: 'แปลงจากสแกนผิวฟรี',
@@ -561,35 +876,14 @@ export async function getMonthlyKpiDashboardReport({
   ];
 
   return {
-    generated_at: new Date().toISOString(),
+    generated_at: now instanceof Date ? now.toISOString() : new Date().toISOString(),
     period,
     summary_cards: summaryCards,
     sections: {
-      appointment_outcomes: {
-        availability: 'available',
-        title: 'ภาพรวมสถานะนัดหมาย',
-        ...appointmentOverview,
-        daily_rows: dailyOutcomeRows,
-      },
-      course_sales_mix: {
-        availability: 'available',
-        title: 'สัดส่วนยอดขายคอร์ส 399 / 999 / 2999',
-        ...courseSalesMix,
-      },
-      staff_utilization: {
-        availability: 'proxy',
-        title: 'การใช้กำลังคนพนักงาน',
-        note: 'คำนวณแบบ proxy จากจำนวนเคสที่พนักงานถูกระบุใน appointment_events เพราะระบบยังไม่มีตารางกะงานหรือชั่วโมงทำงานจริง',
-        rows: staffRows,
-      },
-      no_show_cancellation: {
-        availability: 'available',
-        title: 'No-show / Cancellation',
-        no_show_count: appointmentOverview.no_show_count,
-        cancelled_count: appointmentOverview.cancelled_count,
-        no_show_rate_pct: appointmentOverview.no_show_rate_pct,
-        cancellation_rate_pct: appointmentOverview.cancellation_rate_pct,
-      },
+      appointment_outcomes: appointmentSection,
+      course_sales_mix: courseSalesSection,
+      staff_utilization: staffUtilizationSection,
+      no_show_cancellation: noShowCancellationSection,
       free_scan_conversion: buildNoDataSection({
         title: 'Free facial scan conversion',
         reason:
@@ -605,17 +899,20 @@ export async function getMonthlyKpiDashboardReport({
         reason:
           'appointment_receipts มีเพียง total_amount_thb ระดับใบเสร็จ แต่ยังไม่มี itemized split ว่าเป็นรายได้บริการหรือรายได้สินค้า',
         fallback: receiptFallback,
+        note: revenueMixFallbackNote,
       }),
-      course_redemption: {
-        availability: 'available',
-        title: 'การตัดคอร์ส / การปิดคอร์ส',
-        ...courseRedemption,
-      },
-      repurchase: {
-        availability: 'available',
-        title: 'การต่อคอร์ส / ซื้อซ้ำ',
-        ...repurchase,
-      },
+      course_redemption: courseRedemptionSection,
+      repurchase: repurchaseSection,
+    },
+    meta: {
+      partial: warnings.length > 0,
+      warning_count: warnings.length,
+      unavailable_sections: warnings.map((warning) => warning.section),
+      warnings,
+      partial_note:
+        warnings.length > 0
+          ? 'บาง KPI ยังไม่พร้อมใน production แต่ระบบยังส่งข้อมูลส่วนที่อ่านได้กลับมาเพื่อไม่ให้ dashboard ล้มทั้งหน้า'
+          : null,
     },
     assumptions: [
       'แดชบอร์ดนี้อ่านจากตาราง PostgreSQL ปัจจุบันแบบ SELECT-only และไม่เขียนกลับข้อมูลธุรกิจ',

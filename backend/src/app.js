@@ -26,6 +26,7 @@ const ALLOWED_ORIGINS = [
 ];
 const IS_PRODUCTION = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
 const LOCALHOST_ORIGIN_PATTERN = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i;
+const BRANCH_DEVICE_GUARD_LOG_PREFIX = '[BranchDeviceGuard]';
 
 function isAllowedOrigin(origin) {
   if (!origin) return true;
@@ -38,10 +39,40 @@ function isAllowedOrigin(origin) {
 export function createApp() {
   const app = express();
 
+  app.use((req, res, next) => {
+    const path = String(req.originalUrl || req.url || '');
+    if (!path.startsWith('/api/branch-device-registrations')) {
+      return next();
+    }
+
+    console.log(
+      BRANCH_DEVICE_GUARD_LOG_PREFIX,
+      JSON.stringify({
+        event: 'incoming_request',
+        method: String(req.method || ''),
+        path,
+        origin: req.headers?.origin || null,
+        requestId: req.headers?.['x-request-id'] || req.headers?.['x-render-request-id'] || null,
+        originAllowed: isAllowedOrigin(req.headers?.origin),
+        preflightMethod: req.headers?.['access-control-request-method'] || null,
+        preflightHeaders: req.headers?.['access-control-request-headers'] || null,
+      })
+    );
+
+    return next();
+  });
+
   app.use(
     cors({
       origin: (origin, callback) => {
         if (isAllowedOrigin(origin)) return callback(null, true);
+        console.warn(
+          BRANCH_DEVICE_GUARD_LOG_PREFIX,
+          JSON.stringify({
+            event: 'cors_rejected',
+            origin: origin || null,
+          })
+        );
         return callback(new Error('Not allowed by CORS'));
       },
       credentials: true,

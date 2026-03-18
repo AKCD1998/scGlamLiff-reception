@@ -1,16 +1,32 @@
 import {
+  buildBranchDeviceRegistrationMeResponse,
+  buildBranchDeviceRegistrationMutationResponse,
   buildBranchDeviceRegistrationErrorResponse,
   createOrUpdateBranchDeviceRegistration,
   getBranchDeviceRegistrationMe,
   listBranchDeviceRegistrations,
   patchBranchDeviceRegistration,
 } from '../services/branchDeviceRegistrationsService.js';
+import {
+  recordBranchDeviceGuardResponse,
+  updateBranchDeviceGuardTrace,
+} from '../middlewares/branchDeviceGuardTrace.js';
 
-function sendBranchDeviceRegistrationError(res, error) {
+function sendBranchDeviceRegistrationError(req, res, error, endpoint) {
   const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-  const response = buildBranchDeviceRegistrationErrorResponse(error, { isProd });
+  const response = buildBranchDeviceRegistrationErrorResponse(error, {
+    endpoint,
+    isProd,
+  });
+  updateBranchDeviceGuardTrace(req.branchDeviceGuardTrace, {
+    verificationReason: req.branchDeviceGuardTrace?.verificationReason || response.body.reason || null,
+  });
+  recordBranchDeviceGuardResponse(req.branchDeviceGuardTrace, {
+    status: response.status,
+    body: response.body,
+  });
   if (response.status >= 500) {
-    console.error(error);
+    console.error('[BranchDeviceGuard]', error);
   }
   return res.status(response.status).json(response.body);
 }
@@ -21,10 +37,17 @@ export async function createOrUpdateBranchDeviceRegistrationHandler(req, res) {
       body: req.body,
       headers: req.headers,
       user: req.user,
+      trace: req.branchDeviceGuardTrace,
     });
-    return res.status(result.action === 'created' ? 201 : 200).json({ ok: true, ...result });
+    const body = buildBranchDeviceRegistrationMutationResponse(result);
+    const status = result.action === 'created' ? 201 : 200;
+    recordBranchDeviceGuardResponse(req.branchDeviceGuardTrace, {
+      status,
+      body,
+    });
+    return res.status(status).json(body);
   } catch (error) {
-    return sendBranchDeviceRegistrationError(res, error);
+    return sendBranchDeviceRegistrationError(req, res, error, 'register');
   }
 }
 
@@ -37,7 +60,7 @@ export async function listBranchDeviceRegistrationsHandler(req, res) {
     });
     return res.json({ ok: true, ...result });
   } catch (error) {
-    return sendBranchDeviceRegistrationError(res, error);
+    return sendBranchDeviceRegistrationError(req, res, error, 'generic');
   }
 }
 
@@ -46,10 +69,16 @@ export async function getBranchDeviceRegistrationMeHandler(req, res) {
     const result = await getBranchDeviceRegistrationMe({
       headers: req.headers,
       body: req.body,
+      trace: req.branchDeviceGuardTrace,
     });
-    return res.json({ ok: true, ...result });
+    const body = buildBranchDeviceRegistrationMeResponse(result);
+    recordBranchDeviceGuardResponse(req.branchDeviceGuardTrace, {
+      status: 200,
+      body,
+    });
+    return res.status(200).json(body);
   } catch (error) {
-    return sendBranchDeviceRegistrationError(res, error);
+    return sendBranchDeviceRegistrationError(req, res, error, 'me');
   }
 }
 
@@ -62,6 +91,6 @@ export async function patchBranchDeviceRegistrationHandler(req, res) {
     });
     return res.json({ ok: true, registration });
   } catch (error) {
-    return sendBranchDeviceRegistrationError(res, error);
+    return sendBranchDeviceRegistrationError(req, res, error, 'generic');
   }
 }

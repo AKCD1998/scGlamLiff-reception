@@ -1,11 +1,19 @@
 import jwt from 'jsonwebtoken';
 import { query } from '../db.js';
 
+function sendUnauthorized(req, res, { reason = 'missing_staff_auth', error = null } = {}) {
+  if (typeof req.authFailureHandler === 'function') {
+    return req.authFailureHandler({ reason, error });
+  }
+
+  return res.status(401).json({ ok: false, error: 'Unauthorized' });
+}
+
 export default async function requireAuth(req, res, next) {
   try {
     const token = req.cookies?.token;
     if (!token) {
-      return res.status(401).json({ ok: false, error: 'Unauthorized' });
+      return sendUnauthorized(req, res, { reason: 'missing_staff_auth' });
     }
 
     const payload = jwt.verify(token, process.env.JWT_SECRET);
@@ -21,12 +29,15 @@ export default async function requireAuth(req, res, next) {
     );
 
     if (rows.length === 0) {
-      return res.status(401).json({ ok: false, error: 'Unauthorized' });
+      return sendUnauthorized(req, res, { reason: 'missing_staff_auth' });
     }
 
     req.user = rows[0];
     return next();
-  } catch (_error) {
-    return res.status(401).json({ ok: false, error: 'Unauthorized' });
+  } catch (error) {
+    return sendUnauthorized(req, res, {
+      reason: 'missing_staff_auth',
+      error,
+    });
   }
 }

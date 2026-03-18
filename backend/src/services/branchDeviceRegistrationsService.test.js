@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildBranchDeviceRegistrationErrorResponse,
+  buildBranchDeviceRegistrationMeResponse,
+  buildBranchDeviceRegistrationMutationResponse,
   createOrUpdateBranchDeviceRegistration,
   getBranchDeviceRegistrationMe,
   listBranchDeviceRegistrations,
@@ -264,6 +267,9 @@ test('createOrUpdateBranchDeviceRegistration inserts a verified branch device ro
   });
 
   assert.equal(result.action, 'created');
+  assert.equal(result.created, true);
+  assert.equal(result.updated, false);
+  assert.equal(result.reason, 'created');
   assert.equal(result.registration.line_user_id, 'U1234567890');
   assert.equal(result.registration.branch_id, 'branch-003');
   assert.equal(result.registration.status, 'active');
@@ -330,6 +336,7 @@ test('getBranchDeviceRegistrationMe returns active registration details and touc
 
   assert.equal(result.registered, true);
   assert.equal(result.active, true);
+  assert.equal(result.reason, 'active');
   assert.equal(result.branch_id, 'branch-003');
   assert.equal(result.device_label, 'Front Desk iPhone');
   assert.equal(result.line_identity.line_user_id, 'U1234567890');
@@ -358,7 +365,102 @@ test('getBranchDeviceRegistrationMe returns inactive registration state without 
 
   assert.equal(result.registered, true);
   assert.equal(result.active, false);
+  assert.equal(result.reason, 'inactive');
   assert.equal(result.registration.status, 'inactive');
+});
+
+test('getBranchDeviceRegistrationMe returns a stable not_registered response when no row exists', async () => {
+  const mock = createMockBranchDeviceDb([]);
+
+  const result = await getBranchDeviceRegistrationMe({
+    headers: {
+      'x-line-id-token': 'verified-id-token',
+    },
+    dbPool: mock.dbPool,
+    verifyLineIdentityFn: async () => ({
+      line_user_id: 'UNREGISTERED001',
+      display_name: 'New Device',
+      verification_source: 'id_token',
+    }),
+  });
+
+  assert.equal(result.registered, false);
+  assert.equal(result.active, null);
+  assert.equal(result.reason, 'not_registered');
+  assert.equal(result.registration, null);
+});
+
+test('response builders expose the stable GET/POST payload contract', async () => {
+  const registration = buildRegistrationRow();
+
+  const mePayload = buildBranchDeviceRegistrationMeResponse({
+    registered: true,
+    active: true,
+    reason: 'active',
+    branch_id: registration.branch_id,
+    device_label: registration.device_label,
+    registration,
+    line_identity: {
+      line_user_id: registration.line_user_id,
+      display_name: 'Front Desk Phone',
+      verification_source: 'id_token',
+    },
+  });
+  const mutationPayload = buildBranchDeviceRegistrationMutationResponse({
+    action: 'created',
+    created: true,
+    updated: false,
+    reason: 'created',
+    registration,
+    line_identity: {
+      line_user_id: registration.line_user_id,
+      display_name: 'Front Desk Phone',
+      verification_source: 'id_token',
+    },
+  });
+
+  assert.equal(mePayload.success, true);
+  assert.equal(mePayload.reason, 'active');
+  assert.equal(mePayload.branchId, registration.branch_id);
+  assert.equal(mePayload.registrationId, registration.id);
+  assert.equal(mutationPayload.success, true);
+  assert.equal(mutationPayload.created, true);
+  assert.equal(mutationPayload.updated, false);
+  assert.equal(mutationPayload.reason, 'created');
+  assert.equal(mutationPayload.branchId, registration.branch_id);
+});
+
+test('error response builder maps missing token and missing staff auth into explicit reasons', async () => {
+  const missingTokenError = new Error('Missing LINE LIFF token');
+  missingTokenError.status = 400;
+  missingTokenError.reason = 'missing_token';
+
+  const missingStaffAuthError = new Error('Unauthorized');
+  missingStaffAuthError.status = 401;
+  missingStaffAuthError.reason = 'missing_staff_auth';
+
+  const meResponse = buildBranchDeviceRegistrationErrorResponse(
+    missingTokenError,
+    {
+      endpoint: 'me',
+      isProd: true,
+    }
+  );
+  const registerResponse = buildBranchDeviceRegistrationErrorResponse(
+    missingStaffAuthError,
+    {
+      endpoint: 'register',
+      isProd: true,
+    }
+  );
+
+  assert.equal(meResponse.status, 400);
+  assert.equal(meResponse.body.success, false);
+  assert.equal(meResponse.body.reason, 'missing_token');
+  assert.equal(meResponse.body.registered, null);
+  assert.equal(registerResponse.status, 401);
+  assert.equal(registerResponse.body.reason, 'missing_staff_auth');
+  assert.equal(registerResponse.body.created, false);
 });
 
 test('patchBranchDeviceRegistration updates status, device_label, and notes', async () => {

@@ -15,6 +15,7 @@ function normalizeNullableText(value) {
 function badRequest(message, details = null) {
   const err = new Error(message);
   err.status = 400;
+  err.reason = 'missing_token';
   if (details) {
     err.details = details;
   }
@@ -24,6 +25,7 @@ function badRequest(message, details = null) {
 function unauthorized(message, code) {
   const err = new Error(message);
   err.status = 401;
+  err.reason = 'invalid_token';
   if (code) {
     err.code = code;
   }
@@ -34,6 +36,7 @@ function serverConfigError(message) {
   const err = new Error(message);
   err.status = 500;
   err.code = 'LINE_LIFF_CONFIG_MISSING';
+  err.reason = 'config_error';
   return err;
 }
 
