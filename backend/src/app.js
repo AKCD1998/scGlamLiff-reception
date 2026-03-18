@@ -15,25 +15,140 @@ import visitsRoutes from './routes/visits.js';
 import sheetVisitsRoutes from './routes/sheetVisits.js';
 import { notFoundHandler, errorHandler } from './middlewares/errorHandlers.js';
 
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
+const IS_PRODUCTION = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || (IS_PRODUCTION ? '' : 'http://localhost:5173');
 const FRONTEND_ORIGINS = (process.env.FRONTEND_ORIGINS || '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
-const ALLOWED_ORIGINS = [
-  FRONTEND_ORIGIN,
-  ...FRONTEND_ORIGINS,
+const CORS_ALLOWED_HEADERS = [
+  'Content-Type',
+  'Authorization',
+  'X-Line-Id-Token',
+  'X-Line-Access-Token',
+  'X-Liff-App-Id',
 ];
-const IS_PRODUCTION = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+const CORS_ALLOWED_METHODS = ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'];
+const CORS_LOG_PREFIX = '[CORS]';
 const LOCALHOST_ORIGIN_PATTERN = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i;
 const BRANCH_DEVICE_GUARD_LOG_PREFIX = '[BranchDeviceGuard]';
 
+function normalizeText(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
+function normalizeOriginValue(value) {
+  const trimmed = normalizeText(value).replace(/\/+$/, '');
+  if (!trimmed) return '';
+
+  try {
+    const parsed = new URL(trimmed);
+    if (!/^https?:$/i.test(parsed.protocol)) {
+      return trimmed;
+    }
+    return parsed.origin;
+  } catch {
+    return trimmed;
+  }
+}
+
+function buildAllowedOrigins() {
+  const deduped = new Set();
+  const normalizedOrigins = [];
+
+  for (const value of [FRONTEND_ORIGIN, ...FRONTEND_ORIGINS]) {
+    const normalized = normalizeOriginValue(value);
+    if (!normalized || deduped.has(normalized)) continue;
+    deduped.add(normalized);
+    normalizedOrigins.push(normalized);
+  }
+
+  return normalizedOrigins;
+}
+
+const ALLOWED_ORIGINS = buildAllowedOrigins();
+
+function buildCorsDecision(req) {
+  const requestOrigin = normalizeText(req.headers?.origin);
+  const normalizedRequestOrigin = normalizeOriginValue(requestOrigin);
+  const matchedConfiguredOrigin = normalizedRequestOrigin
+    ? ALLOWED_ORIGINS.includes(normalizedRequestOrigin)
+    : false;
+  const matchedLocalhostPattern =
+    !IS_PRODUCTION && normalizedRequestOrigin
+      ? LOCALHOST_ORIGIN_PATTERN.test(normalizedRequestOrigin)
+      : false;
+  const matched =
+    !requestOrigin || matchedConfiguredOrigin || matchedLocalhostPattern;
+
+  return {
+    requestOrigin: requestOrigin || null,
+    normalizedRequestOrigin: normalizedRequestOrigin || null,
+    normalizedAllowedOrigins: [...ALLOWED_ORIGINS],
+    matched,
+    matchedConfiguredOrigin,
+    matchedLocalhostPattern,
+    matchReason: !requestOrigin
+      ? 'no_origin_header'
+      : matchedConfiguredOrigin
+        ? 'configured_origin'
+        : matchedLocalhostPattern
+          ? 'localhost_dev_pattern'
+          : 'not_allowed',
+    isOptions: String(req.method || '').trim().toUpperCase() === 'OPTIONS',
+    method: normalizeText(req.method).toUpperCase() || null,
+    path: normalizeText(req.originalUrl || req.url) || null,
+  };
+}
+
 function isAllowedOrigin(origin) {
   if (!origin) return true;
-  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  const normalizedOrigin = normalizeOriginValue(origin);
+  if (ALLOWED_ORIGINS.includes(normalizedOrigin)) return true;
   // Allow any localhost frontend port only in non-production to simplify local testing.
-  if (!IS_PRODUCTION && LOCALHOST_ORIGIN_PATTERN.test(origin)) return true;
+  if (!IS_PRODUCTION && LOCALHOST_ORIGIN_PATTERN.test(normalizedOrigin)) return true;
   return false;
+}
+
+function logCorsDecision(decision) {
+  const logger = decision?.matched ? console.log : console.warn;
+  logger(
+    CORS_LOG_PREFIX,
+    JSON.stringify({
+      event: 'cors_decision',
+      requestOrigin: decision?.requestOrigin || null,
+      normalizedRequestOrigin: decision?.normalizedRequestOrigin || null,
+      normalizedAllowedOrigins: Array.isArray(decision?.normalizedAllowedOrigins)
+        ? decision.normalizedAllowedOrigins
+        : [],
+      matched: Boolean(decision?.matched),
+      matchedConfiguredOrigin: Boolean(decision?.matchedConfiguredOrigin),
+      matchedLocalhostPattern: Boolean(decision?.matchedLocalhostPattern),
+      matchReason: decision?.matchReason || null,
+      isOptions: Boolean(decision?.isOptions),
+      method: decision?.method || null,
+      path: decision?.path || null,
+    })
+  );
+}
+
+function buildCorsOptions(req, callback) {
+  const decision = buildCorsDecision(req);
+  logCorsDecision(decision);
+
+  callback(null, {
+    origin(origin, corsCallback) {
+      if (decision.matched) {
+        return corsCallback(null, true);
+      }
+      return corsCallback(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
+    methods: CORS_ALLOWED_METHODS,
+    allowedHeaders: CORS_ALLOWED_HEADERS,
+    optionsSuccessStatus: 204,
+  });
 }
 
 export function createApp() {
@@ -63,28 +178,7 @@ export function createApp() {
   });
 
   app.use(
-    cors({
-      origin: (origin, callback) => {
-        if (isAllowedOrigin(origin)) return callback(null, true);
-        console.warn(
-          BRANCH_DEVICE_GUARD_LOG_PREFIX,
-          JSON.stringify({
-            event: 'cors_rejected',
-            origin: origin || null,
-          })
-        );
-        return callback(new Error('Not allowed by CORS'));
-      },
-      credentials: true,
-      methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: [
-        'Content-Type',
-        'Authorization',
-        'X-Line-Id-Token',
-        'X-Line-Access-Token',
-        'X-Liff-App-Id',
-      ],
-    })
+    cors(buildCorsOptions)
   );
 
   app.use(express.json());
