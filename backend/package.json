@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js",
-    "test": "node --test src/services/adminAppointmentStatusService.test.js src/services/packageContinuity.test.js src/services/appointmentDraftsService.test.js src/services/lineLiffIdentityService.test.js src/services/branchDeviceRegistrationsService.test.js src/services/monthlyKpiDashboardService.test.js src/utils/branchContract.test.js",
+    "test": "node --test src/services/adminAppointmentStatusService.test.js src/services/packageContinuity.test.js src/services/appointmentDraftsService.test.js src/services/lineLiffIdentityService.test.js src/services/branchDeviceRegistrationsService.test.js src/controllers/branchDeviceRegistrationsController.test.js src/services/monthlyKpiDashboardService.test.js src/utils/branchContract.test.js",
     "seed:admin": "node scripts/seed_admin.js",
     "seed:user": "node scripts/seed_user.js",
     "cleanup:e2e": "node scripts/cleanup-e2e-data.js",

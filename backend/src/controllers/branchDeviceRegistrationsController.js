@@ -12,14 +12,36 @@ import {
   updateBranchDeviceGuardTrace,
 } from '../middlewares/branchDeviceGuardTrace.js';
 
+export function applyBranchDeviceErrorTrace(trace, { status = null, body = null } = {}) {
+  if (!trace || typeof trace !== 'object') {
+    return;
+  }
+
+  const responseReason = body?.reason || null;
+  const patch = {
+    errorReason: responseReason,
+  };
+
+  if (!trace.failureStage && typeof status === 'number' && status >= 500) {
+    patch.failureStage = trace.liffVerification === 'success' ? 'registration_lookup' : 'request';
+  }
+
+  if (!trace.verificationReason && trace.liffVerification !== 'success') {
+    patch.verificationReason = responseReason;
+  }
+
+  updateBranchDeviceGuardTrace(trace, patch);
+}
+
 function sendBranchDeviceRegistrationError(req, res, error, endpoint) {
   const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
   const response = buildBranchDeviceRegistrationErrorResponse(error, {
     endpoint,
     isProd,
   });
-  updateBranchDeviceGuardTrace(req.branchDeviceGuardTrace, {
-    verificationReason: req.branchDeviceGuardTrace?.verificationReason || response.body.reason || null,
+  applyBranchDeviceErrorTrace(req.branchDeviceGuardTrace, {
+    status: response.status,
+    body: response.body,
   });
   recordBranchDeviceGuardResponse(req.branchDeviceGuardTrace, {
     status: response.status,

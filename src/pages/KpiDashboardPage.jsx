@@ -35,6 +35,13 @@ function formatCardValue(card) {
   return `${formatNumber(card.value)}${card.unit ? ` ${card.unit}` : ""}`;
 }
 
+function formatSectionValue(section, value, formatter, emptyLabel = "ยังไม่มีข้อมูล") {
+  if (section?.availability === "unavailable" || value === null || value === undefined) {
+    return emptyLabel;
+  }
+  return formatter(value);
+}
+
 function metricToneClass(availability) {
   if (availability === "proxy") return "is-proxy";
   if (availability === "unavailable") return "is-unavailable";
@@ -62,6 +69,21 @@ function SummaryCard({ card }) {
       {card.reason ? <small>{card.reason}</small> : null}
       {card.note ? <small>{card.note}</small> : null}
     </article>
+  );
+}
+
+function SectionStatusNote({ section }) {
+  if (!section) return null;
+
+  const messages = [section.reason, section.note].filter(Boolean);
+  if (!messages.length) return null;
+
+  return (
+    <div className="kpi-section-note">
+      {messages.map((message) => (
+        <p key={message}>{message}</p>
+      ))}
+    </div>
   );
 }
 
@@ -95,11 +117,11 @@ function HorizontalBars({ rows, valueField, labelField, formatter = formatNumber
   );
 }
 
-function DailyOutcomeChart({ rows }) {
+function DailyOutcomeChart({ rows, emptyMessage = "ยังไม่มีนัดหมายในเดือนที่เลือก" }) {
   const maxTotal = useMemo(() => rows.reduce((max, row) => Math.max(max, Number(row.total_appointments) || 0), 0), [rows]);
 
   if (!rows.length) {
-    return <div className="kpi-empty">ยังไม่มีนัดหมายในเดือนที่เลือก</div>;
+    return <div className="kpi-empty">{emptyMessage}</div>;
   }
 
   return (
@@ -141,6 +163,7 @@ function UnavailableMetric({ title, section }) {
       </div>
       <strong>ยังคำนวณไม่ได้อย่างโปร่งใส</strong>
       <small>{section.reason}</small>
+      {section.note ? <small>{section.note}</small> : null}
       {section.fallback ? (
         <div className="kpi-fallback-box">
           <span>ข้อมูลทดแทนที่พออ่านได้ตอนนี้</span>
@@ -192,10 +215,12 @@ export default function KpiDashboardPage() {
 
   const summaryCards = report?.summary_cards || [];
   const sections = report?.sections || {};
+  const reportMeta = report?.meta || {};
   const assumptions = report?.assumptions || [];
   const staffRows = sections.staff_utilization?.rows || [];
   const salesRows = sections.course_sales_mix?.rows || [];
   const redemptionRows = sections.course_redemption?.top_packages || [];
+  const partialWarnings = Array.isArray(reportMeta.warnings) ? reportMeta.warnings : [];
   const showContent = Boolean(report);
 
   return (
@@ -253,6 +278,25 @@ export default function KpiDashboardPage() {
         </article>
       ) : (
         <>
+          {reportMeta.partial ? (
+            <article className="panel" role="status" aria-live="polite">
+              <div className="panel-title">
+                <span>บาง KPI ยังอ่านได้ไม่ครบ</span>
+                <strong>{reportMeta.warning_count || partialWarnings.length} ส่วน</strong>
+              </div>
+              <p className="kpi-section-note">{reportMeta.partial_note || "ระบบกำลังแสดงเฉพาะส่วนที่อ่านได้ก่อน"}</p>
+              {partialWarnings.length ? (
+                <ul className="kpi-assumption-list">
+                  {partialWarnings.map((warning) => (
+                    <li key={`${warning.section}-${warning.reason}`}>
+                      <strong>{warning.title || warning.section}</strong> {warning.reason}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </article>
+          ) : null}
+
           <div className="kpi-summary-grid">
             {summaryCards.map((card) => (
               <SummaryCard key={card.id} card={card} />
@@ -265,21 +309,25 @@ export default function KpiDashboardPage() {
                 <span>{sections.appointment_outcomes?.title || "ภาพรวมสถานะนัดหมาย"}</span>
                 <strong>{report?.period?.month_label_th || month}</strong>
               </div>
+              <SectionStatusNote section={sections.appointment_outcomes} />
               <div className="kpi-mini-stats">
                 <div>
                   <small>สำเร็จแล้ว</small>
-                  <strong>{formatNumber(sections.appointment_outcomes?.completed_count)}</strong>
+                  <strong>{formatSectionValue(sections.appointment_outcomes, sections.appointment_outcomes?.completed_count, formatNumber)}</strong>
                 </div>
                 <div>
                   <small>No-show</small>
-                  <strong>{formatPercent(sections.no_show_cancellation?.no_show_rate_pct)}</strong>
+                  <strong>{formatSectionValue(sections.no_show_cancellation, sections.no_show_cancellation?.no_show_rate_pct, formatPercent)}</strong>
                 </div>
                 <div>
                   <small>ยกเลิก</small>
-                  <strong>{formatPercent(sections.no_show_cancellation?.cancellation_rate_pct)}</strong>
+                  <strong>{formatSectionValue(sections.no_show_cancellation, sections.no_show_cancellation?.cancellation_rate_pct, formatPercent)}</strong>
                 </div>
               </div>
-              <DailyOutcomeChart rows={sections.appointment_outcomes?.daily_rows || []} />
+              <DailyOutcomeChart
+                rows={sections.appointment_outcomes?.daily_rows || []}
+                emptyMessage={sections.appointment_outcomes?.reason || "ยังไม่มีนัดหมายในเดือนที่เลือก"}
+              />
               <div className="kpi-legend">
                 <span><i className="seg-completed" /> สำเร็จ</span>
                 <span><i className="seg-cancelled" /> ยกเลิก</span>
@@ -291,14 +339,15 @@ export default function KpiDashboardPage() {
             <article className="panel">
               <div className="panel-title">
                 <span>{sections.course_sales_mix?.title || "สัดส่วนยอดขายคอร์ส"}</span>
-                <strong>{formatMoney(sections.course_sales_mix?.total_revenue_thb)}</strong>
+                <strong>{formatSectionValue(sections.course_sales_mix, sections.course_sales_mix?.total_revenue_thb, formatMoney)}</strong>
               </div>
+              <SectionStatusNote section={sections.course_sales_mix} />
               <HorizontalBars
                 rows={salesRows}
                 valueField="sales_count"
                 labelField="label"
                 formatter={(value) => `${formatNumber(value)} รายการ`}
-                emptyMessage="ยังไม่พบการขายคอร์สในเดือนนี้"
+                emptyMessage={sections.course_sales_mix?.reason || "ยังไม่พบการขายคอร์สในเดือนนี้"}
               />
               <div className="kpi-simple-table-wrap">
                 <table className="kpi-simple-table">
@@ -329,9 +378,15 @@ export default function KpiDashboardPage() {
             <article className="panel">
               <div className="panel-title">
                 <span>{sections.staff_utilization?.title || "การใช้กำลังคนพนักงาน"}</span>
-                <strong>Proxy</strong>
+                <strong>
+                  {sections.staff_utilization?.availability === "unavailable"
+                    ? "ยังไม่มีข้อมูล"
+                    : sections.staff_utilization?.availability === "proxy"
+                      ? "Proxy"
+                      : "พร้อมใช้"}
+                </strong>
               </div>
-              <p className="kpi-section-note">{sections.staff_utilization?.note}</p>
+              <SectionStatusNote section={sections.staff_utilization} />
               <div className="kpi-simple-table-wrap">
                 <table className="kpi-simple-table">
                   <thead>
@@ -363,24 +418,25 @@ export default function KpiDashboardPage() {
             <article className="panel">
               <div className="panel-title">
                 <span>{sections.course_redemption?.title || "การตัดคอร์ส / การปิดคอร์ส"}</span>
-                <strong>{formatNumber(sections.course_redemption?.total_redemptions)} ครั้ง</strong>
+                <strong>{formatSectionValue(sections.course_redemption, sections.course_redemption?.total_redemptions, (value) => `${formatNumber(value)} ครั้ง`)}</strong>
               </div>
+              <SectionStatusNote section={sections.course_redemption} />
               <div className="kpi-mini-stats">
                 <div>
                   <small>ตัดคอร์สทั้งหมด</small>
-                  <strong>{formatNumber(sections.course_redemption?.total_redemptions)}</strong>
+                  <strong>{formatSectionValue(sections.course_redemption, sections.course_redemption?.total_redemptions, formatNumber)}</strong>
                 </div>
                 <div>
                   <small>ลูกค้าที่ถูกตัดคอร์ส</small>
-                  <strong>{formatNumber(sections.course_redemption?.packages_used_count)}</strong>
+                  <strong>{formatSectionValue(sections.course_redemption, sections.course_redemption?.packages_used_count, formatNumber)}</strong>
                 </div>
                 <div>
                   <small>ปิดคอร์สในเดือนนี้</small>
-                  <strong>{formatNumber(sections.course_redemption?.packages_completed_count)}</strong>
+                  <strong>{formatSectionValue(sections.course_redemption, sections.course_redemption?.packages_completed_count, formatNumber)}</strong>
                 </div>
                 <div>
                   <small>ใช้ Mask</small>
-                  <strong>{formatNumber(sections.course_redemption?.mask_redemptions_count)}</strong>
+                  <strong>{formatSectionValue(sections.course_redemption, sections.course_redemption?.mask_redemptions_count, formatNumber)}</strong>
                 </div>
               </div>
               <HorizontalBars
@@ -388,7 +444,7 @@ export default function KpiDashboardPage() {
                 valueField="redemptions_count"
                 labelField="package_label"
                 formatter={(value) => `${formatNumber(value)} ครั้ง`}
-                emptyMessage="ยังไม่พบประวัติการตัดคอร์สในเดือนนี้"
+                emptyMessage={sections.course_redemption?.reason || "ยังไม่พบประวัติการตัดคอร์สในเดือนนี้"}
               />
             </article>
           </div>
@@ -397,27 +453,34 @@ export default function KpiDashboardPage() {
             <article className="panel">
               <div className="panel-title">
                 <span>{sections.repurchase?.title || "การซื้อซ้ำ"}</span>
-                <strong>{formatPercent(sections.repurchase?.repurchase_rate_pct)}</strong>
+                <strong>{formatSectionValue(sections.repurchase, sections.repurchase?.repurchase_rate_pct, formatPercent)}</strong>
               </div>
+              <SectionStatusNote section={sections.repurchase} />
               <div className="kpi-mini-stats">
                 <div>
                   <small>ลูกค้าที่ซื้อคอร์สเดือนนี้</small>
-                  <strong>{formatNumber(sections.repurchase?.unique_buyers_count)}</strong>
+                  <strong>{formatSectionValue(sections.repurchase, sections.repurchase?.unique_buyers_count, formatNumber)}</strong>
                 </div>
                 <div>
                   <small>ซื้อซ้ำ / ต่อคอร์ส</small>
-                  <strong>{formatNumber(sections.repurchase?.repeat_buyers_count)}</strong>
+                  <strong>{formatSectionValue(sections.repurchase, sections.repurchase?.repeat_buyers_count, formatNumber)}</strong>
                 </div>
                 <div>
                   <small>ลูกค้าใหม่</small>
-                  <strong>{formatNumber(sections.repurchase?.first_time_buyers_count)}</strong>
+                  <strong>{formatSectionValue(sections.repurchase, sections.repurchase?.first_time_buyers_count, formatNumber)}</strong>
                 </div>
               </div>
               <div className="kpi-insight-callout">
                 <strong>สรุปอ่านง่าย</strong>
                 <p>
-                  ในเดือนนี้ ลูกค้าที่ซื้อคอร์สแล้วกลับมาซื้อซ้ำคิดเป็น{" "}
-                  <b>{formatPercent(sections.repurchase?.repurchase_rate_pct)}</b> ของผู้ซื้อทั้งหมด
+                  {sections.repurchase?.availability === "unavailable" ? (
+                    <span>{sections.repurchase?.reason || "ยังไม่มีข้อมูลซื้อซ้ำที่คำนวณได้อย่างโปร่งใส"}</span>
+                  ) : (
+                    <>
+                      ในเดือนนี้ ลูกค้าที่ซื้อคอร์สแล้วกลับมาซื้อซ้ำคิดเป็น{" "}
+                      <b>{formatPercent(sections.repurchase?.repurchase_rate_pct)}</b> ของผู้ซื้อทั้งหมด
+                    </>
+                  )}
                 </p>
               </div>
             </article>

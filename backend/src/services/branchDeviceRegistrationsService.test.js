@@ -390,6 +390,55 @@ test('getBranchDeviceRegistrationMe returns a stable not_registered response whe
   assert.equal(result.registration, null);
 });
 
+test('getBranchDeviceRegistrationMe annotates lookup failure after LIFF verification succeeds', async () => {
+  const dbPool = {
+    async connect() {
+      return {
+        async query(sql) {
+          const queryText = String(sql || '').toLowerCase();
+          if (queryText.includes('from branch_device_registrations')) {
+            const error = new Error('relation "branch_device_registrations" does not exist');
+            error.code = '42P01';
+            throw error;
+          }
+          throw new Error(`Unhandled query in failing mock: ${queryText}`);
+        },
+        release() {},
+      };
+    },
+  };
+  const trace = {
+    liffVerification: 'not_started',
+    verificationReason: null,
+    lookupResult: null,
+    failureStage: null,
+    lookupFailure: null,
+  };
+
+  await assert.rejects(
+    () =>
+      getBranchDeviceRegistrationMe({
+        headers: {
+          'x-line-id-token': 'verified-id-token',
+        },
+        dbPool,
+        trace,
+        verifyLineIdentityFn: async () => ({
+          line_user_id: 'UNREGISTERED001',
+          display_name: 'New Device',
+          verification_source: 'id_token',
+        }),
+      }),
+    (error) => error?.code === '42P01'
+  );
+
+  assert.equal(trace.liffVerification, 'success');
+  assert.equal(trace.verificationReason, null);
+  assert.equal(trace.failureStage, 'registration_lookup');
+  assert.equal(trace.lookupFailure, 'missing_relation');
+  assert.equal(trace.lookupResult, null);
+});
+
 test('response builders expose the stable GET/POST payload contract', async () => {
   const registration = buildRegistrationRow();
 
@@ -461,6 +510,23 @@ test('error response builder maps missing token and missing staff auth into expl
   assert.equal(registerResponse.status, 401);
   assert.equal(registerResponse.body.reason, 'missing_staff_auth');
   assert.equal(registerResponse.body.created, false);
+});
+
+test('error response builder maps unexpected lookup failure to 500 server_error for /me', async () => {
+  const unexpectedError = new Error('relation "branch_device_registrations" does not exist');
+  unexpectedError.code = '42P01';
+
+  const response = buildBranchDeviceRegistrationErrorResponse(unexpectedError, {
+    endpoint: 'me',
+    isProd: true,
+  });
+
+  assert.equal(response.status, 500);
+  assert.equal(response.body.success, false);
+  assert.equal(response.body.reason, 'server_error');
+  assert.equal(response.body.error, 'Server error');
+  assert.equal(response.body.registered, null);
+  assert.equal(response.body.active, null);
 });
 
 test('patchBranchDeviceRegistration updates status, device_label, and notes', async () => {

@@ -12,6 +12,12 @@ const mockReport = {
     month: "2026-03",
     month_label_th: "มีนาคม 2569",
   },
+  meta: {
+    partial: false,
+    warning_count: 0,
+    warnings: [],
+    partial_note: null,
+  },
   summary_cards: [
     { id: "appointments_total", label: "นัดหมายทั้งหมด", value: 20, unit: "นัด", availability: "available" },
     { id: "free_scan_conversion", label: "แปลงจากสแกนผิวฟรี", value: null, unit: "", availability: "unavailable", reason: "ไม่มี field scan" },
@@ -111,5 +117,44 @@ describe("KpiDashboardPage", () => {
     render(<KpiDashboardPage />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("โหลดข้อมูลไม่สำเร็จ");
+  });
+
+  it("renders partial warning details when backend returns a partial report", async () => {
+    getMonthlyKpiDashboard.mockResolvedValueOnce({
+      ok: true,
+      report: {
+        ...mockReport,
+        meta: {
+          partial: true,
+          warning_count: 1,
+          partial_note: "บาง KPI ยังไม่พร้อมใน production แต่ระบบยังส่งข้อมูลส่วนที่อ่านได้กลับมา",
+          warnings: [
+            {
+              section: "course_sales_mix",
+              title: "สัดส่วนยอดขายคอร์ส 399 / 999 / 2999",
+              reason: "ยังอ่านข้อมูลส่วนนี้ไม่ได้ เพราะ schema production ยังขาดคอลัมน์ที่ KPI นี้ต้องใช้",
+            },
+          ],
+        },
+        sections: {
+          ...mockReport.sections,
+          course_sales_mix: {
+            title: "สัดส่วนยอดขายคอร์ส 399 / 999 / 2999",
+            availability: "unavailable",
+            reason: "ยังอ่านข้อมูลส่วนนี้ไม่ได้ เพราะ schema production ยังขาดคอลัมน์ที่ KPI นี้ต้องใช้",
+            note: "ระบบยังคงแสดง KPI ส่วนอื่นต่อได้",
+            rows: [],
+            total_revenue_thb: null,
+          },
+        },
+      },
+    });
+
+    render(<KpiDashboardPage />);
+
+    expect(await screen.findByText(/บาง KPI ยังอ่านได้ไม่ครบ/i)).toBeInTheDocument();
+    expect(screen.getByText(/บาง KPI ยังไม่พร้อมใน production/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/schema production ยังขาดคอลัมน์/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/ยังไม่มีข้อมูล/i).length).toBeGreaterThan(0);
   });
 });

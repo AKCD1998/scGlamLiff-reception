@@ -51,6 +51,16 @@ function badRequest(message, details = null, reason = 'bad_request') {
   return err;
 }
 
+function classifyBranchDeviceLookupFailure(error) {
+  const normalizedCode = normalizeText(error?.code).toUpperCase();
+
+  if (normalizedCode === '42P01') return 'missing_relation';
+  if (normalizedCode === '42703') return 'missing_column';
+  if (normalizedCode === '42883') return 'schema_mismatch';
+  if (normalizedCode) return 'query_failed';
+  return 'server_error';
+}
+
 function parseStatus(value, { allowEmpty = false } = {}) {
   const normalized = normalizeText(value).toLowerCase();
   if (!normalized) {
@@ -456,9 +466,10 @@ export async function getBranchDeviceRegistrationMe({
   });
 
   const resolvedDbPool = await resolveDbPool(dbPool);
-  const client = await resolvedDbPool.connect();
+  let client = null;
 
   try {
+    client = await resolvedDbPool.connect();
     const existing = await fetchRegistrationByLineUserId(client, lineUserId);
     let registration = existing;
 
@@ -502,8 +513,14 @@ export async function getBranchDeviceRegistrationMe({
         verification_source: normalizeText(lineIdentity?.verification_source) || null,
       },
     };
+  } catch (error) {
+    updateTrace(trace, {
+      failureStage: client ? 'registration_lookup' : 'db_connect',
+      lookupFailure: classifyBranchDeviceLookupFailure(error),
+    });
+    throw error;
   } finally {
-    client.release();
+    client?.release();
   }
 }
 
@@ -663,7 +680,7 @@ function getBranchDeviceErrorReason(error, { endpoint = 'generic' } = {}) {
     return 'server_error';
   }
 
-  return 'bad_request';
+  return 'server_error';
 }
 
 export function buildBranchDeviceRegistrationErrorResponse(
