@@ -94,6 +94,12 @@ Set environment values in CI/hosting platform instead of hardcoding URLs in sour
 - Invalid query params now return structured `400` JSON:
   - `{ error: "Bad Request", message: "...", details: { ... } }`
 
+## KPI dashboard
+- A new read-only monthly KPI dashboard is available inside the workbench for all authenticated roles.
+- Backend endpoint: `GET /api/reporting/kpi-dashboard?month=YYYY-MM`
+- The dashboard summarizes existing PostgreSQL data only and does not write back to appointment/package/business tables.
+- KPI formulas and current limitations are documented in `markdown/KPI_DASHBOARD_FORMULAS_TH.md`.
+
 ## Appointment consistency
 - See `docs/appointment_data_consistency.md` for canonical endpoint/ID rules and verification steps.
 

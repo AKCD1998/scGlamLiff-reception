@@ -8,6 +8,7 @@ import { buildCalendarDaySet } from "../utils/appointmentCalendarUtils";
 import { formatDateKey } from "../utils/dateFormat";
 import Homepage from "./Homepage";
 import Bookingpage from "./Bookingpage";
+import KpiDashboardPage from "./KpiDashboardPage";
 import AdminBackdate from "./AdminBackdate";
 import AdminEditAppointment from "./AdminEditAppointment";
 import AdminUsersPage from "./AdminUsersPage";
@@ -23,6 +24,41 @@ import {
 } from "../utils/appointmentConsistencyDebug";
 
 
+
+const TAB_HEADERS = {
+  home: {
+    title: "หน้าแรก",
+    subtitle: "แดชบอร์ดการดำเนินงาน",
+  },
+  kpiDashboard: {
+    title: "KPI รายเดือน",
+    subtitle: "สรุปผลแบบอ่านอย่างเดียวสำหรับประชุมทีม",
+  },
+  booking: {
+    title: "ระบบการจองคิว",
+    subtitle: "จัดการนัดหมายและการให้บริการ",
+  },
+  stock: {
+    title: "เกี่ยวกับสต๊อก",
+    subtitle: "พื้นที่ข้อมูลประกอบงานหน้าร้าน",
+  },
+  productGuide: {
+    title: "คู่มือผลิตภัณฑ์",
+    subtitle: "ข้อมูลอ้างอิงสำหรับทีมงาน",
+  },
+  adminBackdate: {
+    title: "จองย้อนหลัง (Admin)",
+    subtitle: "เครื่องมือสำหรับผู้ดูแลระบบ",
+  },
+  adminEditAppointment: {
+    title: "แก้ไขนัดหมาย (Admin)",
+    subtitle: "ตรวจสอบและแก้ไขข้อมูลนัดหมาย",
+  },
+  adminUsers: {
+    title: "จัดการผู้ใช้ (Admin)",
+    subtitle: "ดูแลบัญชีพนักงานและสิทธิ์ใช้งาน",
+  },
+};
 
 export default function WorkbenchPage() {
   const [activeTab, setActiveTab] = useState("home");
@@ -87,6 +123,7 @@ export default function WorkbenchPage() {
   const tabs = useMemo(() => {
     const baseTabs = [
       { id: "home", label: "หน้าหลัก" },
+      { id: "kpiDashboard", label: "KPI รายเดือน" },
       { id: "booking", label: "ระบบการจองคิว" },
       { id: "stock", label: "เกี่ยวกับสต๊อก" },
       { id: "productGuide", label: "คู่มือผลิตภัณฑ์" },
@@ -105,6 +142,7 @@ export default function WorkbenchPage() {
     () => tabs.some((t) => t.id === "adminBackdate"),
     [tabs]
   );
+  const activeHeader = TAB_HEADERS[activeTab] || TAB_HEADERS.home;
 
   useEffect(() => {
     if (activeTab !== "home") return;
@@ -127,6 +165,8 @@ export default function WorkbenchPage() {
 
   const renderTabContent = () => {
     switch (activeTab) {
+      case "kpiDashboard":
+        return <KpiDashboardPage />;
       case "booking":
         return <Bookingpage />;
       case "adminBackdate":
@@ -172,8 +212,8 @@ export default function WorkbenchPage() {
     <div className="workbench-page">
       <header className="workbench-header">
         <div className="header-left">
-          <h1>หน้าแรก</h1>
-          <p>แดชบอร์ดการดำเนินงาน</p>
+          <h1>{activeHeader.title}</h1>
+          <p>{activeHeader.subtitle}</p>
         </div>
         <ProfileBar
           user={userLabel}

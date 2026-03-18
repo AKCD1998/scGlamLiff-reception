@@ -1,0 +1,115 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import KpiDashboardPage from "./KpiDashboardPage";
+import { getMonthlyKpiDashboard } from "../utils/reportingApi";
+
+vi.mock("../utils/reportingApi", () => ({
+  getMonthlyKpiDashboard: vi.fn(),
+}));
+
+const mockReport = {
+  period: {
+    month: "2026-03",
+    month_label_th: "มีนาคม 2569",
+  },
+  summary_cards: [
+    { id: "appointments_total", label: "นัดหมายทั้งหมด", value: 20, unit: "นัด", availability: "available" },
+    { id: "free_scan_conversion", label: "แปลงจากสแกนผิวฟรี", value: null, unit: "", availability: "unavailable", reason: "ไม่มี field scan" },
+  ],
+  sections: {
+    appointment_outcomes: {
+      title: "ภาพรวมสถานะนัดหมาย",
+      completed_count: 12,
+      daily_rows: [{ date: "2026-03-01", total_appointments: 20, completed_count: 12, cancelled_count: 4, no_show_count: 2 }],
+    },
+    no_show_cancellation: {
+      no_show_rate_pct: 10,
+      cancellation_rate_pct: 20,
+    },
+    course_sales_mix: {
+      title: "สัดส่วนยอดขายคอร์ส 399 / 999 / 2999",
+      total_revenue_thb: 7191,
+      rows: [
+        { bucket: "399", label: "399 บาท", sales_count: 5, buyer_count: 5, revenue_thb: 1995 },
+      ],
+    },
+    staff_utilization: {
+      title: "การใช้กำลังคนพนักงาน",
+      note: "proxy",
+      rows: [
+        {
+          staff_name: "พนักงานเอ",
+          total_appointments: 10,
+          completed_count: 7,
+          no_show_count: 1,
+          cancelled_count: 2,
+          completion_rate_pct: 70,
+        },
+      ],
+    },
+    course_redemption: {
+      title: "การตัดคอร์ส / การปิดคอร์ส",
+      total_redemptions: 11,
+      packages_used_count: 6,
+      packages_completed_count: 3,
+      mask_redemptions_count: 4,
+      top_packages: [
+        { package_label: "Smooth 3 ครั้ง 999", redemptions_count: 6, packages_used_count: 3 },
+      ],
+    },
+    repurchase: {
+      title: "การต่อคอร์ส / ซื้อซ้ำ",
+      unique_buyers_count: 8,
+      repeat_buyers_count: 3,
+      first_time_buyers_count: 5,
+      repurchase_rate_pct: 37.5,
+    },
+    free_scan_conversion: {
+      availability: "unavailable",
+      reason: "ไม่มีข้อมูล scan",
+    },
+    upsell_conversion: {
+      availability: "unavailable",
+      reason: "ไม่มีข้อมูล upsell",
+    },
+    revenue_mix: {
+      availability: "unavailable",
+      reason: "ไม่มี itemized split",
+      fallback: {
+        receipt_count: 4,
+        receipt_total_amount_thb: 4396.5,
+      },
+    },
+  },
+  assumptions: ["อ่านอย่างเดียว", "ใช้เวลา Asia/Bangkok"],
+};
+
+describe("KpiDashboardPage", () => {
+  beforeEach(() => {
+    getMonthlyKpiDashboard.mockResolvedValue({ ok: true, report: mockReport });
+  });
+
+  it("loads and renders monthly KPI data", async () => {
+    render(<KpiDashboardPage />);
+
+    expect(screen.getByText(/สรุปผลรายเดือนสำหรับประชุมทีม/i)).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(getMonthlyKpiDashboard).toHaveBeenCalled();
+    });
+
+    expect(await screen.findByText("20 นัด")).toBeInTheDocument();
+    expect(screen.getAllByText(/มีนาคม 2569/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Smooth 3 ครั้ง 999/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/37.5%/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/ยังคำนวณไม่ได้อย่างโปร่งใส/i).length).toBeGreaterThan(0);
+  });
+
+  it("shows API error message when load fails", async () => {
+    getMonthlyKpiDashboard.mockRejectedValueOnce(new Error("โหลดข้อมูลไม่สำเร็จ"));
+
+    render(<KpiDashboardPage />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("โหลดข้อมูลไม่สำเร็จ");
+  });
+});

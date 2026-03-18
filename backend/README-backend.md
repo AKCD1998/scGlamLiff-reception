@@ -87,6 +87,7 @@ node scripts/migrate_branch_device_registrations.js
 - `POST /api/auth/login` { username, password }
 - `GET /api/auth/me`
 - `POST /api/auth/logout`
+- `GET /api/reporting/kpi-dashboard?month=YYYY-MM` (authenticated, read-only KPI summary for all roles)
 - `POST /api/branch-device-registrations` (authenticated registration/update)
 - `GET /api/branch-device-registrations` (authenticated list)
 - `GET /api/branch-device-registrations/me` (LIFF identity lookup)
@@ -95,6 +96,17 @@ node scripts/migrate_branch_device_registrations.js
 Responses:
 - Success: `{ ok: true, data: ... }`
 - Error: `{ ok: false, error: "..." }`
+
+## Read-only KPI dashboard
+- New reporting namespace: `/api/reporting`
+- Current endpoint: `GET /api/reporting/kpi-dashboard?month=YYYY-MM`
+- Auth model stays the same: existing cookie JWT via `/api/auth/login`
+- Scope: read-only monthly meeting dashboard
+- Query behavior: PostgreSQL summary queries only; no writes to business tables
+- Transparent limitations:
+  - free facial scan conversion: unavailable with current schema
+  - product/skincare upsell conversion: unavailable with current schema
+  - revenue mix service vs product: unavailable with current schema, only receipt total fallback is available
 
 ## Admin PATCH Status Rollback Behavior
 - Endpoint: `PATCH /api/admin/appointments/:appointmentId`

@@ -8,6 +8,7 @@ import appointmentRoutes from './routes/appointments.js';
 import appointmentDraftRoutes from './routes/appointmentDrafts.js';
 import adminAppointmentRoutes from './routes/adminAppointments.js';
 import branchDeviceRegistrationRoutes from './routes/branchDeviceRegistrations.js';
+import reportingRoutes from './routes/reporting.js';
 import debugRoutes from './routes/debugRoutes.js';
 import customersRoutes from './routes/customers.js';
 import visitsRoutes from './routes/visits.js';
@@ -67,6 +68,7 @@ export function createApp() {
   app.use('/api/appointment-drafts', appointmentDraftRoutes);
   app.use('/api/admin', adminAppointmentRoutes);
   app.use('/api/branch-device-registrations', branchDeviceRegistrationRoutes);
+  app.use('/api/reporting', reportingRoutes);
   if (!IS_PRODUCTION) {
     app.use('/api/debug', debugRoutes);
   }

@@ -15,6 +15,7 @@ The app exposes these route groups:
 - `/api/appointments` for queue, booking options, calendar, create, service actions, backdate, and some legacy appointment endpoints
 - `/api/appointment-drafts` for authenticated draft-buffer storage before a real appointment exists
 - `/api/admin` for admin appointment detail/edit and staff-user management
+- `/api/reporting` for authenticated read-only KPI/report summaries
 - `/api/branch-device-registrations` for LIFF branch-device registration and LIFF identity lookup
 - `/api/customers` for customer list/profile reads
 - `/api/visits` and `/api/sheet-visits` for legacy sheet-backed flows
@@ -26,6 +27,7 @@ Current source of truth for modern booking/queue behavior is the appointments-fi
 - Receipt-backed or promo/special-event bookings are not a second scheduling system. They still use canonical `POST /api/appointments`; receipt evidence is stored separately and linked back to the created appointment.
 - Draft rows in `/api/appointment-drafts/*` are buffer storage only. They are not real appointments and do not appear in queue/calendar until submit creates a canonical appointment.
 - LIFF branch-device registration is an additive capability. It does not replace staff cookie auth and does not make LIFF the primary staff identity in this backend.
+- Reporting endpoints are additive read models. They do not replace transactional endpoints and are intended to summarize existing PostgreSQL business data without mutating it.
 
 Legacy behavior still exists:
 - `GET /api/appointments` and `POST /api/appointments/delete-hard` proxy to Google Apps Script (GAS)

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 
 import WorkbenchPage from "./WorkbenchPage";
@@ -12,6 +13,9 @@ vi.mock("./Homepage", () => ({
       Homepage mock | loading: {String(props.loading)} | rows: {props.rows?.length ?? 0}
     </div>
   ),
+}));
+vi.mock("./KpiDashboardPage", () => ({
+  default: () => <div data-testid="kpi-dashboard-page">KPI Dashboard mock</div>,
 }));
 vi.mock("./Bookingpage", () => ({ default: () => <div data-testid="bookingpage">Booking mock</div> }));
 vi.mock("./AdminBackdate", () => ({ default: () => <div data-testid="adminbackdate">Admin mock</div> }));
@@ -69,5 +73,23 @@ describe("WorkbenchPage", () => {
     const firstCallArgs = getAppointmentsQueue.mock.calls[0]?.[0] || {};
     expect(firstCallArgs.limit).toBe(50);
     expect(firstCallArgs.date).toBeUndefined();
+  });
+
+  it("shows KPI tab for staff and can open it", async () => {
+    const user = userEvent.setup();
+
+    const view = render(
+      <MemoryRouter>
+        <WorkbenchPage />
+      </MemoryRouter>
+    );
+
+    const kpiTab = await within(view.container).findByRole("tab", { name: /kpi รายเดือน/i });
+    expect(kpiTab).toBeInTheDocument();
+
+    await user.click(kpiTab);
+
+    expect(await within(view.container).findByTestId("kpi-dashboard-page")).toBeInTheDocument();
+    expect(within(view.container).getByRole("heading", { name: /kpi รายเดือน/i })).toBeInTheDocument();
   });
 });
