@@ -1,0 +1,140 @@
+# Branch Device Registration Implementation Log
+
+Generated on `2026-03-18T09:21:36.0003647+07:00`
+
+## Goal
+- Add backend persistence for LIFF branch-device registration using the business rule "one device belongs to one branch".
+- Keep existing username/password + cookie JWT staff auth as the primary protected staff auth model.
+- Treat LIFF smartphone identity as an operational branch-device layer, not as a replacement for `req.user`.
+
+## What Was Confirmed Before Implementation
+- Staff auth is still cookie-JWT around `staff_users` (`/api/auth/login`, `/api/auth/me`, `/api/auth/logout`).
+- Branch is still not modeled in auth/session state.
+- Branch write paths still accept opaque text-like `branch_id` values.
+- There is still no `branches` table or stable staff-to-branch mapping in the backend auth model.
+- Existing repo already distinguishes:
+  - staff login identity (`staff_users`)
+  - customer/contact identity (`customer_identities`, `line_users`)
+  - operational second-factor style checks (`staffs.pin_hash` in legacy sheet delete flow)
+
+## Design Decision
+
+### Chosen Model
+- Added `branch_device_registrations` as a new PostgreSQL table.
+- Added LIFF verification as a dedicated backend service.
+- Added a route group `/api/branch-device-registrations/*`.
+- Preserved existing `req.user`-based protected flow. No existing appointment or draft auth path was rewritten.
+
+### Why This Fits the Repo
+- Current protected staff operations rely on `req.user.id`, `req.user.display_name`, and role checks.
+- The business decision is branch-device binding, not permanent LINE-to-staff binding.
+- This repo already has a precedent for "primary staff auth + secondary operational guard" via the PIN-based legacy delete flow.
+
+### Duplicate Registration Rule
+- Chosen rule: one registration row per verified `line_user_id`.
+- `line_user_id` is unique in `branch_device_registrations`.
+- Re-registering the same LIFF identity updates the existing row in place:
+  - branch can change
+  - status is forced back to `active`
+  - `linked_at` is refreshed
+  - `last_seen_at` is refreshed
+  - `updated_by_staff_user_id` is updated
+- This avoids conflicting active registrations without introducing a second device history table in this pass.
+
+## Implemented Changes
+
+### Database / Migration
+- Added `backend/scripts/migrate_branch_device_registrations.js`
+- Added npm script `migrate:branch-device-registrations`
+
+`branch_device_registrations` stores:
+- `line_user_id`
+- `branch_id`
+- optional `device_label`
+- optional `liff_app_id`
+- `status` (`active` / `inactive`)
+- `linked_at`
+- `last_seen_at`
+- optional `notes`
+- optional `registered_by_staff_user_id`
+- optional `updated_by_staff_user_id`
+- timestamps
+
+### Backend Service Layer
+- Added `backend/src/services/lineLiffIdentityService.js`
+  - extracts LIFF credentials from request headers/body
+  - verifies `id_token` with LINE
+  - verifies `access_token` with LINE, then resolves profile
+  - rejects mismatched `id_token` vs `access_token`
+  - never trusts raw frontend `line_user_id`
+- Added `backend/src/services/branchDeviceRegistrationsService.js`
+  - create/update registration
+  - list registrations
+  - device-facing "me" lookup
+  - patch registration metadata/status
+
+### HTTP Layer
+- Added `backend/src/controllers/branchDeviceRegistrationsController.js`
+- Added `backend/src/routes/branchDeviceRegistrations.js`
+- Wired route group in `backend/src/app.js`
+
+Endpoints added:
+- `POST /api/branch-device-registrations`
+- `GET /api/branch-device-registrations`
+- `GET /api/branch-device-registrations/me`
+- `PATCH /api/branch-device-registrations/:id`
+
+### CORS / Header Support
+- Added allowed request headers for LIFF verification:
+  - `X-Line-Id-Token`
+  - `X-Line-Access-Token`
+  - `X-Liff-App-Id`
+- `Authorization` remains allowed and can carry LINE access token as `Bearer <token>` for the LIFF lookup flow.
+
+## Files Changed
+- `backend/package.json`
+- `backend/README-backend.md`
+- `backend/API_CONTRACT.md`
+- `backend/API_CHANGELOG_NOTES.md`
+- `backend/IMPLEMENTATION_LOG_BRANCH_DEVICE_REGISTRATIONS.md`
+- `backend/scripts/migrate_branch_device_registrations.js`
+- `backend/src/app.js`
+- `backend/src/routes/branchDeviceRegistrations.js`
+- `backend/src/controllers/branchDeviceRegistrationsController.js`
+- `backend/src/services/lineLiffIdentityService.js`
+- `backend/src/services/lineLiffIdentityService.test.js`
+- `backend/src/services/branchDeviceRegistrationsService.js`
+- `backend/src/services/branchDeviceRegistrationsService.test.js`
+
+## Verification Strategy
+- LIFF identity is verified server-side before registration or "me" lookup.
+- `id_token` path:
+  - backend calls LINE verify endpoint with configured channel id
+  - trusted `sub` becomes `line_user_id`
+- `access_token` path:
+  - backend calls LINE token verify endpoint
+  - backend enforces expected channel id
+  - backend then calls LINE profile endpoint
+  - trusted `userId` becomes `line_user_id`
+- When both tokens are supplied, both must resolve to the same LINE user.
+
+## Tests Added
+- Focused tests for LIFF verification wrapper behavior
+- Create registration test
+- Re-register/update existing device test
+- "me" lookup test
+- Inactive registration behavior test
+- Patch registration test
+- List ordering/filter test
+
+## What This Does Not Enforce Yet
+- It does not replace or bypass staff auth.
+- It does not force existing appointment/draft endpoints to require LIFF verification.
+- It does not add a `branches` table.
+- It does not create staff-to-LINE mapping.
+- It does not solve per-employee accountability beyond the existing `req.user` / event / timestamp model.
+
+## Next Logical Follow-Ups
+- Decide where LIFF branch-device verification should be enforced in frontend/backend flows.
+- Normalize the branch domain model before adding stronger device-per-branch enforcement everywhere.
+- Add an admin UI for viewing/updating branch-device registrations if the operational workflow needs it.

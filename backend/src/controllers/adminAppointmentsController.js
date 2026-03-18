@@ -6,6 +6,7 @@ import {
   RESOLVED_STAFF_NAME_SQL,
   assertSsotStaffRow,
 } from '../services/appointmentIdentitySql.js';
+import { getAppointmentReceiptEvidenceByAppointmentId } from '../services/appointmentReceiptEvidenceService.js';
 import { assertEventStaffIdentity } from '../services/appointmentEventStaffGuard.js';
 import { adminPatchAppointmentStatusInTransaction } from '../services/adminAppointmentStatusService.js';
 import { resolveAppointmentFields } from '../utils/resolveAppointmentFields.js';
@@ -768,6 +769,13 @@ export async function getAdminAppointmentById(req, res) {
     });
 
     const treatmentPlan = await getAppointmentTreatmentPlan(client, appointmentId);
+    let receiptEvidence = null;
+    try {
+      receiptEvidence = await getAppointmentReceiptEvidenceByAppointmentId(client, appointmentId);
+    } catch (error) {
+      if (error?.code !== '42P01') throw error;
+      receiptEvidence = null;
+    }
 
     const activePackages = appointment.customer_id
       ? await listActivePackagesForCustomer(client, appointment.customer_id)
@@ -795,6 +803,7 @@ export async function getAdminAppointmentById(req, res) {
         treatment_plan_mode: treatmentPlan.treatment_plan_mode,
         package_id: treatmentPlan.package_id,
       },
+      receipt_evidence: receiptEvidence,
       active_packages: activePackages,
     });
   } catch (error) {

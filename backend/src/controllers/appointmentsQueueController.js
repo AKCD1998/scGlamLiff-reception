@@ -8,9 +8,9 @@ import {
 } from '../services/appointmentIdentitySql.js';
 import { formatTreatmentDisplay, resolveTreatmentDisplay } from '../utils/treatmentDisplay.js';
 import { resolveAppointmentFieldsByAppointmentId } from '../utils/resolveAppointmentFields.js';
+import { parseBranchFilterQuery } from '../utils/branchContract.js';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const BRANCH_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const UUID_PATTERN_RE =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
 const DEFAULT_LIMIT = 200;
@@ -391,7 +391,7 @@ export async function listBookingTreatmentOptions(req, res) {
 
 export async function listAppointmentsQueue(req, res) {
   const date = normalizeText(req.query?.date);
-  const branchId = normalizeText(req.query?.branch_id);
+  let branchId = '';
   const { limit, warning: limitWarning } = parseLimit(req.query?.limit);
 
   if (date && !DATE_PATTERN.test(date)) {
@@ -402,12 +402,13 @@ export async function listAppointmentsQueue(req, res) {
     });
   }
 
-  if (branchId && !BRANCH_ID_PATTERN.test(branchId)) {
-    return badRequest(res, 'Invalid query parameter: branch_id', {
-      param: 'branch_id',
-      provided: branchId,
-      expected: 'uuid',
-    });
+  try {
+    branchId = parseBranchFilterQuery(req.query?.branch_id);
+  } catch (error) {
+    if (error?.status === 400) {
+      return badRequest(res, error.message, error.details || {});
+    }
+    throw error;
   }
 
   try {
@@ -746,7 +747,7 @@ export async function listAppointmentsQueue(req, res) {
 export async function listAppointmentCalendarDays(req, res) {
   const from = normalizeText(req.query?.from);
   const to = normalizeText(req.query?.to);
-  const branchId = normalizeText(req.query?.branch_id);
+  let branchId = '';
 
   if (!from || !to) {
     return badRequest(res, 'Missing query parameters: from/to', {
@@ -766,12 +767,13 @@ export async function listAppointmentCalendarDays(req, res) {
     return badRequest(res, 'Invalid date range: from is after to', { from, to });
   }
 
-  if (branchId && !BRANCH_ID_PATTERN.test(branchId)) {
-    return badRequest(res, 'Invalid query parameter: branch_id', {
-      param: 'branch_id',
-      provided: branchId,
-      expected: 'uuid',
-    });
+  try {
+    branchId = parseBranchFilterQuery(req.query?.branch_id);
+  } catch (error) {
+    if (error?.status === 400) {
+      return badRequest(res, error.message, error.details || {});
+    }
+    throw error;
   }
 
   try {

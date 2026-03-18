@@ -2,7 +2,21 @@
 
 - Auth is cookie-based, not Bearer-based. Browser clients must use `credentials: 'include'` and rely on the HttpOnly `token` cookie.
 - The canonical runtime queue is `GET /api/appointments/queue`. Do not use `/api/visits` or GAS-backed `GET /api/appointments` as substitutes.
+- New draft buffer endpoints exist under `/api/appointment-drafts/*`. These are pre-appointment storage only, not queue rows.
+- `GET /api/appointment-drafts` now exists as a real PostgreSQL-backed reload/dashboard endpoint. Refresh should reload drafts from DB, not from in-memory/session state.
+- Use draft storage when promo verification is done but `scheduled_at` and/or `staff_name` is still unknown.
+- `POST /api/appointment-drafts/:id/submit` is the bridge from draft buffer to a real canonical appointment and reuses the same backend create logic as `POST /api/appointments`.
+- Draft rows currently persist until they are patched, patched to `status=cancelled`, or submitted. There is no dedicated delete endpoint yet.
 - Booking create should use `POST /api/appointments` with explicit `treatment_id`, explicit `package_id` when relevant, and `scheduled_at` including timezone offset.
+- Normal `POST /api/appointments` behavior stays unchanged when `receipt_evidence` is omitted; legacy-compatible branch fallback still applies in that case.
+- Receipt-backed or promo/special-event bookings still use canonical `POST /api/appointments`; they are real appointments, not temporary records.
+- `POST /api/appointments` now accepts optional `receipt_evidence`. When sending it, send `branch_id` explicitly instead of relying on the default branch fallback.
+- Receipt evidence is stored in PostgreSQL table `appointment_receipts` and linked to the created `appointment_id`.
+- Stored receipt evidence is returned by `POST /api/appointments` and `GET /api/admin/appointments/:appointmentId`, not by queue rows.
+- Branch contract is now explicit in backend code/docs:
+  - write paths (`POST /api/appointments`, `POST/PATCH /api/appointment-drafts`) accept text-like `branch_id`
+  - queue/calendar filters accept UUID-shaped `branch_id` only
+  - do not invent UUID remapping for values like `branch-003`
 - Queue/calendar date logic is Bangkok-local. Split `visit_date` + `visit_time_text` is converted to `+07:00`.
 - Customer identity is phone-driven. Reusing a phone can link to an existing customer and update `customers.full_name`.
 - Real course deduction happens through `POST /api/appointments/:id/complete`, not through plain status patching.
@@ -10,3 +24,12 @@
 - Admin patching can move an appointment to another customer when phone ownership conflicts, but only with `reassign_customer_by_phone=true`.
 - Legacy sheet endpoints are guarded by `legacySheetGuard` and may return `410` for non-admin users unless `LEGACY_SHEET_MODE=true`.
 - Some endpoints are public by current route code (`/api/customers/*`, legacy GAS helpers, `DELETE /api/appointments/:id`). Treat that as observed behavior, not a design guarantee.
+- New schema step: run `npm run migrate:appointment-receipts` in `backend/` before relying on any receipt-backed create flow. Only admin detail read has a missing-table fallback.
+- New schema step: run `npm run migrate:appointment-drafts` before using the draft buffer endpoints.
+- New branch-device registration capability exists under `/api/branch-device-registrations/*`.
+- This LIFF layer does not replace `/api/auth/login` + cookie JWT staff auth. It stores branch-bound LINE device registrations in PostgreSQL as an additional operational guard/context layer.
+- Backend verifies LIFF `id_token` and/or `access_token` against LINE before trusting `line_user_id`; raw frontend `line_user_id` must not be trusted.
+- `POST /api/branch-device-registrations` requires existing staff auth and upserts one registration row per verified `line_user_id`.
+- `GET /api/branch-device-registrations/me` is the device-facing verification endpoint. It verifies the current LIFF identity, returns branch registration status, and updates `last_seen_at` when the device is known.
+- New schema step: run `npm run migrate:branch-device-registrations` before using the branch-device registration endpoints.
+- New CORS preflight allowance exists for `X-Line-Id-Token`, `X-Line-Access-Token`, and `X-Liff-App-Id` headers used by the LIFF verification flow.

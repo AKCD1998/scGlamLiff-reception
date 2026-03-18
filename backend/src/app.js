@@ -5,7 +5,9 @@ import cookieParser from 'cookie-parser';
 
 import authRoutes from './routes/auth.js';
 import appointmentRoutes from './routes/appointments.js';
+import appointmentDraftRoutes from './routes/appointmentDrafts.js';
 import adminAppointmentRoutes from './routes/adminAppointments.js';
+import branchDeviceRegistrationRoutes from './routes/branchDeviceRegistrations.js';
 import debugRoutes from './routes/debugRoutes.js';
 import customersRoutes from './routes/customers.js';
 import visitsRoutes from './routes/visits.js';
@@ -43,7 +45,13 @@ export function createApp() {
       },
       credentials: true,
       methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
+      allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-Line-Id-Token',
+        'X-Line-Access-Token',
+        'X-Liff-App-Id',
+      ],
     })
   );
 
@@ -56,7 +64,9 @@ export function createApp() {
 
   app.use('/api/auth', authRoutes);
   app.use('/api/appointments', appointmentRoutes);
+  app.use('/api/appointment-drafts', appointmentDraftRoutes);
   app.use('/api/admin', adminAppointmentRoutes);
+  app.use('/api/branch-device-registrations', branchDeviceRegistrationRoutes);
   if (!IS_PRODUCTION) {
     app.use('/api/debug', debugRoutes);
   }

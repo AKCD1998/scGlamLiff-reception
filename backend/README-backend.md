@@ -35,6 +35,7 @@ Optional:
 - `PGSSLMODE=disable` only if your DB does not require SSL
 - `FRONTEND_ORIGIN` / `FRONTEND_ORIGINS` (comma-separated) for allowed CORS origins
 - `COOKIE_SAMESITE` (`lax`, `strict`, or `none`) and `COOKIE_SECURE=true` for cross-site cookies
+- `LINE_LIFF_CHANNEL_ID` (or `LINE_CHANNEL_ID`) for backend verification of LIFF `id_token` / `access_token`
 
 ### Cross-site auth (GitHub Pages / Render)
 If your frontend is hosted on a different origin (e.g. GitHub Pages) and the API is on Render, set:
@@ -76,10 +77,20 @@ Ensure `appointments.raw_sheet_uuid` is unique when present (helps prevent dupli
 node scripts/migrate_appointments_raw_sheet_uuid_unique.js
 ```
 
+Create the branch-device registration table used for LIFF smartphone-to-branch binding:
+
+```powershell
+node scripts/migrate_branch_device_registrations.js
+```
+
 ## API
 - `POST /api/auth/login` { username, password }
 - `GET /api/auth/me`
 - `POST /api/auth/logout`
+- `POST /api/branch-device-registrations` (authenticated registration/update)
+- `GET /api/branch-device-registrations` (authenticated list)
+- `GET /api/branch-device-registrations/me` (LIFF identity lookup)
+- `PATCH /api/branch-device-registrations/:id` (authenticated patch)
 
 Responses:
 - Success: `{ ok: true, data: ... }`

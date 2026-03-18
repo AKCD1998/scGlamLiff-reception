@@ -3,17 +3,19 @@
 ## 1. Purpose
 - This document is the backend integration contract generated from the real source code in this repository.
 - It is intended for external repos, external Codex instances, and client applications that must integrate without reading backend source files.
-- Generated from code on `2026-03-17T14:03:38.0533130+07:00`.
+- Generated from code on `2026-03-18T09:21:36.0003647+07:00`.
 - Code behavior takes precedence over `backend/README-backend.md` and `diary.md` when they conflict.
 - Any uncertainty is explicitly labeled in [Section 13](#13-open-questions--uncertain-areas).
 
 ## 2. High-Level Architecture
-This backend is an Express application backed by PostgreSQL. Its modern appointment flow is appointments-first: queue reads, booking creation, service completion, admin edit, and backdate flows all operate on local PostgreSQL tables such as `appointments`, `customers`, `customer_identities`, `customer_packages`, `package_usages`, and `appointment_events`.
+This backend is an Express application backed by PostgreSQL. Its modern appointment flow is appointments-first: queue reads, booking creation, service completion, admin edit, and backdate flows all operate on local PostgreSQL tables such as `appointments`, `customers`, `customer_identities`, `customer_packages`, `package_usages`, `appointment_events`, `appointment_receipts`, and `appointment_drafts`.
 
 The app exposes these route groups:
 - `/api/auth` for session login/logout/me
 - `/api/appointments` for queue, booking options, calendar, create, service actions, backdate, and some legacy appointment endpoints
+- `/api/appointment-drafts` for authenticated draft-buffer storage before a real appointment exists
 - `/api/admin` for admin appointment detail/edit and staff-user management
+- `/api/branch-device-registrations` for LIFF branch-device registration and LIFF identity lookup
 - `/api/customers` for customer list/profile reads
 - `/api/visits` and `/api/sheet-visits` for legacy sheet-backed flows
 - `/api/debug` for a non-production admin debug endpoint
@@ -21,6 +23,9 @@ The app exposes these route groups:
 Current source of truth for modern booking/queue behavior is the appointments-first flow:
 - Canonical read endpoints: `/api/appointments/queue`, `/api/appointments/booking-options`, `/api/appointments/calendar-days`
 - Canonical write endpoints: `POST /api/appointments`, service status endpoints under `/api/appointments/:id/*`, and admin endpoints under `/api/admin/appointments/*`
+- Receipt-backed or promo/special-event bookings are not a second scheduling system. They still use canonical `POST /api/appointments`; receipt evidence is stored separately and linked back to the created appointment.
+- Draft rows in `/api/appointment-drafts/*` are buffer storage only. They are not real appointments and do not appear in queue/calendar until submit creates a canonical appointment.
+- LIFF branch-device registration is an additive capability. It does not replace staff cookie auth and does not make LIFF the primary staff identity in this backend.
 
 Legacy behavior still exists:
 - `GET /api/appointments` and `POST /api/appointments/delete-hard` proxy to Google Apps Script (GAS)
@@ -37,7 +42,7 @@ Important implementation detail: some read fields are event-sourced, not plain t
 - CORS is enabled with:
   - `credentials: true`
   - methods `GET, POST, PATCH, DELETE, OPTIONS`
-  - allowed headers `Content-Type, Authorization`
+  - allowed headers `Content-Type, Authorization, X-Line-Id-Token, X-Line-Access-Token, X-Liff-App-Id`
 - Allowed origins come from:
   - `FRONTEND_ORIGIN`
   - `FRONTEND_ORIGINS` comma-separated
@@ -54,8 +59,9 @@ Frontend/browser implication:
 1. Client calls `POST /api/auth/login` with username/password.
 2. On success, backend signs a JWT and stores it in an HttpOnly cookie named `token`.
 3. Protected endpoints use `requireAuth`, which only checks `req.cookies.token`.
-4. No current route uses Bearer token auth. The `Authorization` header is allowed by CORS but is not used by `requireAuth`.
-5. Admin-only routes also apply `requireAdmin`, which allows only roles `admin` and `owner`.
+4. Staff auth does not use Bearer token auth. The `Authorization` header is not used by `requireAuth`.
+5. One LIFF lookup route (`GET /api/branch-device-registrations/me`) may read `Authorization: Bearer <LINE access token>` as LINE identity input, but that is separate from staff auth.
+6. Admin-only routes also apply `requireAdmin`, which allows only roles `admin` and `owner`.
 
 ### Cookie Behavior
 - Cookie name: `token`
@@ -86,7 +92,12 @@ Frontend/browser implication:
 
 ### Frontend Integration Notes
 - Always send `credentials: 'include'` for browser requests that need session auth.
-- Do not assume `Authorization: Bearer ...` works. It does not drive auth in current code.
+- Do not assume `Authorization: Bearer ...` drives staff auth. It does not drive `requireAuth`.
+- LIFF/device verification endpoints may use:
+  - `Authorization: Bearer <LINE access token>`
+  - `X-Line-Id-Token: <LINE id token>`
+  - `X-Line-Access-Token: <LINE access token>`
+  - `X-Liff-App-Id: <LIFF app id>` (optional metadata)
 - `POST /api/auth/logout` does not require auth. It simply clears the cookie shape used by login.
 
 Example browser login:
@@ -124,11 +135,56 @@ await fetch('/api/appointments/queue?limit=50', {
 
 ### ID Conventions
 - Most appointment, customer, package, and raw sheet IDs are UUIDs.
-- `branch_id` is inconsistent:
-  - queue/calendar query parameters enforce UUID format
-  - some write flows only require non-empty text
-  - some code defaults branch to literal `branch-003`
-- Treat `branch_id` as implementation-specific. See [Section 13](#13-open-questions--uncertain-areas).
+- `branch_id` has an explicit backend contract today:
+  - write endpoints such as `POST /api/appointments`, `POST /api/appointment-drafts`, and `PATCH /api/appointment-drafts/:id` accept non-empty text when a branch value is supplied
+  - canonical create can still fall back to `DEFAULT_BRANCH_ID` or literal `branch-003` when `receipt_evidence` is not being sent
+  - `POST /api/appointment-drafts/:id/submit` requires the stored draft `branch_id` to be non-empty and passes it through to canonical create unchanged
+  - availability/query endpoints `GET /api/appointments/queue` and `GET /api/appointments/calendar-days` only accept UUID-shaped `branch_id` query params when a branch filter is requested
+  - if queue/calendar `branch_id` is omitted, no branch filter is applied
+  - no backend mapping currently converts text branch codes such as `branch-003` into UUID filter values
+- Treat `branch_id` as an opaque stored write value plus a UUID-only read filter until the data model is unified. See [Section 13](#13-open-questions--uncertain-areas).
+
+### Receipt-Backed Booking Conventions
+- Receipt-backed bookings still create normal rows in `appointments`.
+- Optional receipt evidence is stored in `appointment_receipts` and linked by `appointment_id`.
+- Current code requires an explicit non-empty `branch_id` when `receipt_evidence` is supplied to `POST /api/appointments`.
+- `appointments.source` remains `WEB` for `POST /api/appointments`, including receipt-backed bookings. Promo/verification context currently lives in receipt evidence fields such as `verification_source` and `verification_metadata`, not in a separate appointment status or source code.
+
+### Draft Buffer Conventions
+- `appointment_drafts` is a PostgreSQL buffer table in the same database as `appointments`; it is not a separate database or external buffer service.
+- Draft rows are persisted in PostgreSQL and survive browser refresh/reload.
+- `GET /api/appointment-drafts` reads persisted rows from PostgreSQL, defaulting to `draft` and `submitted` rows sorted by newest `updated_at` first.
+- Drafts may omit `scheduled_at` and `staff_name`.
+- Drafts may also omit other fields, but submit will later require:
+  - `customer_full_name`
+  - `phone`
+  - `treatment_id`
+  - `branch_id`
+  - `scheduled_at`
+  - `staff_name`
+- Draft submit reuses the canonical appointment creation logic behind `POST /api/appointments` instead of implementing a separate appointment business-rules engine.
+- `branch_id` remains text-tolerant in drafts, matching current canonical create behavior.
+- There is no dedicated draft delete endpoint in current code. Draft lifecycle is currently create -> patch/update -> optional `status=cancelled` -> optional submit.
+
+### LIFF Branch-Device Registration Conventions
+- `branch_device_registrations` is a PostgreSQL table for LIFF smartphone/device registration, not for staff auth replacement.
+- Existing username/password + cookie JWT staff auth remains primary for protected staff operations.
+- Backend never trusts raw frontend `line_user_id` for this feature.
+- LIFF identity must be verified server-side from:
+  - `id_token`
+  - and/or `access_token`
+- Current verification contract:
+  - `id_token` is verified with LINE using configured `LINE_LIFF_CHANNEL_ID` or `LINE_CHANNEL_ID`
+  - `access_token` is verified with LINE, then used to fetch LINE profile
+  - if both tokens are supplied, they must resolve to the same LINE user
+- Registration business rule in this implementation:
+  - one row per `line_user_id`
+  - re-registering the same LIFF identity updates the existing row in place
+  - current stored branch/device becomes the active one for that LINE identity
+- `GET /api/branch-device-registrations/me` is the LIFF/device-facing lookup endpoint:
+  - it verifies the current LIFF identity
+  - returns registration status and branch binding
+  - updates `last_seen_at` when the device is already known
 
 ### Common Error Shapes
 Most endpoints return one of:
@@ -209,10 +265,19 @@ Not every endpoint accepts every status. See [Section 8](#8-appointment-lifecycl
 | Endpoint/Group | Canonical? | Legacy? | Notes | Should new integrations use it? |
 | --- | --- | --- | --- | --- |
 | `/api/auth/*` | Yes | No | Current session auth flow | Yes |
+| `POST /api/branch-device-registrations` | Supportive | No | Authenticated LIFF device registration/upsert | Yes, for LIFF device setup |
+| `GET /api/branch-device-registrations` | Supportive | No | Authenticated LIFF device registration list | Yes, for admin/staff visibility |
+| `GET /api/branch-device-registrations/me` | Supportive | No | LIFF identity lookup for current device/LINE user | Yes, for LIFF device checks |
+| `PATCH /api/branch-device-registrations/:id` | Supportive | No | Authenticated LIFF device registration patch | Yes, for ops/admin maintenance |
 | `GET /api/appointments/queue` | Yes | No | Main queue/read endpoint | Yes |
 | `GET /api/appointments/booking-options` | Yes | No | Booking UI option source | Yes |
 | `GET /api/appointments/calendar-days` | Yes | No | Booking calendar density endpoint | Yes |
-| `POST /api/appointments` | Yes | No | Main create-booking endpoint | Yes |
+| `GET /api/appointment-drafts` | Supportive | No | Persisted draft list/dashboard endpoint backed by PostgreSQL | Yes, for draft flow |
+| `POST /api/appointment-drafts` | Supportive | No | Buffer partial promo/draft booking data before a real appointment exists | Yes, for draft flow |
+| `GET /api/appointment-drafts/:id` | Supportive | No | Read one draft buffer row | Yes, for draft flow |
+| `PATCH /api/appointment-drafts/:id` | Supportive | No | Update draft buffer data before submit | Yes, for draft flow |
+| `POST /api/appointment-drafts/:id/submit` | Supportive | No | Converts a complete draft into a canonical appointment | Yes, for draft flow |
+| `POST /api/appointments` | Yes | No | Main create-booking endpoint, including optional receipt-backed promo/special-event bookings | Yes |
 | `POST /api/appointments/:id/complete` | Yes | No | Canonical completion and package deduction flow | Yes |
 | `POST /api/appointments/:id/cancel` | Yes | No | Canonical staff cancel flow | Yes |
 | `POST /api/appointments/:id/no-show` | Yes | No | Canonical staff no-show flow | Yes |
@@ -381,6 +446,254 @@ Not every endpoint accepts every status. See [Section 8](#8-appointment-lifecycl
 **Integration Notes**
 - Safe to call even if the user is already effectively logged out.
 
+### `POST /api/branch-device-registrations`
+**Purpose**
+- Register or re-register a LIFF smartphone/device to a branch after verifying LIFF identity server-side.
+
+**Auth**
+- Authenticated staff/admin/owner.
+
+**Request**
+
+| Field/Header | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `branch_id` | string | Yes | Opaque text branch id; current branch write contract is preserved |
+| `device_label` | string | No | Friendly label for the device |
+| `liff_app_id` | string | No | Optional LIFF app id metadata |
+| `notes` | string | No | Optional ops/admin note |
+| `id_token` | string | Conditionally | Required if `access_token` is not provided |
+| `access_token` | string | Conditionally | Required if `id_token` is not provided |
+
+Supported LIFF headers:
+- `Authorization: Bearer <LINE access token>`
+- `X-Line-Access-Token: <LINE access token>`
+- `X-Line-Id-Token: <LINE id token>`
+- `X-Liff-App-Id: <LIFF app id>`
+
+**Validation / Business Rules**
+- Requires existing staff cookie auth.
+- `branch_id` is required and stored as text without UUID-only coercion.
+- Backend verifies LIFF identity with LINE before trusting `line_user_id`.
+- Raw frontend `line_user_id` is not accepted as a trusted identity source.
+- Current duplicate rule is strict:
+  - one row per `line_user_id`
+  - if the same LIFF identity registers again, backend updates the existing row in place
+  - resulting row is forced to `status='active'`
+  - `linked_at` and `last_seen_at` refresh on successful registration
+
+**Response**
+- `201` when created, `200` when updated
+
+```json
+{
+  "ok": true,
+  "action": "created",
+  "registration": {
+    "id": "registration-uuid",
+    "line_user_id": "U1234567890",
+    "branch_id": "branch-003",
+    "device_label": "Front Desk iPhone",
+    "liff_app_id": "1650000000-test",
+    "status": "active",
+    "linked_at": "2026-03-18T02:00:00.000Z",
+    "last_seen_at": "2026-03-18T02:00:00.000Z",
+    "notes": "Primary counter device",
+    "registered_by_staff_user_id": "staff-user-uuid",
+    "updated_by_staff_user_id": "staff-user-uuid",
+    "created_at": "2026-03-18T02:00:00.000Z",
+    "updated_at": "2026-03-18T02:00:00.000Z"
+  },
+  "line_identity": {
+    "line_user_id": "U1234567890",
+    "display_name": "Front Desk Phone",
+    "picture_url": null,
+    "liff_app_id": "1650000000-test",
+    "verification_source": "id_token"
+  }
+}
+```
+
+**Errors**
+
+| Status | Trigger |
+| --- | --- |
+| `400` | Missing `branch_id`, missing LIFF tokens, invalid patch payload |
+| `401` | Invalid LIFF token, LIFF token mismatch, missing staff auth |
+| `422` | Verified LIFF response could not produce a trusted `line_user_id` |
+| `500` | Missing LINE channel config or unhandled server error |
+
+**Integration Notes**
+- This endpoint adds a branch-device layer on top of current staff auth. It is not a staff login endpoint.
+
+### `GET /api/branch-device-registrations`
+**Purpose**
+- List branch-device registrations for admin/staff visibility and troubleshooting.
+
+**Auth**
+- Authenticated staff/admin/owner.
+
+**Request**
+
+| Query | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `status` | `active \| inactive \| all` | No | Default behavior returns all known statuses |
+| `branch_id` | string | No | Text filter; no UUID-only rule here |
+| `line_user_id` | string | No | Exact LINE user id filter |
+
+**Validation / Business Rules**
+- Sorted by `updated_at DESC`, then `created_at DESC`, then `id DESC`.
+- `status` must be `active`, `inactive`, or `all`.
+
+**Response**
+- `200`
+
+```json
+{
+  "ok": true,
+  "rows": [
+    {
+      "id": "registration-uuid",
+      "line_user_id": "U1234567890",
+      "branch_id": "branch-003",
+      "device_label": "Front Desk iPhone",
+      "liff_app_id": "1650000000-test",
+      "status": "active",
+      "linked_at": "2026-03-18T02:00:00.000Z",
+      "last_seen_at": "2026-03-18T03:00:00.000Z",
+      "notes": "Primary counter device",
+      "registered_by_staff_user_id": "staff-user-uuid",
+      "updated_by_staff_user_id": "staff-user-uuid",
+      "created_at": "2026-03-18T02:00:00.000Z",
+      "updated_at": "2026-03-18T02:10:00.000Z"
+    }
+  ],
+  "meta": {
+    "applied_status_filter": ["active", "inactive"],
+    "branch_id": null,
+    "line_user_id": null,
+    "sort": "updated_at_desc"
+  }
+}
+```
+
+**Errors**
+
+| Status | Trigger |
+| --- | --- |
+| `400` | Invalid status filter |
+| `401` | Missing staff auth |
+| `500` | Unhandled server error |
+
+### `GET /api/branch-device-registrations/me`
+**Purpose**
+- Verify the current LIFF identity and return whether that LINE identity is a known branch device.
+
+**Auth**
+- Public with LIFF token verification. Does not require staff cookie auth.
+
+**Request**
+- Send LIFF identity in headers:
+  - `Authorization: Bearer <LINE access token>`
+  - and/or `X-Line-Id-Token: <LINE id token>`
+  - optional `X-Liff-App-Id: <LIFF app id>`
+
+**Validation / Business Rules**
+- Backend verifies LIFF identity with LINE before lookup.
+- If a registration exists, backend updates `last_seen_at`.
+- Current response distinguishes:
+  - `registered`
+  - `active`
+  - bound `branch_id`
+  - optional `device_label`
+
+**Response**
+- `200`
+
+```json
+{
+  "ok": true,
+  "registered": true,
+  "active": true,
+  "branch_id": "branch-003",
+  "device_label": "Front Desk iPhone",
+  "registration": {
+    "id": "registration-uuid",
+    "line_user_id": "U1234567890",
+    "branch_id": "branch-003",
+    "device_label": "Front Desk iPhone",
+    "status": "active",
+    "last_seen_at": "2026-03-18T03:00:00.000Z"
+  },
+  "line_identity": {
+    "line_user_id": "U1234567890",
+    "display_name": "Front Desk Phone",
+    "picture_url": null,
+    "liff_app_id": "1650000000-test",
+    "verification_source": "id_token+access_token"
+  }
+}
+```
+
+**Errors**
+
+| Status | Trigger |
+| --- | --- |
+| `400` | Missing LIFF tokens |
+| `401` | Invalid LIFF token or token mismatch |
+| `422` | Verified LIFF response could not produce a trusted `line_user_id` |
+| `500` | Missing LINE channel config or unhandled server error |
+
+**Integration Notes**
+- "me" means "the current verified LIFF device/LINE user", not the current staff login user.
+
+### `PATCH /api/branch-device-registrations/:id`
+**Purpose**
+- Update registration status/metadata without rebuilding staff auth or deleting rows.
+
+**Auth**
+- Authenticated staff/admin/owner.
+
+**Request**
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `status` | `active \| inactive` | No | Optional |
+| `device_label` | string or `null` | No | Optional |
+| `notes` | string or `null` | No | Optional |
+
+Path param:
+- `id` must be UUID
+
+**Validation / Business Rules**
+- At least one of `status`, `device_label`, or `notes` is required.
+- Setting status back to `active` refreshes `linked_at` when the row was previously inactive.
+
+**Response**
+- `200`
+
+```json
+{
+  "ok": true,
+  "registration": {
+    "id": "registration-uuid",
+    "line_user_id": "U1234567890",
+    "branch_id": "branch-003",
+    "device_label": "Updated Label",
+    "status": "inactive",
+    "notes": "Temporarily disabled"
+  }
+}
+```
+
+**Errors**
+
+| Status | Trigger |
+| --- | --- |
+| `400` | Invalid registration id or empty patch payload |
+| `401` | Missing staff auth |
+| `404` | Registration not found |
+| `500` | Unhandled server error |
+
 ### `GET /api/appointments/booking-options`
 **Purpose**
 - Return treatment/package options for booking UI.
@@ -460,13 +773,14 @@ Not every endpoint accepts every status. See [Section 8](#8-appointment-lifecycl
 | --- | --- | --- | --- |
 | `from` | `YYYY-MM-DD` | Yes | Bangkok-local date string |
 | `to` | `YYYY-MM-DD` | Yes | Bangkok-local date string |
-| `branch_id` | string | No | Must match UUID format if provided |
+| `branch_id` | string | No | Optional branch filter; must be UUID-shaped if provided |
 
 **Validation / Business Rules**
 - Missing `from`/`to` returns `400`.
 - Invalid date format returns `400`.
 - `from > to` returns `400`.
 - `branch_id` must be UUID if present.
+- Omitting `branch_id` means no branch filter is applied.
 - E2E/test records are excluded when customer name or `line_user_id` matches:
   - `e2e_`
   - `e2e_workflow_`
@@ -511,6 +825,7 @@ Not every endpoint accepts every status. See [Section 8](#8-appointment-lifecycl
 
 **Integration Notes**
 - Use this for calendar highlighting/density, not for queue detail.
+- Do not send text branch codes such as `branch-003` here; the current backend filter contract is UUID-only.
 
 ### `GET /api/appointments/queue`
 **Purpose**
@@ -524,12 +839,13 @@ Not every endpoint accepts every status. See [Section 8](#8-appointment-lifecycl
 | Query | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `date` | `YYYY-MM-DD` | No | Filters by Bangkok-local appointment date |
-| `branch_id` | string | No | Must be UUID if provided |
+| `branch_id` | string | No | Optional branch filter; must be UUID-shaped if provided |
 | `limit` | positive integer | No | Default `200`, max `500`; invalid values are normalized, not rejected |
 
 **Validation / Business Rules**
 - Invalid `date` returns structured `400`.
 - Invalid `branch_id` returns structured `400`.
+- Omitting `branch_id` means no branch filter is applied.
 - Queue shows all statuses. It does not hide `cancelled`, `no_show`, or `completed`.
 - Ordering:
   - with `date`: ascending by `scheduled_at`
@@ -637,6 +953,347 @@ Example:
 - Use this instead of `/api/visits` for modern queue data.
 - Treat `rows` as the canonical appointment queue.
 - Do not assume undocumented raw fields are stable.
+- Do not send text branch codes such as `branch-003` as queue filters; queue filtering is UUID-only today.
+
+### `GET /api/appointment-drafts`
+**Purpose**
+- Reload persisted draft rows from PostgreSQL for staff dashboards or refresh-safe promo booking flows.
+
+**Auth**
+- Authenticated active staff/admin/owner user.
+
+**Request**
+
+Query params:
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `status` | `"draft"`, `"submitted"`, `"cancelled"`, or `"all"` | No | Default behavior is equivalent to `draft + submitted` |
+
+**Validation / Business Rules**
+- This endpoint reads persisted rows from `appointment_drafts`; it is not session-only storage.
+- Default filter returns statuses `draft` and `submitted`.
+- `status=cancelled` returns cancelled drafts only.
+- `status=all` returns all currently known statuses: `draft`, `submitted`, `cancelled`.
+- Sort order is `updated_at DESC`, then `created_at DESC`, then `id DESC`.
+- Drafts remain reloadable after refresh because rows stay in PostgreSQL until they are updated, cancelled, or submitted.
+- There is no dedicated delete endpoint in current code.
+
+**Response**
+- `200`
+
+```json
+{
+  "ok": true,
+  "drafts": [
+    {
+      "id": "draft-uuid",
+      "status": "draft",
+      "customer_full_name": "Promo Customer",
+      "phone": "0812345678",
+      "branch_id": "branch-003",
+      "treatment_id": "treatment-uuid",
+      "treatment_item_text": "Smooth 1x 399",
+      "package_id": null,
+      "staff_name": null,
+      "scheduled_at": null,
+      "receipt_evidence": {
+        "receipt_image_ref": "s3://promo/bill-001.jpg",
+        "receipt_identifier": "promo-bill-001",
+        "total_amount_thb": 399
+      },
+      "source": "promo_receipt_draft",
+      "flow_metadata": {
+        "campaign_code": "SUMMER_GLOW"
+      },
+      "created_by_staff_user_id": "staff-user-uuid",
+      "updated_by_staff_user_id": "staff-user-uuid",
+      "submitted_appointment_id": null,
+      "submitted_at": null,
+      "created_at": "2026-03-17T10:00:00.000Z",
+      "updated_at": "2026-03-17T10:05:00.000Z"
+    }
+  ],
+  "meta": {
+    "applied_status_filter": ["draft", "submitted"],
+    "sort": "updated_at_desc"
+  }
+}
+```
+
+**Errors**
+
+| Status | Trigger |
+| --- | --- |
+| `400` | Invalid `status` filter |
+| `500` | Unhandled server error |
+
+**Integration Notes**
+- Use this endpoint after refresh to rebuild the draft dashboard from PostgreSQL.
+- Do not expect queue rows here; these are still draft buffer records only.
+- If a flow needs cancelled drafts too, call with `?status=cancelled` or `?status=all`.
+
+### `POST /api/appointment-drafts`
+**Purpose**
+- Create a draft buffer row for promo/receipt-qualified booking data before a real appointment exists.
+
+**Auth**
+- Authenticated active staff/admin/owner user.
+
+**Request**
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `status` | `"draft"` or `"cancelled"` | No | Defaults to `draft`; `submitted` cannot be written manually |
+| `customer_full_name` | string | No | Optional at draft stage |
+| `phone` | string | No | If supplied, digits are normalized and must contain at least 9 digits |
+| `branch_id` | string | No | Text-tolerant write value; no UUID enforcement on draft write paths |
+| `treatment_id` | UUID | No | Optional at draft stage |
+| `treatment_item_text` | string | No | Optional display/helper text |
+| `package_id` | UUID | No | Optional |
+| `staff_name` | string | No | Nullable until final booking |
+| `scheduled_at` | ISO datetime with timezone | No | Nullable until final booking |
+| `receipt_evidence` | object or `null` | No | Uses the same supported receipt shape as `POST /api/appointments` |
+| `source` | string | No | Defaults to `promo_receipt_draft` |
+| `flow_metadata` | object or `null` | No | Optional JSON object for promo/flow context |
+
+**Validation / Business Rules**
+- This endpoint does not create a real appointment.
+- `scheduled_at` may be omitted.
+- `staff_name` may be omitted.
+- `treatment_id` and `package_id` must be UUIDs when supplied.
+- `scheduled_at` must include timezone offset when supplied.
+- `receipt_evidence` uses the same backend-supported receipt field contract as canonical appointment create.
+- `created_by_staff_user_id` and `updated_by_staff_user_id` are filled from the authenticated session user, not from request body.
+
+**Response**
+- `201`
+
+```json
+{
+  "ok": true,
+  "draft": {
+    "id": "draft-uuid",
+    "status": "draft",
+    "customer_full_name": "Promo Customer",
+    "phone": "0812345678",
+    "branch_id": "branch-003",
+    "treatment_id": "treatment-uuid",
+    "treatment_item_text": "Smooth 1x 399",
+    "package_id": null,
+    "staff_name": null,
+    "scheduled_at": null,
+    "receipt_evidence": {
+      "receipt_image_ref": "s3://promo/bill-001.jpg",
+      "receipt_identifier": "promo-bill-001",
+      "total_amount_thb": 399
+    },
+    "source": "promo_receipt_draft",
+    "flow_metadata": {
+      "campaign_code": "SUMMER_GLOW"
+    },
+    "created_by_staff_user_id": "staff-user-uuid",
+    "updated_by_staff_user_id": "staff-user-uuid",
+    "submitted_appointment_id": null,
+    "submitted_at": null,
+    "created_at": "2026-03-17T10:00:00.000Z",
+    "updated_at": "2026-03-17T10:00:00.000Z"
+  }
+}
+```
+
+**Errors**
+
+| Status | Trigger |
+| --- | --- |
+| `400` | Invalid UUIDs, invalid phone, invalid `scheduled_at`, invalid `receipt_evidence`, invalid `flow_metadata`, immutable fields in body |
+| `500` | Unhandled server error |
+
+**Integration Notes**
+- Use this endpoint when promo/receipt verification is complete but date/time/staff is still unknown.
+- Saving a draft here does not place anything in the runtime appointment queue.
+- After creating a draft, use `GET /api/appointment-drafts` or `GET /api/appointment-drafts/:id` to reload it after refresh.
+
+### `GET /api/appointment-drafts/:id`
+**Purpose**
+- Read one draft buffer row by id.
+
+**Auth**
+- Authenticated active staff/admin/owner user.
+
+**Request**
+- Path param `id` must be UUID.
+
+**Validation / Business Rules**
+- Returns one row from `appointment_drafts`.
+
+**Response**
+- `200`
+
+```json
+{
+  "ok": true,
+  "draft": {
+    "id": "draft-uuid",
+    "status": "draft",
+    "submitted_appointment_id": null
+  }
+}
+```
+
+**Errors**
+
+| Status | Trigger |
+| --- | --- |
+| `400` | Invalid draft id |
+| `404` | Draft not found |
+| `500` | Unhandled server error |
+
+**Integration Notes**
+- This is a draft-buffer read only; the row is not a real appointment yet.
+
+### `PATCH /api/appointment-drafts/:id`
+**Purpose**
+- Update draft fields before final submit.
+
+**Auth**
+- Authenticated active staff/admin/owner user.
+
+**Request**
+- Path param `id` must be UUID.
+
+Supported body fields:
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `status` | `"draft"` or `"cancelled"` | No | `submitted` cannot be set manually |
+| `customer_full_name` | string or empty | No | Empty clears the value |
+| `phone` | string or empty | No | Empty clears the value |
+| `branch_id` | string or empty | No | Empty clears the value; still text-tolerant on draft write paths |
+| `treatment_id` | UUID or empty | No | Empty clears the value |
+| `treatment_item_text` | string or empty | No | Empty clears the value |
+| `package_id` | UUID or empty | No | Empty clears the value |
+| `staff_name` | string or empty | No | Often filled later |
+| `scheduled_at` | ISO datetime with timezone or empty | No | Often filled later |
+| `receipt_evidence` | object or `null` | No | `null` clears the value |
+| `source` | string or empty | No | Empty resets to default `promo_receipt_draft` |
+| `flow_metadata` | object or `null` | No | `null` clears the value |
+
+**Validation / Business Rules**
+- Submitted drafts cannot be edited.
+- Immutable fields cannot be written directly:
+  - `id`
+  - `submitted_appointment_id`
+  - `submitted_at`
+  - `created_at`
+  - `updated_at`
+  - `created_by_staff_user_id`
+  - `updated_by_staff_user_id`
+- `updated_by_staff_user_id` and `updated_at` are maintained by the backend.
+- If no effective mutable fields are supplied, returns `400`.
+
+**Response**
+- `200`
+
+```json
+{
+  "ok": true,
+  "draft": {
+    "id": "draft-uuid",
+    "status": "draft",
+    "staff_name": "Provider Mint",
+    "scheduled_at": "2026-03-21T14:00:00+07:00"
+  }
+}
+```
+
+**Errors**
+
+| Status | Trigger |
+| --- | --- |
+| `400` | Invalid patch payload, immutable fields, no changes detected |
+| `404` | Draft not found |
+| `409` | Draft already submitted |
+| `500` | Unhandled server error |
+
+**Integration Notes**
+- This is the endpoint that fills the missing booking details later.
+- `cancelled` is a draft-table status only; it is not an appointment status.
+- Setting `status=cancelled` here is the current backend-side way to retire a draft without submitting it.
+
+### `POST /api/appointment-drafts/:id/submit`
+**Purpose**
+- Convert a complete draft into a real canonical appointment.
+
+**Auth**
+- Authenticated active staff/admin/owner user.
+
+**Request**
+- Path param `id` must be UUID.
+- No request body required.
+
+**Validation / Business Rules**
+- Draft must exist.
+- Draft current status must not already be `submitted`.
+- Draft current status must not be `cancelled`.
+- Before submit, backend requires the draft to have:
+  - `customer_full_name`
+  - `phone`
+  - `treatment_id`
+  - `branch_id`
+  - `scheduled_at`
+  - `staff_name`
+- Submit reuses the same canonical appointment creation service used by `POST /api/appointments`.
+- Draft submit passes through the same canonical create business rules:
+  - future-time enforcement
+  - slot collision check
+  - customer resolution by phone
+  - package inference / package-style validation
+  - optional receipt evidence linkage
+- On success:
+  - creates a real appointment row
+  - updates draft `status = submitted`
+  - sets `submitted_appointment_id`
+  - sets `submitted_at`
+- Draft row remains in `appointment_drafts` for traceability after submit.
+
+**Response**
+- `200`
+
+```json
+{
+  "ok": true,
+  "draft": {
+    "id": "draft-uuid",
+    "status": "submitted",
+    "submitted_appointment_id": "appointment-uuid",
+    "submitted_at": "2026-03-17T11:00:00.000Z"
+  },
+  "appointment": {
+    "appointment_id": "appointment-uuid",
+    "customer_id": "customer-uuid",
+    "customer_package_id": null,
+    "receipt_evidence": {
+      "id": "receipt-uuid",
+      "appointment_id": "appointment-uuid"
+    }
+  }
+}
+```
+
+**Errors**
+
+| Status | Trigger |
+| --- | --- |
+| `400` | Invalid draft id or invalid draft payload state |
+| `404` | Draft not found |
+| `409` | Draft already submitted, draft cancelled, or canonical create hits slot/package conflict |
+| `422` | Draft missing required submit fields, canonical create validation failure |
+| `500` | Unhandled server error |
+
+**Integration Notes**
+- This is the bridge from buffer storage to a real appointment.
+- Do not create real appointments directly from partial promo data if the required booking fields are still unknown; save draft first, submit later.
 
 ### `POST /api/appointments`
 **Purpose**
@@ -652,7 +1309,7 @@ Example:
 | `scheduled_at` | ISO datetime with timezone | Conditionally | Preferred modern input |
 | `visit_date` | `YYYY-MM-DD` | Conditionally | Legacy alias; used only if `scheduled_at` absent |
 | `visit_time_text` | `HH:MM` | Conditionally | Legacy alias; used only if `scheduled_at` absent |
-| `branch_id` | string | No | Defaults to `DEFAULT_BRANCH_ID` or literal `branch-003` |
+| `branch_id` | string | No | Write path accepts non-empty text; defaults to `DEFAULT_BRANCH_ID` or literal `branch-003` when `receipt_evidence` is absent |
 | `customer_full_name` | string | Yes | Required text |
 | `phone` | string | Yes unless `phone_raw` used | Digits are extracted |
 | `phone_raw` | string | Yes unless `phone` used | Legacy alias |
@@ -661,7 +1318,23 @@ Example:
 | `treatment_id` | UUID or inferred code input | Usually yes | Preferred explicit UUID |
 | `treatment_item_text` | string | Conditionally | Used for package inference or treatment inference if `treatment_id` absent |
 | `package_id` | UUID | No | Required for package-style treatments or explicit package mode |
+| `receipt_evidence` | object | No | Optional receipt linkage; if supplied, `branch_id` must be explicitly provided |
 | `override` | object | No | Admin/owner override payload; see below |
+
+`receipt_evidence` object shape:
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `receipt_image_ref` | string | No | Storage key/path/URL-like reference; backend stores the string as-is |
+| `receipt_number` | string | No | Optional printed receipt number |
+| `receipt_line` | string | No | Optional line or row reference from receipt source |
+| `receipt_identifier` | string | No | Optional external receipt identifier |
+| `total_amount_thb` | number | No | Optional non-negative amount; rounded to 2 decimals before insert |
+| `ocr_status` | string | No | Optional OCR state text |
+| `ocr_raw_text` | string | No | Optional OCR text payload |
+| `ocr_metadata` | object | No | Optional JSON object; arrays are rejected |
+| `verification_source` | string | No | Optional source label such as promo/special-event verifier |
+| `verification_metadata` | object | No | Optional JSON object for verifier/promo metadata |
 
 `override` object shape:
 
@@ -671,6 +1344,34 @@ Example:
   "reason": "ADMIN_OVERRIDE",
   "confirmed_at": "2026-03-17T14:00:00+07:00",
   "violations": ["SLOT_COLLISION"]
+}
+```
+
+Receipt-backed example:
+
+```json
+{
+  "scheduled_at": "2026-03-20T14:00:00+07:00",
+  "branch_id": "branch-uuid-or-code",
+  "customer_full_name": "Customer Name",
+  "phone": "0812345678",
+  "treatment_id": "treatment-uuid",
+  "receipt_evidence": {
+    "receipt_image_ref": "s3://promo-receipts/2026/03/17/abc123.jpg",
+    "receipt_number": "RCP-20260317-0091",
+    "receipt_identifier": "promo-verify-abc123",
+    "total_amount_thb": 1299,
+    "ocr_status": "verified",
+    "ocr_raw_text": "RAW OCR TEXT",
+    "ocr_metadata": {
+      "engine": "vision-v1",
+      "confidence": 0.98
+    },
+    "verification_source": "special_event",
+    "verification_metadata": {
+      "campaign_code": "SUMMER_GLOW_2026"
+    }
+  }
 }
 ```
 
@@ -684,6 +1385,15 @@ Example:
   - `visit_date` must be `YYYY-MM-DD`
   - `visit_time_text` must be `HH:MM`
 - `customer_full_name` required.
+- If `receipt_evidence` is omitted, the existing canonical create flow is unchanged:
+  - `branch_id` can still fall back to `DEFAULT_BRANCH_ID` / `branch-003`
+  - no `appointment_receipts` row is inserted
+- If `receipt_evidence` is supplied:
+  - it must be a JSON object
+  - at least one supported receipt field must be non-empty
+  - `branch_id` becomes required and cannot rely on the default fallback
+  - `ocr_metadata` and `verification_metadata` must be JSON objects when supplied
+  - `total_amount_thb` must be a non-negative number when supplied
 - Phone:
   - digits only after normalization
   - minimum length `9`
@@ -706,6 +1416,7 @@ Example:
 - Side effects:
   - creates/links customer
   - inserts appointment with status `booked`
+  - optionally inserts one linked `appointment_receipts` row
   - writes `appointment_events` row with `event_type='created'`
   - may auto-create an active `customer_package`
   - admin override also writes `appointment_override_logs`
@@ -718,7 +1429,40 @@ Example:
   "ok": true,
   "appointment_id": "appointment-uuid",
   "customer_id": "customer-uuid",
-  "customer_package_id": "customer-package-uuid"
+  "customer_package_id": "customer-package-uuid",
+  "receipt_evidence": {
+    "id": "receipt-uuid",
+    "appointment_id": "appointment-uuid",
+    "receipt_image_ref": "s3://promo-receipts/2026/03/17/abc123.jpg",
+    "receipt_number": "RCP-20260317-0091",
+    "receipt_line": null,
+    "receipt_identifier": "promo-verify-abc123",
+    "total_amount_thb": 1299,
+    "ocr_status": "verified",
+    "ocr_raw_text": "RAW OCR TEXT",
+    "ocr_metadata": {
+      "engine": "vision-v1",
+      "confidence": 0.98
+    },
+    "verification_source": "special_event",
+    "verification_metadata": {
+      "campaign_code": "SUMMER_GLOW_2026"
+    },
+    "created_at": "2026-03-17T08:35:20.000Z",
+    "updated_at": "2026-03-17T08:35:20.000Z"
+  }
+}
+```
+
+Success response when no receipt evidence is supplied:
+
+```json
+{
+  "ok": true,
+  "appointment_id": "appointment-uuid",
+  "customer_id": "customer-uuid",
+  "customer_package_id": null,
+  "receipt_evidence": null
 }
 ```
 
@@ -726,7 +1470,7 @@ Example:
 
 | Status | Trigger |
 | --- | --- |
-| `400` | Missing/invalid fields, invalid datetime, invalid IDs, missing phone, invalid override payload |
+| `400` | Missing/invalid fields, invalid datetime, invalid IDs, missing phone, invalid override payload, invalid/empty `receipt_evidence`, missing explicit `branch_id` when `receipt_evidence` is sent |
 | `409` | Time slot already booked |
 | `422` | Unable to resolve customer, inferred treatment not found, package required for package-style treatment, line-user FK issue |
 | `500` | Unhandled server error |
@@ -734,6 +1478,9 @@ Example:
 **Integration Notes**
 - Prefer explicit `treatment_id` from `GET /api/appointments/booking-options`.
 - Prefer explicit `package_id` when using package-style bookings.
+- For receipt-backed or promo/special-event booking, still use this endpoint. Do not create a separate temporary booking system.
+- Send `branch_id` explicitly when using `receipt_evidence`.
+- Run the receipt migration before using `receipt_evidence`; otherwise create can fail because this endpoint does not have a missing-table fallback.
 - Reusing a phone number can update the existing customer name. See [Section 9](#9-customer-identity-and-resolution-rules).
 
 ### `POST /api/appointments/:id/complete`
@@ -1322,6 +2069,8 @@ Mapping found:
 - Appointment must exist.
 - `staff_name` must be resolvable from SSOT/event history or endpoint returns `500`.
 - `treatment_item_text`, `treatment_plan_mode`, and `package_id` come from event history resolution, not just the appointment row.
+- `receipt_evidence` is read from `appointment_receipts` when that table exists.
+- If the migration has not been applied yet, current code tolerates missing `appointment_receipts` and returns `receipt_evidence: null` instead of failing this endpoint.
 - `active_packages` only lists packages with active status for the appointment’s customer.
 
 **Response**
@@ -1349,6 +2098,27 @@ Mapping found:
     "treatment_item_text": "Smooth 3x 3900",
     "treatment_plan_mode": "package",
     "package_id": "package-uuid"
+  },
+  "receipt_evidence": {
+    "id": "receipt-uuid",
+    "appointment_id": "appointment-uuid",
+    "receipt_image_ref": "s3://promo-receipts/2026/03/17/abc123.jpg",
+    "receipt_number": "RCP-20260317-0091",
+    "receipt_line": null,
+    "receipt_identifier": "promo-verify-abc123",
+    "total_amount_thb": 1299,
+    "ocr_status": "verified",
+    "ocr_raw_text": "RAW OCR TEXT",
+    "ocr_metadata": {
+      "engine": "vision-v1",
+      "confidence": 0.98
+    },
+    "verification_source": "special_event",
+    "verification_metadata": {
+      "campaign_code": "SUMMER_GLOW_2026"
+    },
+    "created_at": "2026-03-17T08:35:20.000Z",
+    "updated_at": "2026-03-17T08:35:20.000Z"
   },
   "active_packages": [
     {
@@ -1378,6 +2148,7 @@ Mapping found:
 
 **Integration Notes**
 - Use this for admin edit screens rather than trying to reconstruct package state from queue rows.
+- Receipt evidence is exposed here, not in queue rows. If an integration needs the stored receipt linkage after create, use the create response or this admin detail endpoint.
 
 ### `PATCH /api/admin/appointments/:appointmentId`
 **Purpose**
@@ -2086,6 +2857,7 @@ Path param:
 - Package continuity status is driven by `customer_packages.status`:
   - `active -> completed` when remaining sessions reach 0
   - `completed -> active` if a revert restores remaining sessions
+- Receipt-backed or promo/special-event appointments follow the exact same lifecycle and status rules as ordinary appointments. Receipt linkage does not create a separate status model and does not change package deduction behavior by itself.
 
 ### Special Admin Status Patch Rules
 - Patching to `booked` deletes all `package_usages` for that appointment.
@@ -2162,6 +2934,22 @@ Integration guidance:
    - `POST /api/appointments/:id/no-show`
    - `POST /api/appointments/:id/revert` for admin rollback
 
+### Draft-First Promo Flow
+1. `POST /api/auth/login`
+2. Optional: `GET /api/appointments/booking-options`
+3. `POST /api/appointment-drafts`
+4. `GET /api/appointment-drafts` after refresh or when rebuilding a draft dashboard
+5. `GET /api/appointment-drafts/:id` when the flow already knows the draft id
+6. `PATCH /api/appointment-drafts/:id` until missing fields such as `scheduled_at` and `staff_name` are known
+7. `POST /api/appointment-drafts/:id/submit`
+8. `GET /api/appointments/queue`
+
+Observed intent from code:
+- `appointment_drafts` is a buffer table only.
+- Draft rows persist in PostgreSQL until later patch/cancel/submit; refresh does not clear them.
+- Submit is the point where a real appointment row is created.
+- After submit, the draft points to the real appointment through `submitted_appointment_id`.
+
 ### How These Endpoints Fit Together
 - `booking-options` gives the safest source of `treatment_id` and `package_id`.
 - `calendar-days` gives day-level density only.
@@ -2186,6 +2974,11 @@ Integration guidance:
 - Prefer explicit `scheduled_at` with timezone.
 - Prefer explicit `treatment_id`.
 - Prefer explicit `package_id` when booking a package-style treatment.
+- For receipt-backed booking, send explicit `branch_id` plus `receipt_evidence` in the same `POST /api/appointments` request.
+- For draft create/patch flows, `branch_id` is stored as opaque text when provided.
+- For queue/calendar filtering, only send UUID-shaped `branch_id` values; omitting the query param means no branch filter.
+- If date/time/staff is not known yet, use `/api/appointment-drafts/*` first instead of forcing an incomplete real appointment row.
+- Treat the returned `appointment_id` as the SSOT booking identifier; receipt evidence is only linked metadata on top of that appointment.
 - Handle `409 Time slot is already booked`.
 - After creation, refresh queue rather than relying only on the create response.
 
@@ -2236,8 +3029,16 @@ Why they are legacy:
 - Prefer explicit `treatment_id` and `package_id`; avoid relying on text inference.
 - Respect Bangkok-local date handling for queue and calendar.
 - Send `scheduled_at` with a timezone offset.
+- Use `/api/appointment-drafts/*` when promo verification is complete but booking date/time/staff is still unknown.
+- Treat drafts as buffer rows only; they are not queue rows and are not real appointments until submit succeeds.
+- Use `GET /api/appointment-drafts` to reload persisted draft rows after refresh; draft storage is PostgreSQL-backed, not session-only.
+- If a draft should be retired without submit, use `PATCH /api/appointment-drafts/:id` with `status: "cancelled"`; there is no dedicated delete endpoint yet.
 - Handle `409` slot collisions on `POST /api/appointments`.
+- Send `branch_id` explicitly when using receipt-backed create with `receipt_evidence`.
+- Treat write-path `branch_id` values as opaque text, but treat queue/calendar `branch_id` filters as UUID-only.
 - Use `GET /api/appointments/queue` as the canonical queue, not `/api/visits`.
+- Treat receipt-backed promo/special-event bookings as normal appointments, not as temporary reservation records.
+- Read stored receipt evidence from the `POST /api/appointments` response or `GET /api/admin/appointments/:appointmentId`, not from queue rows.
 - Use `POST /api/appointments/:id/complete` for real course deduction.
 - Do not expect `cancel` or `no-show` to deduct courses.
 - Do not assume `customer_full_name` uniquely identifies a customer.
@@ -2249,13 +3050,17 @@ Why they are legacy:
 
 ### 1. `branch_id` format is inconsistent
 - Known:
+  - backend now centralizes the current rule set in `src/utils/branchContract.js`
+  - write endpoints accept opaque non-empty text
+  - canonical create can default to literal `branch-003` or `DEFAULT_BRANCH_ID`
   - queue/calendar query params enforce UUID format
-  - booking create can default to literal `branch-003`
-  - some write endpoints only require non-empty text
 - Not fully confirmed:
-  - whether branch IDs are in active migration from string codes to UUIDs
+  - whether production branch values are in active migration from text codes to UUIDs
+  - whether future queue/calendar filters will expand beyond UUID-only inputs
 - Source of ambiguity:
-  - `staffCreateAppointmentController.js`
+  - `appointmentCreateService.js`
+  - `appointmentDraftsService.js`
+  - `branchContract.js`
   - `appointmentsQueueController.js`
   - `adminAppointmentsController.js`
   - `appointmentServiceController.js`
@@ -2298,14 +3103,33 @@ Why they are legacy:
   - `resolvePackageIdForBooking.js`
   - treatment inference helpers in create/sheet flows
 
+### 6. There is currently no dedicated receipt update/delete API
+- Known:
+  - current code can create receipt evidence during `POST /api/appointments`
+  - current code can read it back from `GET /api/admin/appointments/:appointmentId`
+- Not fully confirmed:
+  - whether future operations will need a patch/delete flow for receipt evidence after appointment creation
+- Source of ambiguity:
+  - no route/controller currently implements a dedicated receipt maintenance endpoint
+
+### 7. There is no list/search endpoint for drafts yet
+- Known:
+  - current code supports create, get-by-id, patch, and submit
+- Not fully confirmed:
+  - whether product will need draft listing/search/filtering for staff dashboards
+- Source of ambiguity:
+  - `appointmentDrafts.js` only exposes single-draft operations
+
 ## 14. Source References
 Files inspected to generate this contract:
 - `backend/README-backend.md`
+- `backend/package.json`
 - `backend/server.js`
 - `backend/src/app.js`
 - `backend/src/db.js`
 - `backend/src/routes/auth.js`
 - `backend/src/routes/appointments.js`
+- `backend/src/routes/appointmentDrafts.js`
 - `backend/src/routes/adminAppointments.js`
 - `backend/src/routes/customers.js`
 - `backend/src/routes/visits.js`
@@ -2313,6 +3137,7 @@ Files inspected to generate this contract:
 - `backend/src/routes/debugRoutes.js`
 - `backend/src/controllers/authController.js`
 - `backend/src/controllers/appointmentsController.js`
+- `backend/src/controllers/appointmentDraftsController.js`
 - `backend/src/controllers/staffCreateAppointmentController.js`
 - `backend/src/controllers/appointmentsQueueController.js`
 - `backend/src/controllers/appointmentServiceController.js`
@@ -2328,8 +3153,14 @@ Files inspected to generate this contract:
 - `backend/src/middlewares/errorHandlers.js`
 - `backend/src/services/gasService.js`
 - `backend/src/services/adminAppointmentStatusService.js`
+- `backend/src/services/appointmentDraftsService.js`
+- `backend/src/services/appointmentCreateService.js`
+- `backend/src/services/appointmentReceiptEvidenceService.js`
 - `backend/src/services/appointmentIdentitySql.js`
 - `backend/src/services/packageContinuity.js`
+- `backend/src/utils/branchContract.js`
 - `backend/src/utils/resolvePackageIdForBooking.js`
 - `backend/src/utils/resolveAppointmentFields.js`
+- `backend/scripts/migrate_appointment_drafts.js`
+- `backend/scripts/migrate_appointment_receipts.js`
 - `diary.md`
