@@ -454,6 +454,9 @@ Not every endpoint accepts every status. See [Section 8](#8-appointment-lifecycl
 
 **Auth**
 - Authenticated staff/admin/owner.
+- Primary path remains the existing staff cookie session.
+- Route-local fallback exists for this endpoint only: when the staff cookie is absent or unusable in LINE WebView, client may send `staff_username` + `staff_password` in the request body for one-off verification.
+- The fallback does not issue a cookie and does not change `/api/auth/login`, `/api/auth/me`, `requireAuth`, or any other protected endpoint.
 
 **Request**
 
@@ -463,6 +466,8 @@ Not every endpoint accepts every status. See [Section 8](#8-appointment-lifecycl
 | `device_label` | string | No | Friendly label for the device |
 | `liff_app_id` | string | No | Optional LIFF app id metadata |
 | `notes` | string | No | Optional ops/admin note |
+| `staff_username` | string | No | Route-local staff verification fallback for this endpoint only |
+| `staff_password` | string | No | Route-local staff verification fallback for this endpoint only |
 | `id_token` | string | Conditionally | Required if `access_token` is not provided |
 | `access_token` | string | Conditionally | Required if `id_token` is not provided |
 
@@ -473,7 +478,10 @@ Supported LIFF headers:
 - `X-Liff-App-Id: <LIFF app id>`
 
 **Validation / Business Rules**
-- Requires existing staff cookie auth.
+- Accepts either:
+  - existing valid staff cookie auth
+  - or explicit `staff_username` + `staff_password` for this endpoint only
+- If neither path succeeds, request is rejected with `401`.
 - `branch_id` is required and stored as text without UUID-only coercion.
 - Backend verifies LIFF identity with LINE before trusting `line_user_id`.
 - Raw frontend `line_user_id` is not accepted as a trusted identity source.
@@ -520,12 +528,13 @@ Supported LIFF headers:
 | Status | Trigger |
 | --- | --- |
 | `400` | Missing `branch_id`, missing LIFF tokens, invalid patch payload |
-| `401` | Invalid LIFF token, LIFF token mismatch, missing staff auth |
+| `401` | Invalid LIFF token, LIFF token mismatch, `missing_staff_auth`, `invalid_staff_credentials` |
 | `422` | Verified LIFF response could not produce a trusted `line_user_id` |
 | `500` | Missing LINE channel config or unhandled server error |
 
 **Integration Notes**
 - This endpoint adds a branch-device layer on top of current staff auth. It is not a staff login endpoint.
+- The explicit credential fallback is intentionally limited to this device-registration route because cross-site staff cookies are unreliable inside LINE WebView.
 
 ### `GET /api/branch-device-registrations`
 **Purpose**

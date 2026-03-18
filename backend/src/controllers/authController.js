@@ -1,6 +1,5 @@
-import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { query } from '../db.js';
+import { authenticateStaffCredentials } from '../services/staffAuthService.js';
 
 const isProduction = process.env.NODE_ENV === 'production';
 const requestedSameSite = (process.env.COOKIE_SAMESITE || '').toLowerCase();
@@ -28,45 +27,17 @@ export async function login(req, res) {
       return res.status(400).json({ ok: false, error: 'Missing credentials' });
     }
 
-    const { rows } = await query(
-      `
-        SELECT id, username, display_name, password_hash, is_active, role_id
-        FROM staff_users
-        WHERE username = $1
-        LIMIT 1
-      `,
-      [username]
-    );
+    const authResult = await authenticateStaffCredentials({
+      username,
+      password,
+      recordAudit: true,
+    });
 
-    const user = rows[0];
-    const passwordOk = user ? await bcrypt.compare(password, user.password_hash) : false;
-
-    if (!user || !user.is_active || !passwordOk) {
-      if (user) {
-        await query(
-          `
-            UPDATE staff_users
-            SET failed_login_count = failed_login_count + 1,
-                updated_at = now()
-            WHERE id = $1
-          `,
-          [user.id]
-        );
-      }
-
+    if (!authResult.ok || !authResult.user) {
       return res.status(401).json({ ok: false, error: 'Invalid credentials' });
     }
 
-    await query(
-      `
-        UPDATE staff_users
-        SET failed_login_count = 0,
-            last_login_at = now(),
-            updated_at = now()
-        WHERE id = $1
-      `,
-      [user.id]
-    );
+    const user = authResult.user;
 
     const token = jwt.sign({ sub: user.id }, process.env.JWT_SECRET, {
       expiresIn: '7d',

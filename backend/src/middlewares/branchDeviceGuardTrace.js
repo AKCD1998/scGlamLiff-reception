@@ -79,6 +79,11 @@ function buildInitialTrace(req, endpoint) {
     liffAppIdPresent: Boolean(liffAppId),
     staffCookiePresent: Boolean(normalizeText(req.cookies?.token)),
     staffUserPresent: Boolean(normalizeText(req.user?.id)),
+    explicitStaffUsernamePresent: Boolean(normalizeText(req.body?.staff_username)),
+    explicitStaffPasswordPresent: Boolean(
+      typeof req.body?.staff_password === 'string' && req.body.staff_password.length > 0
+    ),
+    staffAuthMethod: null,
     branchIdPresent: Boolean(branchId),
     branchId: branchId || null,
     liffVerification: 'not_started',
@@ -135,7 +140,8 @@ export function createBranchDeviceGuardTraceMiddleware(endpoint) {
         });
 
         updateBranchDeviceGuardTrace(trace, {
-          verificationReason: normalizeNullableText(reason),
+          failureStage: 'staff_auth',
+          errorReason: normalizeNullableText(reason),
         });
         recordBranchDeviceGuardResponse(trace, {
           status: response.status,
