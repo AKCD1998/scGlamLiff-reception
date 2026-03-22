@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 
+import requireAuth from './middlewares/requireAuth.js';
 import authRoutes from './routes/auth.js';
 import appointmentRoutes from './routes/appointments.js';
 import appointmentDraftRoutes from './routes/appointmentDrafts.js';
@@ -19,6 +20,11 @@ import {
   OCR_ROUTE_ABSOLUTE_PATHS,
   OCR_ROUTE_BASE_PATH,
 } from './services/ocr/ocrRouteConfig.js';
+import {
+  RECEIPT_UPLOAD_PUBLIC_BASE_URL,
+  RECEIPT_UPLOAD_PUBLIC_PATH,
+  RECEIPT_UPLOAD_STORAGE_ROOT,
+} from './services/ocr/receiptOcrService.js';
 
 const IS_PRODUCTION = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || (IS_PRODUCTION ? '' : 'http://localhost:5173');
@@ -156,6 +162,10 @@ function buildCorsOptions(req, callback) {
   });
 }
 
+function shouldServeReceiptUploadsFromLocalStaticPath() {
+  return RECEIPT_UPLOAD_PUBLIC_BASE_URL === RECEIPT_UPLOAD_PUBLIC_PATH;
+}
+
 export function createApp() {
   const app = express();
 
@@ -189,6 +199,22 @@ export function createApp() {
   app.use(express.json());
   app.use(cookieParser());
 
+  if (shouldServeReceiptUploadsFromLocalStaticPath()) {
+    app.use(
+      RECEIPT_UPLOAD_PUBLIC_PATH,
+      requireAuth,
+      express.static(RECEIPT_UPLOAD_STORAGE_ROOT, {
+        dotfiles: 'deny',
+        fallthrough: false,
+        index: false,
+        redirect: false,
+        setHeaders(res) {
+          res.setHeader('Cache-Control', 'private, max-age=3600');
+        },
+      })
+    );
+  }
+
   app.get('/api/health', (req, res) => {
     res.json({ ok: true, data: { status: 'ok' } });
   });
@@ -217,6 +243,10 @@ export function createApp() {
       mountedBasePath: OCR_ROUTE_BASE_PATH,
       healthPath: OCR_ROUTE_ABSOLUTE_PATHS.health,
       receiptPath: OCR_ROUTE_ABSOLUTE_PATHS.receipt,
+      receiptUploadPublicPath: RECEIPT_UPLOAD_PUBLIC_PATH,
+      receiptUploadStorageRoot: RECEIPT_UPLOAD_STORAGE_ROOT,
+      receiptUploadStaticServingEnabled:
+        shouldServeReceiptUploadsFromLocalStaticPath(),
     })
   );
 

@@ -31,6 +31,7 @@ const DEFAULT_RECEIPT_UPLOADS_DIR = path.resolve(
   'receipt-uploads'
 );
 const RECEIPT_UPLOAD_STORAGE_KEY_PREFIX = 'receipt-uploads';
+export const RECEIPT_UPLOAD_PUBLIC_PATH = '/api/internal/receipt-uploads';
 
 const trimText = (value) => (typeof value === 'string' ? value.trim() : '');
 const trimTrailingSlash = (value) => String(value || '').replace(/\/+$/, '');
@@ -48,8 +49,8 @@ const resolveStorageRoot = () => {
 };
 
 const RECEIPT_UPLOAD_STORAGE_ROOT = resolveStorageRoot();
-const RECEIPT_UPLOAD_PUBLIC_BASE_URL = trimTrailingSlash(
-  process.env.RECEIPT_UPLOAD_PUBLIC_BASE_URL
+export const RECEIPT_UPLOAD_PUBLIC_BASE_URL = trimTrailingSlash(
+  process.env.RECEIPT_UPLOAD_PUBLIC_BASE_URL || RECEIPT_UPLOAD_PUBLIC_PATH
 );
 
 const buildFileMetadata = (file) => ({
