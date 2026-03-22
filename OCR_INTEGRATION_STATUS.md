@@ -295,3 +295,37 @@
 - No public route path changed.
 - No frontend behavior changed.
 - Existing health payload fields were preserved; new fields were added without removing old ones.
+
+## Update 2026-03-22T16:03:00+07:00
+
+### Python OCR Request Logging
+- Added structured per-request logs inside `backend/services/ocr_python/app/`.
+- `POST /ocr/receipt` now logs:
+  - request received
+  - uploaded filename
+  - content type
+  - file size after read
+  - decode start/finish
+  - OCR inference start/finish
+  - receipt parse start/finish
+- Each major stage now logs traceback details before re-raising stage exceptions.
+- Public route paths and the OCR response contract are unchanged.
+
+## Update 2026-03-22T16:17:00+07:00
+
+### Python OCR Startup Initialization
+- The Python OCR service now initializes the shared OCR engine during FastAPI startup.
+- Startup logs now show OCR engine initialization start/success/failure explicitly.
+- `/health` remains available without requiring an OCR request first.
+- The `/ocr/receipt` response schema and route paths are unchanged.
+
+## Update 2026-03-22T16:29:00+07:00
+
+### Runtime Failure Debugging
+- Added top-level HTTP middleware logging for uncaught runtime exceptions.
+- Split OCR inference tracing into clearer stages so logs now distinguish:
+  - before PaddleOCR call
+  - during PaddleOCR prediction
+  - after prediction during OCR result post-processing
+- Image decode and receipt parsing remain separate logged helper stages.
+- No route path or response schema changed.

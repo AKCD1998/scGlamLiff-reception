@@ -1,42 +1,87 @@
 from __future__ import annotations
 
+import logging
+
 import cv2
 import numpy as np
 
+from ..logging_utils import log_exception, log_info
 
-def _decode_receipt_image(image_bytes: bytes) -> np.ndarray:
-    image_array = np.frombuffer(image_bytes, dtype=np.uint8)
-    decoded_image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+logger = logging.getLogger("ocr_python.preprocess")
+OCR_MAX_LONGEST_SIDE = 1600
 
-    if decoded_image is None:
-        raise ValueError("receipt image could not be decoded")
+
+def _decode_receipt_image(image_bytes: bytes, *, request_id: str = "") -> np.ndarray:
+    log_info(
+        logger,
+        "ocr_image_decode_started",
+        requestId=request_id,
+        fileSizeBytes=len(image_bytes),
+    )
+
+    try:
+        image_array = np.frombuffer(image_bytes, dtype=np.uint8)
+        decoded_image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+        if decoded_image is None:
+            raise ValueError("receipt image could not be decoded")
+    except Exception:
+        log_exception(
+            logger,
+            "ocr_image_decode_failed",
+            requestId=request_id,
+            fileSizeBytes=len(image_bytes),
+        )
+        raise
+
+    log_info(
+        logger,
+        "ocr_image_decode_finished",
+        requestId=request_id,
+        imageWidth=int(decoded_image.shape[1]),
+        imageHeight=int(decoded_image.shape[0]),
+    )
 
     return decoded_image
 
 
-def _resize_for_ocr(image: np.ndarray) -> np.ndarray:
-    height, width = image.shape[:2]
+def _resize_for_ocr(
+    image: np.ndarray,
+    *,
+    request_id: str = "",
+) -> tuple[np.ndarray, dict]:
+    original_height, original_width = image.shape[:2]
 
-    if width == 0 or height == 0:
+    if original_width == 0 or original_height == 0:
         raise ValueError("receipt image dimensions are invalid")
 
-    target_min_width = 1400
-    target_max_width = 2200
-
-    if width < target_min_width:
-        scale = target_min_width / width
-    elif width > target_max_width:
-        scale = target_max_width / width
-    else:
-        scale = 1.0
+    longest_side = max(original_width, original_height)
+    scale = min(1.0, OCR_MAX_LONGEST_SIDE / float(longest_side))
+    resized_width = max(1, int(round(original_width * scale)))
+    resized_height = max(1, int(round(original_height * scale)))
 
     if scale == 1.0:
-        return image
+        resized_image = image
+    else:
+        resized_image = cv2.resize(image, (resized_width, resized_height), interpolation=cv2.INTER_AREA)
 
-    resized_width = max(1, int(width * scale))
-    resized_height = max(1, int(height * scale))
+    resize_meta = {
+        "originalWidth": int(original_width),
+        "originalHeight": int(original_height),
+        "resizedWidth": int(resized_width),
+        "resizedHeight": int(resized_height),
+        "scale": round(scale, 4),
+        "maxLongestSide": OCR_MAX_LONGEST_SIDE,
+        "resized": bool(scale != 1.0),
+    }
 
-    return cv2.resize(image, (resized_width, resized_height), interpolation=cv2.INTER_CUBIC)
+    log_info(
+        logger,
+        "ocr_image_resize_finished",
+        requestId=request_id,
+        **resize_meta,
+    )
+
+    return resized_image, resize_meta
 
 
 def _to_bgr(gray_image: np.ndarray) -> np.ndarray:
@@ -98,6 +143,7 @@ def preprocess_receipt_image(
     *,
     filename: str = "",
     content_type: str = "",
+    request_id: str = "",
 ) -> dict:
     # First-pass preprocessing tuned for mobile receipt captures:
     # 1. decode and resize for OCR-friendly text scale
@@ -107,8 +153,8 @@ def preprocess_receipt_image(
     # 5. thresholded variant for faint print
     _ = filename, content_type
 
-    original_image = _decode_receipt_image(image_bytes)
-    resized_image = _resize_for_ocr(original_image)
+    original_image = _decode_receipt_image(image_bytes, request_id=request_id)
+    resized_image, resize_meta = _resize_for_ocr(original_image, request_id=request_id)
 
     grayscale_image = cv2.cvtColor(resized_image, cv2.COLOR_BGR2GRAY)
     contrast_image = cv2.createCLAHE(clipLimit=2.4, tileGridSize=(8, 8)).apply(grayscale_image)
@@ -156,6 +202,10 @@ def preprocess_receipt_image(
     return {
         "width": int(resized_image.shape[1]),
         "height": int(resized_image.shape[0]),
+        "originalWidth": resize_meta["originalWidth"],
+        "originalHeight": resize_meta["originalHeight"],
+        "resizeApplied": resize_meta["resized"],
+        "resizeScale": resize_meta["scale"],
         "variants": variants,
         "cropFound": bool(receipt_crop_bounds),
     }

@@ -153,3 +153,47 @@
    - `mountedBasePath`
    - `downstreamBaseUrl`
    - `downstreamReachable`
+
+## Update 2026-03-22T16:03:00+07:00
+
+### Summary
+- Added structured request-stage logging to the Python OCR service under `backend/services/ocr_python/app/`.
+- The OCR runtime now emits explicit logs for:
+  - request received
+  - file bytes read
+  - image decode start/finish
+  - OCR inference start/finish
+  - receipt parse start/finish
+- Stage-level exceptions now log traceback details before being re-raised into the existing response handler.
+
+### Files Updated
+- `backend/services/ocr_python/app/logging_utils.py`
+- `backend/services/ocr_python/app/main.py`
+- `backend/services/ocr_python/app/services/preprocess_service.py`
+- `backend/services/ocr_python/app/services/paddle_ocr_service.py`
+- `backend/services/ocr_python/app/services/receipt_parser.py`
+- `OCR_INTEGRATION_STATUS.md`
+
+## Update 2026-03-22T16:17:00+07:00
+
+### Summary
+- Moved Python OCR engine initialization to FastAPI startup while keeping a single shared cached engine instance for the process lifecycle.
+- Startup now logs engine init start/success/failure.
+- `/health` behavior is unchanged and does not require a prior OCR request.
+
+### Files Updated
+- `backend/services/ocr_python/app/main.py`
+- `backend/services/ocr_python/app/services/paddle_ocr_service.py`
+- `OCR_INTEGRATION_STATUS.md`
+
+## Update 2026-03-22T16:29:00+07:00
+
+### Summary
+- Added top-level middleware logging for uncaught HTTP exceptions in the Python OCR service.
+- Split OCR inference tracing into distinct prediction and post-processing helper logs so runtime failures can be localized more precisely.
+- Image decode and receipt parsing remain separate logged stages.
+
+### Files Updated
+- `backend/services/ocr_python/app/main.py`
+- `backend/services/ocr_python/app/services/paddle_ocr_service.py`
+- `OCR_INTEGRATION_STATUS.md`

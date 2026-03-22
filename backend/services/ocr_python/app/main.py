@@ -1,15 +1,45 @@
-from fastapi import FastAPI, File, UploadFile
+import logging
+from uuid import uuid4
+
+from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.responses import JSONResponse
 
-from .services.paddle_ocr_service import extract_receipt_text
+from .logging_utils import log_exception, log_info
+from .services.paddle_ocr_service import extract_receipt_text, initialize_ocr_engine
 from .services.preprocess_service import preprocess_receipt_image
 from .services.receipt_parser import parse_receipt_text
+
+logger = logging.getLogger("ocr_python.main")
 
 app = FastAPI(
     title="scGlam Receipt OCR Service",
     description="Receipt OCR service using OpenCV preprocessing + PaddleOCR.",
     version="0.1.0",
 )
+
+
+@app.on_event("startup")
+async def startup_event():
+    log_info(logger, "ocr_app_startup", stage="engine_init")
+    try:
+        initialize_ocr_engine(source="startup")
+    except Exception:
+        log_exception(logger, "ocr_app_startup_engine_init_failed")
+
+
+@app.middleware("http")
+async def log_unhandled_exceptions(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception:
+        log_exception(
+            logger,
+            "ocr_http_unhandled_exception",
+            method=request.method,
+            path=request.url.path,
+            query=str(request.url.query or ""),
+        )
+        raise
 
 
 @app.get("/health")
@@ -59,6 +89,18 @@ def _build_error_response(code: str, message: str, *, status_code: int) -> JSONR
 
 @app.post("/ocr/receipt")
 async def ocr_receipt(receipt: UploadFile = File(...)):
+    request_id = uuid4().hex[:12]
+    filename = receipt.filename or ""
+    content_type = receipt.content_type or ""
+
+    log_info(
+        logger,
+        "ocr_request_received",
+        requestId=request_id,
+        filename=filename,
+        contentType=content_type,
+    )
+
     if not receipt.content_type or not receipt.content_type.startswith("image/"):
         return _build_error_response(
             "OCR_INVALID_FILE_TYPE",
@@ -66,28 +108,101 @@ async def ocr_receipt(receipt: UploadFile = File(...)):
             status_code=400,
         )
 
-    image_bytes = await receipt.read()
-    if not image_bytes:
-        return _build_error_response(
-            "OCR_EMPTY_FILE",
-            "receipt image is empty",
-            status_code=400,
+    try:
+        try:
+            image_bytes = await receipt.read()
+        except Exception:
+            log_exception(
+                logger,
+                "ocr_file_read_failed",
+                requestId=request_id,
+                filename=filename,
+                contentType=content_type,
+            )
+            raise
+
+        log_info(
+            logger,
+            "ocr_file_bytes_read",
+            requestId=request_id,
+            filename=filename,
+            contentType=content_type,
+            fileSizeBytes=len(image_bytes),
         )
 
-    try:
-        preprocessed_image = preprocess_receipt_image(
-            image_bytes,
-            filename=receipt.filename or "",
-            content_type=receipt.content_type,
+        if not image_bytes:
+            return _build_error_response(
+                "OCR_EMPTY_FILE",
+                "receipt image is empty",
+                status_code=400,
+            )
+
+        try:
+            preprocessed_image = preprocess_receipt_image(
+                image_bytes,
+                filename=filename,
+                content_type=content_type,
+                request_id=request_id,
+            )
+        except Exception:
+            log_exception(
+                logger,
+                "ocr_preprocess_failed",
+                requestId=request_id,
+                filename=filename,
+                contentType=content_type,
+                fileSizeBytes=len(image_bytes),
+            )
+            raise
+
+        try:
+            ocr_result = extract_receipt_text(
+                preprocessed_image,
+                filename=filename,
+                content_type=content_type,
+                request_id=request_id,
+            )
+        except Exception:
+            log_exception(
+                logger,
+                "ocr_inference_failed",
+                requestId=request_id,
+                filename=filename,
+                contentType=content_type,
+                fileSizeBytes=len(image_bytes),
+            )
+            raise
+
+        try:
+            raw_text = ocr_result.get("rawText", "")
+            parsed = parse_receipt_text(
+                raw_text,
+                ocr_lines=ocr_result.get("lines"),
+                request_id=request_id,
+            )
+            ocr_status = "success" if parsed.get("receiptLine") and parsed.get("totalAmount") else "partial"
+        except Exception:
+            log_exception(
+                logger,
+                "ocr_parse_failed",
+                requestId=request_id,
+                filename=filename,
+                contentType=content_type,
+                fileSizeBytes=len(image_bytes),
+            )
+            raise
+
+        log_info(
+            logger,
+            "ocr_request_completed",
+            requestId=request_id,
+            filename=filename,
+            contentType=content_type,
+            fileSizeBytes=len(image_bytes),
+            ocrStatus=ocr_status,
+            receiptLineFound=bool(parsed.get("receiptLine")),
+            totalAmountFound=bool(parsed.get("totalAmount")),
         )
-        ocr_result = extract_receipt_text(
-            preprocessed_image,
-            filename=receipt.filename or "",
-            content_type=receipt.content_type,
-        )
-        raw_text = ocr_result.get("rawText", "")
-        parsed = parse_receipt_text(raw_text, ocr_lines=ocr_result.get("lines"))
-        ocr_status = "success" if parsed.get("receiptLine") and parsed.get("totalAmount") else "partial"
 
         return {
             "success": True,

@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from functools import lru_cache
 from statistics import mean
 
+from ..logging_utils import log_exception, log_info
 from .receipt_parser import parse_receipt_text
 
 os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+
+logger = logging.getLogger("ocr_python.paddle")
 
 try:
     from paddleocr import PaddleOCR
@@ -144,6 +148,135 @@ def _get_ocr_engine():
     )
 
 
+def initialize_ocr_engine(*, source: str = "startup") -> None:
+    log_info(logger, "ocr_engine_init_started", source=source)
+    try:
+        _get_ocr_engine()
+    except Exception:
+        log_exception(logger, "ocr_engine_init_failed", source=source)
+        raise
+
+    log_info(logger, "ocr_engine_init_finished", source=source)
+
+
+def _predict_variant_with_ocr(
+    ocr_engine,
+    variant_image,
+    *,
+    request_id: str = "",
+    filename: str = "",
+    content_type: str = "",
+    variant_name: str = "",
+):
+    log_info(
+        logger,
+        "ocr_variant_predict_started",
+        requestId=request_id,
+        filename=filename,
+        contentType=content_type,
+        variant=variant_name,
+    )
+
+    try:
+        prediction_result = ocr_engine.predict(variant_image)
+    except Exception:
+        log_exception(
+            logger,
+            "ocr_variant_predict_failed",
+            requestId=request_id,
+            filename=filename,
+            contentType=content_type,
+            variant=variant_name,
+        )
+        raise
+
+    log_info(
+        logger,
+        "ocr_variant_predict_finished",
+        requestId=request_id,
+        filename=filename,
+        contentType=content_type,
+        variant=variant_name,
+    )
+
+    return prediction_result
+
+
+def _build_candidate_from_prediction(
+    prediction_result,
+    *,
+    preprocessed_image: dict,
+    request_id: str = "",
+    filename: str = "",
+    content_type: str = "",
+    variant_name: str = "",
+) -> dict:
+    log_info(
+        logger,
+        "ocr_variant_postprocess_started",
+        requestId=request_id,
+        filename=filename,
+        contentType=content_type,
+        variant=variant_name,
+    )
+
+    try:
+        lines, scores = _extract_lines_and_scores(prediction_result)
+        raw_text = "\n".join(line["text"] for line in lines)
+        average_score = mean(scores) if scores else 0.0
+        parsed = parse_receipt_text(
+            raw_text,
+            ocr_lines=lines,
+            request_id=request_id,
+            log_stage=False,
+        )
+        score = _score_candidate(parsed, len(lines), average_score)
+
+        if preprocessed_image.get("cropFound") and variant_name.startswith("cropped"):
+            score += 1.5
+
+        if parsed.get("receiptLine"):
+            score += 4
+
+        if parsed.get("totalAmount"):
+            score += 4
+
+        candidate = {
+            "variant": variant_name,
+            "rawText": raw_text,
+            "lines": lines,
+            "parsed": parsed,
+            "lineCount": len(lines),
+            "averageScore": average_score,
+            "score": score,
+        }
+    except Exception:
+        log_exception(
+            logger,
+            "ocr_variant_postprocess_failed",
+            requestId=request_id,
+            filename=filename,
+            contentType=content_type,
+            variant=variant_name,
+        )
+        raise
+
+    log_info(
+        logger,
+        "ocr_variant_postprocess_finished",
+        requestId=request_id,
+        filename=filename,
+        contentType=content_type,
+        variant=variant_name,
+        lineCount=candidate["lineCount"],
+        averageScore=round(candidate["averageScore"], 4),
+        receiptLineFound=bool(candidate["parsed"].get("receiptLine")),
+        totalAmountFound=bool(candidate["parsed"].get("totalAmount")),
+    )
+
+    return candidate
+
+
 def _score_candidate(parsed: dict, line_count: int, average_score: float) -> float:
     score = min(line_count, 8) + (average_score * 5)
 
@@ -161,78 +294,103 @@ def extract_receipt_text(
     *,
     filename: str = "",
     content_type: str = "",
+    request_id: str = "",
 ) -> dict:
     _ = filename, content_type
-    ocr_engine = _get_ocr_engine()
 
-    candidates = []
-    errors = []
+    log_info(
+        logger,
+        "ocr_inference_started",
+        requestId=request_id,
+        filename=filename,
+        contentType=content_type,
+        variantCount=len(preprocessed_image.get("variants", [])),
+        cropFound=bool(preprocessed_image.get("cropFound")),
+        imageWidth=preprocessed_image.get("width"),
+        imageHeight=preprocessed_image.get("height"),
+    )
 
-    for variant in preprocessed_image.get("variants", []):
-        variant_name = variant.get("name", "unknown")
-        variant_image = variant.get("image")
+    try:
+        ocr_engine = _get_ocr_engine()
+        candidates = []
+        errors = []
 
-        if variant_image is None:
-            continue
+        for variant in preprocessed_image.get("variants", []):
+            variant_name = variant.get("name", "unknown")
+            variant_image = variant.get("image")
 
-        try:
-            prediction_result = ocr_engine.predict(variant_image)
-            lines, scores = _extract_lines_and_scores(prediction_result)
-            raw_text = "\n".join(line["text"] for line in lines)
-            average_score = mean(scores) if scores else 0.0
-            parsed = parse_receipt_text(raw_text, ocr_lines=lines)
-            score = _score_candidate(parsed, len(lines), average_score)
+            if variant_image is None:
+                continue
 
-            if preprocessed_image.get("cropFound") and variant_name.startswith("cropped"):
-                score += 1.5
+            try:
+                prediction_result = _predict_variant_with_ocr(
+                    ocr_engine,
+                    variant_image,
+                    request_id=request_id,
+                    filename=filename,
+                    content_type=content_type,
+                    variant_name=variant_name,
+                )
+                candidate = _build_candidate_from_prediction(
+                    prediction_result,
+                    preprocessed_image=preprocessed_image,
+                    request_id=request_id,
+                    filename=filename,
+                    content_type=content_type,
+                    variant_name=variant_name,
+                )
+                candidates.append(candidate)
+            except Exception as error:  # pragma: no cover - depends on OCR runtime
+                errors.append(f"{variant_name}: {error}")
 
-            if parsed.get("receiptLine"):
-                score += 4
+        if not candidates:
+            detail = "; ".join(errors) if errors else "PaddleOCR did not return any text"
+            raise RuntimeError(detail)
 
-            if parsed.get("totalAmount"):
-                score += 4
+        best_candidate = max(candidates, key=lambda item: item["score"])
 
-            candidates.append(
-                {
-                    "variant": variant_name,
-                    "rawText": raw_text,
-                    "lines": lines,
-                    "parsed": parsed,
-                    "lineCount": len(lines),
-                    "averageScore": average_score,
-                    "score": score,
-                }
-            )
-        except Exception as error:  # pragma: no cover - depends on OCR runtime
-            errors.append(f"{variant_name}: {error}")
+        if not best_candidate["rawText"]:
+            raise RuntimeError("PaddleOCR did not return any text")
 
-    if not candidates:
-        detail = "; ".join(errors) if errors else "PaddleOCR did not return any text"
-        raise RuntimeError(detail)
+        log_info(
+            logger,
+            "ocr_inference_finished",
+            requestId=request_id,
+            filename=filename,
+            contentType=content_type,
+            bestVariant=best_candidate["variant"],
+            candidateCount=len(candidates),
+            lineCount=best_candidate["lineCount"],
+            averageScore=round(best_candidate["averageScore"], 4),
+        )
 
-    best_candidate = max(candidates, key=lambda item: item["score"])
-
-    if not best_candidate["rawText"]:
-        raise RuntimeError("PaddleOCR did not return any text")
-
-    return {
-        "mode": "python-paddleocr",
-        "rawText": best_candidate["rawText"],
-        "lines": best_candidate["lines"],
-        "meta": {
-            "engine": "paddleocr",
-            "variant": best_candidate["variant"],
-            "candidateCount": len(candidates),
-            "lineCount": best_candidate["lineCount"],
-            "averageScore": round(best_candidate["averageScore"], 4),
-            "cropFound": bool(preprocessed_image.get("cropFound")),
-            "parsedHints": {
-                "receiptLineFound": bool(best_candidate["parsed"].get("receiptLine")),
-                "totalAmountFound": bool(best_candidate["parsed"].get("totalAmount")),
+        return {
+            "mode": "python-paddleocr",
+            "rawText": best_candidate["rawText"],
+            "lines": best_candidate["lines"],
+            "meta": {
+                "engine": "paddleocr",
+                "variant": best_candidate["variant"],
+                "candidateCount": len(candidates),
+                "lineCount": best_candidate["lineCount"],
+                "averageScore": round(best_candidate["averageScore"], 4),
+                "cropFound": bool(preprocessed_image.get("cropFound")),
+                "parsedHints": {
+                    "receiptLineFound": bool(best_candidate["parsed"].get("receiptLine")),
+                    "totalAmountFound": bool(best_candidate["parsed"].get("totalAmount")),
+                },
+                "image": {
+                    "width": preprocessed_image.get("width"),
+                    "height": preprocessed_image.get("height"),
+                },
             },
-            "image": {
-                "width": preprocessed_image.get("width"),
-                "height": preprocessed_image.get("height"),
-            },
-        },
-    }
+        }
+    except Exception:
+        log_exception(
+            logger,
+            "ocr_inference_failed",
+            requestId=request_id,
+            filename=filename,
+            contentType=content_type,
+        )
+        raise

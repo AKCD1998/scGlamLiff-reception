@@ -1,4 +1,9 @@
+import logging
 import re
+
+from ..logging_utils import log_exception, log_info
+
+logger = logging.getLogger("ocr_python.parser")
 
 RECEIPT_LINE_PATTERN = re.compile(
     r"(?P<date>\d{2}[/-]\d{2}[/-]\d{4})\s*(?P<time>\d{2}:\d{2})\s*(?:BN[O0]|BNO)\s*[:;.]?\s*(?P<bno>[A-Z0-9\-:/ ]+)",
@@ -353,23 +358,62 @@ def _find_merchant_name_from_text(lines: list[str]) -> str:
     return ""
 
 
-def parse_receipt_text(raw_text: str, ocr_lines: list[dict] | None = None) -> dict:
-    lines = _split_receipt_lines(raw_text)
-    normalized_ocr_lines = _normalize_ocr_lines(ocr_lines)
+def parse_receipt_text(
+    raw_text: str,
+    ocr_lines: list[dict] | None = None,
+    *,
+    request_id: str = "",
+    log_stage: bool = True,
+) -> dict:
+    if log_stage:
+        log_info(
+            logger,
+            "ocr_receipt_parse_started",
+            requestId=request_id,
+            rawTextLength=len(str(raw_text or "")),
+            ocrLineCount=len(ocr_lines or []),
+        )
 
-    receipt_line = _find_receipt_line_from_ocr_lines(normalized_ocr_lines) or _find_receipt_line_from_text(lines)
-    total_amount = _find_total_amount_from_ocr_lines(normalized_ocr_lines) or _find_total_amount_from_text(lines)
-    receipt_date, receipt_time = _extract_receipt_line_parts(receipt_line)
-    total_amount_value = _parse_total_amount_value(total_amount)
-    merchant_name = _find_merchant_name_from_text(lines)
+    try:
+        lines = _split_receipt_lines(raw_text)
+        normalized_ocr_lines = _normalize_ocr_lines(ocr_lines)
 
-    return {
-        "receiptLine": receipt_line,
-        "receiptLines": lines,
-        "totalAmount": _format_total_amount(total_amount),
-        "totalAmountValue": total_amount_value,
-        "receiptDate": receipt_date,
-        "receiptTime": receipt_time,
-        "merchant": merchant_name,
-        "merchantName": merchant_name,
-    }
+        receipt_line = _find_receipt_line_from_ocr_lines(normalized_ocr_lines) or _find_receipt_line_from_text(lines)
+        total_amount = _find_total_amount_from_ocr_lines(normalized_ocr_lines) or _find_total_amount_from_text(lines)
+        receipt_date, receipt_time = _extract_receipt_line_parts(receipt_line)
+        total_amount_value = _parse_total_amount_value(total_amount)
+        merchant_name = _find_merchant_name_from_text(lines)
+
+        parsed = {
+            "receiptLine": receipt_line,
+            "receiptLines": lines,
+            "totalAmount": _format_total_amount(total_amount),
+            "totalAmountValue": total_amount_value,
+            "receiptDate": receipt_date,
+            "receiptTime": receipt_time,
+            "merchant": merchant_name,
+            "merchantName": merchant_name,
+        }
+    except Exception:
+        if log_stage:
+            log_exception(
+                logger,
+                "ocr_receipt_parse_failed",
+                requestId=request_id,
+                rawTextLength=len(str(raw_text or "")),
+                ocrLineCount=len(ocr_lines or []),
+            )
+        raise
+
+    if log_stage:
+        log_info(
+            logger,
+            "ocr_receipt_parse_finished",
+            requestId=request_id,
+            receiptLineFound=bool(parsed.get("receiptLine")),
+            totalAmountFound=bool(parsed.get("totalAmount")),
+            merchantFound=bool(parsed.get("merchant")),
+            receiptLineCount=len(parsed.get("receiptLines", [])),
+        )
+
+    return parsed

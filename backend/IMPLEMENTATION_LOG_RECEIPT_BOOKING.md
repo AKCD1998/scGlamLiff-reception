@@ -339,3 +339,69 @@ Constraints/indexes added:
 - No route paths changed.
 - No request/response fields were removed.
 - Existing clients remain compatible; health response only gained additive fields.
+
+## 2026-03-22 16:03 +07:00 — added structured logs inside Python OCR receipt flow
+
+### Goal
+- Make the Python OCR service debuggable during real `/ocr/receipt` uploads without changing the public response contract.
+
+### What changed
+- Added `backend/services/ocr_python/app/logging_utils.py` for structured JSON log events.
+- Updated `backend/services/ocr_python/app/main.py`
+  - logs request receipt with filename/content type
+  - logs file bytes read with file size
+  - wraps preprocess, inference, and parse stages with exception logging before re-raise
+- Updated `backend/services/ocr_python/app/services/preprocess_service.py`
+  - logs image decode start/finish
+  - logs decode traceback on failure
+- Updated `backend/services/ocr_python/app/services/paddle_ocr_service.py`
+  - logs OCR inference start/finish
+  - logs variant-level inference failures
+  - logs stage traceback on fatal inference failure
+- Updated `backend/services/ocr_python/app/services/receipt_parser.py`
+  - logs receipt parse start/finish
+  - logs parse traceback on failure
+
+### Public behavior
+- No route path changed.
+- No response JSON field changed.
+- The OCR service still exposes:
+  - `GET /health`
+  - `POST /ocr/receipt`
+
+## 2026-03-22 16:17 +07:00 — initialized shared OCR engine at FastAPI startup
+
+### Goal
+- Avoid first-request OCR engine creation by initializing the shared PaddleOCR engine during app startup.
+
+### What changed
+- Updated `backend/services/ocr_python/app/main.py`
+  - added FastAPI startup hook
+  - startup logs now show OCR app startup and engine init failure if preload fails
+- Updated `backend/services/ocr_python/app/services/paddle_ocr_service.py`
+  - added `initialize_ocr_engine(...)`
+  - startup path now warms the same cached OCR engine used by `/ocr/receipt`
+
+### Public behavior
+- No route path changed.
+- `/health` response is unchanged.
+- `/ocr/receipt` response contract is unchanged.
+
+## 2026-03-22 16:29 +07:00 — hardened Python OCR runtime failure logging
+
+### Goal
+- Improve runtime debugging so failures can be separated into decode, PaddleOCR prediction, post-processing, parse, and uncaught HTTP exception layers.
+
+### What changed
+- Updated `backend/services/ocr_python/app/main.py`
+  - added top-level HTTP middleware logging for uncaught exceptions
+- Updated `backend/services/ocr_python/app/services/paddle_ocr_service.py`
+  - added `_predict_variant_with_ocr(...)`
+  - added `_build_candidate_from_prediction(...)`
+  - logs now distinguish:
+    - prediction started/finished/failed
+    - post-processing started/finished/failed
+
+### Public behavior
+- No route path changed.
+- No response schema changed.
