@@ -1,23 +1,12 @@
-import { parseReceiptText } from './receiptParser.js';
-import {
-  getOcrDownstreamTargets,
-  OCR_SERVICE_BASE_URL,
-  OCR_SERVICE_ENABLED,
-  OCR_SERVICE_FALLBACK_TO_MOCK,
-  checkPythonOcrHealth,
-  checkPythonOcrReceiptRoute,
-  requestPythonReceiptOcr,
-} from './pythonOcrClient.js';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+
+import { insertAppointmentReceiptUpload } from '../appointmentReceiptUploadService.js';
 import {
   OCR_ROUTE_ABSOLUTE_PATHS,
   OCR_ROUTE_BASE_PATH,
 } from './ocrRouteConfig.js';
-
-const DEFAULT_MOCK_RECEIPT_TEXT = [
-  '17/03/2026 08:36 BNO:S2603004002-0006510',
-  'Total 1.00 Items',
-  '324 00',
-].join('\n');
 
 const EMPTY_PARSED_RESULT = Object.freeze({
   receiptLine: '',
@@ -30,19 +19,38 @@ const EMPTY_PARSED_RESULT = Object.freeze({
   merchantName: '',
 });
 
+const MAX_RECEIPT_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const RECEIPT_UPLOAD_STORAGE_PROVIDER = 'persistent-disk';
+const RECEIPT_UPLOAD_STATUS_DEFAULT = 'pending';
+const RECEIPT_UPLOAD_MODE = 'receipt-upload-only';
+const DEFAULT_STATUS_NOTE =
+  'Receipt uploaded and stored successfully. OCR is not executed on this backend.';
+const DEFAULT_RECEIPT_UPLOADS_DIR = path.resolve(
+  process.cwd(),
+  'storage',
+  'receipt-uploads'
+);
+const RECEIPT_UPLOAD_STORAGE_KEY_PREFIX = 'receipt-uploads';
+
 const trimText = (value) => (typeof value === 'string' ? value.trim() : '');
+const trimTrailingSlash = (value) => String(value || '').replace(/\/+$/, '');
 
-const splitReceiptLines = (value) =>
-  String(value || '')
-    .split(/\r?\n/)
-    .map((line) => trimText(line.replace(/\s+/g, ' ')))
-    .filter(Boolean);
+const resolveStorageRoot = () => {
+  const configuredRoot = trimText(process.env.RECEIPT_UPLOAD_STORAGE_DIR);
 
-const pickFirstObject = (...values) =>
-  values.find((value) => value && typeof value === 'object' && !Array.isArray(value)) || null;
+  if (!configuredRoot) {
+    return DEFAULT_RECEIPT_UPLOADS_DIR;
+  }
 
-const pickFirstText = (...values) =>
-  values.find((value) => typeof value === 'string' && value.trim())?.trim() || '';
+  return path.isAbsolute(configuredRoot)
+    ? configuredRoot
+    : path.resolve(process.cwd(), configuredRoot);
+};
+
+const RECEIPT_UPLOAD_STORAGE_ROOT = resolveStorageRoot();
+const RECEIPT_UPLOAD_PUBLIC_BASE_URL = trimTrailingSlash(
+  process.env.RECEIPT_UPLOAD_PUBLIC_BASE_URL
+);
 
 const buildFileMetadata = (file) => ({
   originalName: file.originalname || '',
@@ -50,103 +58,7 @@ const buildFileMetadata = (file) => ({
   size: Number(file.size) || 0,
 });
 
-const normalizeAmountCandidate = (value) => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return {
-      numericValue: value,
-      display: value.toFixed(2),
-    };
-  }
-
-  const cleaned = String(value || '').replace(/[^\d., ]/g, '').trim();
-
-  if (!cleaned) {
-    return null;
-  }
-
-  let normalizedValue = '';
-  const spacedMatch = cleaned.match(/^(\d[\d,]*)\s(\d{2})$/);
-
-  if (spacedMatch) {
-    normalizedValue = `${spacedMatch[1].replace(/,/g, '')}.${spacedMatch[2]}`;
-  } else if (/^\d[\d,]*[.,]\d{2}$/.test(cleaned)) {
-    normalizedValue = cleaned.replace(/,/g, '');
-  } else if (/^\d[\d,]*$/.test(cleaned)) {
-    normalizedValue = `${cleaned.replace(/,/g, '')}.00`;
-  } else {
-    return null;
-  }
-
-  const numericValue = Number(normalizedValue);
-
-  if (Number.isNaN(numericValue)) {
-    return null;
-  }
-
-  return {
-    numericValue,
-    display: numericValue.toFixed(2),
-  };
-};
-
-const normalizeParsedReceipt = (parsed, rawText) => {
-  const fallbackParsed = parseReceiptText(rawText);
-  const parsedPayload = pickFirstObject(parsed) || {};
-  const receiptLines = Array.isArray(parsedPayload.receiptLines)
-    ? parsedPayload.receiptLines.map((line) => trimText(line)).filter(Boolean)
-    : Array.isArray(parsedPayload.receipt_lines)
-      ? parsedPayload.receipt_lines.map((line) => trimText(line)).filter(Boolean)
-      : fallbackParsed.receiptLines;
-  const amountCandidate =
-    normalizeAmountCandidate(parsedPayload.totalAmountValue) ||
-    normalizeAmountCandidate(parsedPayload.total_amount_value) ||
-    normalizeAmountCandidate(parsedPayload.totalAmount) ||
-    normalizeAmountCandidate(parsedPayload.total_amount) ||
-    normalizeAmountCandidate(fallbackParsed.totalAmountValue) ||
-    normalizeAmountCandidate(fallbackParsed.totalAmount);
-  const merchant = pickFirstText(
-    parsedPayload.merchant,
-    parsedPayload.merchantName,
-    parsedPayload.merchant_name,
-    fallbackParsed.merchant,
-    fallbackParsed.merchantName
-  );
-
-  return {
-    receiptLine: pickFirstText(parsedPayload.receiptLine, parsedPayload.receipt_line, fallbackParsed.receiptLine),
-    receiptLines,
-    totalAmount: amountCandidate ? `${amountCandidate.display} THB` : pickFirstText(parsedPayload.totalAmount, fallbackParsed.totalAmount),
-    totalAmountValue: amountCandidate?.numericValue ?? null,
-    receiptDate: pickFirstText(parsedPayload.receiptDate, parsedPayload.receipt_date, fallbackParsed.receiptDate),
-    receiptTime: pickFirstText(parsedPayload.receiptTime, parsedPayload.receipt_time, fallbackParsed.receiptTime),
-    merchant,
-    merchantName: merchant,
-  };
-};
-
-const hasUsableParsedResult = (parsed) =>
-  Boolean(
-    trimText(parsed?.receiptLine) ||
-      (Array.isArray(parsed?.receiptLines) && parsed.receiptLines.length > 0) ||
-      trimText(parsed?.totalAmount) ||
-      (typeof parsed?.totalAmountValue === 'number' && Number.isFinite(parsed.totalAmountValue))
-  );
-
-export const buildReceiptOcrErrorPayload = ({
-  code = 'OCR_PROCESSING_FAILED',
-  message = 'Failed to process receipt OCR',
-  mode = 'node-receipt-ocr',
-  details = null,
-} = {}) => ({
-  success: false,
-  code,
-  message,
-  errorCode: code,
-  errorMessage: message,
-  ocrStatus: 'error',
-  mode,
-  rawText: '',
-  ocrText: '',
+const buildReceiptOcrEmptyPayload = () => ({
   parsed: {
     ...EMPTY_PARSED_RESULT,
   },
@@ -158,7 +70,70 @@ export const buildReceiptOcrErrorPayload = ({
   receiptTime: '',
   merchant: '',
   merchantName: '',
+  rawText: '',
+  ocrText: '',
+});
+
+const sanitizeRelativePath = (value) => String(value || '').replace(/\\/g, '/');
+
+const getSafeFileExtension = (file) => {
+  const originalExtension = trimText(path.extname(file.originalname || '')).toLowerCase();
+  if (/^\.[a-z0-9]+$/.test(originalExtension)) {
+    return originalExtension;
+  }
+
+  switch (String(file.mimetype || '').toLowerCase()) {
+    case 'image/jpeg':
+      return '.jpg';
+    case 'image/png':
+      return '.png';
+    case 'image/webp':
+      return '.webp';
+    case 'image/heic':
+      return '.heic';
+    case 'image/heif':
+      return '.heif';
+    case 'image/gif':
+      return '.gif';
+    case 'image/bmp':
+      return '.bmp';
+    case 'image/tiff':
+      return '.tiff';
+    default:
+      return '.bin';
+  }
+};
+
+const buildStorageKey = (relativePath) =>
+  `${RECEIPT_UPLOAD_STORAGE_KEY_PREFIX}/${sanitizeRelativePath(relativePath)}`;
+
+const buildStorageReference = (relativePath) => {
+  const storageKey = buildStorageKey(relativePath);
+
+  if (RECEIPT_UPLOAD_PUBLIC_BASE_URL) {
+    return `${RECEIPT_UPLOAD_PUBLIC_BASE_URL}/${sanitizeRelativePath(relativePath)}`;
+  }
+
+  return `disk://${storageKey}`;
+};
+
+export const buildReceiptOcrErrorPayload = ({
+  code = 'OCR_PROCESSING_FAILED',
+  message = 'Failed to upload receipt image',
+  mode = RECEIPT_UPLOAD_MODE,
+  details = null,
+} = {}) => ({
+  success: false,
+  code,
+  message,
+  errorCode: code,
+  errorMessage: message,
+  ocrStatus: 'error',
+  mode,
+  ...buildReceiptOcrEmptyPayload(),
+  receiptImageRef: '',
   ocrMetadata: {},
+  statusNote: '',
   error: {
     code,
     message,
@@ -166,44 +141,29 @@ export const buildReceiptOcrErrorPayload = ({
   },
 });
 
-const buildReceiptOcrSuccessResponse = ({
-  code = 'OCR_OK',
-  message = 'Receipt OCR completed',
-  ocrStatus = 'success',
-  mode,
+const buildReceiptUploadSuccessResponse = ({
   file,
-  rawText,
-  parsed,
-  ocrMetadata = {},
-  statusNote = '',
-}) => {
-  const normalizedParsed = normalizeParsedReceipt(parsed, rawText);
-
-  return {
-    success: true,
-    code,
-    message,
-    errorCode: '',
-    errorMessage: '',
-    ocrStatus,
-    mode,
-    file: buildFileMetadata(file),
-    rawText: trimText(rawText),
-    ocrText: trimText(rawText),
-    parsed: normalizedParsed,
-    receiptLine: normalizedParsed.receiptLine,
-    receiptLines: normalizedParsed.receiptLines,
-    totalAmount: normalizedParsed.totalAmount,
-    totalAmountTHB: normalizedParsed.totalAmountValue,
-    receiptDate: normalizedParsed.receiptDate,
-    receiptTime: normalizedParsed.receiptTime,
-    merchant: normalizedParsed.merchant,
-    merchantName: normalizedParsed.merchantName,
-    ocrMetadata,
-    statusNote,
-    error: null,
-  };
-};
+  storedReceipt,
+  persistedUpload,
+  statusNote = DEFAULT_STATUS_NOTE,
+}) => ({
+  success: true,
+  code: 'RECEIPT_UPLOAD_ACCEPTED',
+  message: 'Receipt uploaded successfully',
+  errorCode: '',
+  errorMessage: '',
+  ocrStatus: RECEIPT_UPLOAD_STATUS_DEFAULT,
+  mode: RECEIPT_UPLOAD_MODE,
+  file: buildFileMetadata(file),
+  ...buildReceiptOcrEmptyPayload(),
+  receiptImageRef: storedReceipt.reference,
+  ocrMetadata: {
+    storage: storedReceipt,
+    uploadRecord: persistedUpload || null,
+  },
+  statusNote,
+  error: null,
+});
 
 export class ReceiptOcrProcessingError extends Error {
   constructor(
@@ -215,7 +175,7 @@ export class ReceiptOcrProcessingError extends Error {
     this.status = status;
     this.code = code;
     this.details = details;
-    this.mode = mode || 'node-receipt-ocr';
+    this.mode = mode || RECEIPT_UPLOAD_MODE;
     this.payload = buildReceiptOcrErrorPayload({
       code,
       message,
@@ -225,66 +185,63 @@ export class ReceiptOcrProcessingError extends Error {
   }
 }
 
-const buildMockReceiptOcrResponse = ({ file, rawText, mode = 'mock-upload', statusNote = '' }) =>
-  buildReceiptOcrSuccessResponse({
-    code: 'OCR_LEGACY_MOCK_RESULT',
-    message: 'Legacy mock OCR result returned',
-    ocrStatus: 'mock',
-    mode,
-    file,
-    rawText,
-    parsed: parseReceiptText(rawText),
-    ocrMetadata: {
-      engine: 'legacy-mock',
-      activePath: false,
-    },
-    statusNote,
-  });
-
-const buildPythonReceiptOcrResponse = ({ file, payload }) => {
-  const rawText = pickFirstText(payload?.rawText, payload?.ocrText, payload?.text);
-  const parsed = normalizeParsedReceipt(payload?.parsed, rawText);
-
-  if (!trimText(rawText) && !hasUsableParsedResult(parsed)) {
-    throw new ReceiptOcrProcessingError('Python OCR service returned no usable OCR data', {
-      status: 502,
-      code: 'OCR_RESPONSE_INVALID',
-      mode: trimText(payload?.mode) || 'python-paddleocr',
+const storeReceiptUpload = async (file) => {
+  if (!Buffer.isBuffer(file.buffer) || file.buffer.length === 0) {
+    throw new ReceiptOcrProcessingError('receipt image is empty', {
+      status: 400,
+      code: 'OCR_EMPTY_FILE',
     });
   }
 
-  return buildReceiptOcrSuccessResponse({
-    code: pickFirstText(payload?.code, payload?.errorCode) || 'OCR_OK',
-    message: pickFirstText(payload?.message, payload?.errorMessage) || 'Receipt OCR completed',
-    ocrStatus: trimText(payload?.ocrStatus) || 'success',
-    mode: trimText(payload?.mode) || 'python-paddleocr',
-    file,
-    rawText,
-    parsed: {
-      ...parsed,
-      receiptLines:
-        Array.isArray(payload?.receiptLines) && payload.receiptLines.length
-          ? payload.receiptLines.map((line) => trimText(line)).filter(Boolean)
-          : Array.isArray(payload?.parsed?.receiptLines) && payload.parsed.receiptLines.length
-            ? payload.parsed.receiptLines.map((line) => trimText(line)).filter(Boolean)
-            : parsed.receiptLines,
-      merchant:
-        pickFirstText(payload?.merchant, payload?.merchantName, payload?.parsed?.merchant, payload?.parsed?.merchantName) ||
-        parsed.merchant,
-      merchantName:
-        pickFirstText(payload?.merchantName, payload?.merchant, payload?.parsed?.merchantName, payload?.parsed?.merchant) ||
-        parsed.merchantName,
-    },
-    ocrMetadata: pickFirstObject(payload?.ocrMetadata, payload?.meta) || {},
-  });
+  const now = new Date();
+  const partitions = [
+    String(now.getUTCFullYear()),
+    String(now.getUTCMonth() + 1).padStart(2, '0'),
+    String(now.getUTCDate()).padStart(2, '0'),
+  ];
+  const storageDirectory = path.join(RECEIPT_UPLOAD_STORAGE_ROOT, ...partitions);
+  const fileExtension = getSafeFileExtension(file);
+  const storedFileName = `${crypto.randomUUID()}${fileExtension}`;
+  const absolutePath = path.join(storageDirectory, storedFileName);
+  const relativePath = path.posix.join(...partitions, storedFileName);
+
+  try {
+    await fs.mkdir(storageDirectory, { recursive: true });
+    await fs.writeFile(absolutePath, file.buffer);
+  } catch (error) {
+    throw new ReceiptOcrProcessingError(
+      error?.message || 'Failed to store receipt upload',
+      {
+        status: 500,
+        code: 'RECEIPT_STORAGE_FAILED',
+        details: {
+          storageProvider: RECEIPT_UPLOAD_STORAGE_PROVIDER,
+        },
+      }
+    );
+  }
+
+  return {
+    provider: RECEIPT_UPLOAD_STORAGE_PROVIDER,
+    reference: buildStorageReference(relativePath),
+    key: buildStorageKey(relativePath),
+    relativePath: sanitizeRelativePath(relativePath),
+    storedFileName,
+    publicUrl: RECEIPT_UPLOAD_PUBLIC_BASE_URL
+      ? buildStorageReference(relativePath)
+      : '',
+    mimeType: file.mimetype || '',
+    originalName: file.originalname || '',
+    size: Number(file.size) || 0,
+    storedAt: now.toISOString(),
+  };
 };
 
-export const processReceiptOcrRequest = async ({ file, rawTextOverride }) => {
-  const normalizedOverride =
-    typeof rawTextOverride === 'string' && rawTextOverride.trim()
-      ? rawTextOverride.trim()
-      : '';
-
+export const processReceiptOcrRequest = async ({
+  file,
+  appointmentId,
+  bookingReference,
+}) => {
   if (!file) {
     throw new ReceiptOcrProcessingError('receipt image is required', {
       status: 400,
@@ -299,121 +256,59 @@ export const processReceiptOcrRequest = async ({ file, rawTextOverride }) => {
     });
   }
 
-  if (normalizedOverride) {
-    return buildMockReceiptOcrResponse({
-      file,
-      rawText: normalizedOverride,
-      mode: 'mock-upload',
-      statusNote:
-        'Legacy mock OCR path was used from rawText override and should not be treated as real receipt OCR.',
-    });
-  }
+  const storedReceipt = await storeReceiptUpload(file);
+  const persistedUpload = await insertAppointmentReceiptUpload({
+    appointmentId,
+    bookingReference,
+    storedReceipt,
+  });
 
-  if (!OCR_SERVICE_ENABLED) {
-    if (!OCR_SERVICE_FALLBACK_TO_MOCK) {
-      throw new ReceiptOcrProcessingError('Python OCR service is disabled', {
-        status: 503,
-        code: 'OCR_SERVICE_DISABLED',
-        details: {
-          ocrServiceBaseUrl: OCR_SERVICE_BASE_URL,
-        },
-      });
-    }
-
-    return buildMockReceiptOcrResponse({
-      file,
-      rawText: DEFAULT_MOCK_RECEIPT_TEXT,
-      mode: 'mock-upload',
-      statusNote: 'Legacy mock OCR fallback was used because OCR_SERVICE_ENABLED=false.',
-    });
-  }
-
-  try {
-    const pythonPayload = await requestPythonReceiptOcr({ file });
-
-    if (pythonPayload?.success === false) {
-      throw new ReceiptOcrProcessingError(
-        pickFirstText(pythonPayload?.message, pythonPayload?.errorMessage) ||
-          'Python OCR service reported failure',
-        {
-          status: 502,
-          code:
-            pickFirstText(
-              pythonPayload?.errorCode,
-              pythonPayload?.code,
-              pythonPayload?.error?.code
-            ) || 'OCR_SERVICE_UNAVAILABLE',
-          details: pickFirstObject(
-            pythonPayload?.error?.details,
-            pythonPayload?.error,
-            pythonPayload
-          ),
-          mode: trimText(pythonPayload?.mode) || 'python-paddleocr',
-        }
-      );
-    }
-
-    return buildPythonReceiptOcrResponse({
-      file,
-      payload: pythonPayload,
-    });
-  } catch (error) {
-    if (!OCR_SERVICE_FALLBACK_TO_MOCK) {
-      throw new ReceiptOcrProcessingError(
-        error?.message || 'Python OCR service is unavailable',
-        {
-          status: error?.status || 503,
-          code: error?.code || 'OCR_SERVICE_UNAVAILABLE',
-          details: {
-            ocrServiceBaseUrl: OCR_SERVICE_BASE_URL,
-            upstreamPayload: error?.payload || null,
-          },
-          mode: 'python-paddleocr',
-        }
-      );
-    }
-
-    console.warn(
-      '[ReceiptOCRRoute]',
-      JSON.stringify({
-        event: 'python_ocr_fallback_to_mock',
-        message: error?.message || 'unknown_error',
-        status: error?.status || null,
-        code: error?.code || null,
-      })
-    );
-
-    return buildMockReceiptOcrResponse({
-      file,
-      rawText: DEFAULT_MOCK_RECEIPT_TEXT,
-      mode: 'mock-fallback',
-      statusNote:
-        'Legacy mock OCR fallback was used because the Python OCR service was unavailable.',
-    });
-  }
+  return buildReceiptUploadSuccessResponse({
+    file,
+    storedReceipt,
+    persistedUpload,
+  });
 };
 
-export const inspectReceiptOcrHealth = async () => {
-  const downstreamTargets = getOcrDownstreamTargets();
-  const downstream = await checkPythonOcrHealth();
-  const downstreamReceiptRoute = await checkPythonOcrReceiptRoute();
-
-  return {
-    routeMounted: true,
-    mountedBasePath: OCR_ROUTE_BASE_PATH,
-    receiptPath: OCR_ROUTE_ABSOLUTE_PATHS.receipt,
-    healthPath: OCR_ROUTE_ABSOLUTE_PATHS.health,
-    ocrServiceBaseUrl: OCR_SERVICE_BASE_URL,
-    downstreamBaseUrl: downstreamTargets.baseUrl,
-    downstreamHealthUrl: downstreamTargets.healthUrl,
-    downstreamReceiptUrl: downstreamTargets.receiptUrl,
-    ocrServiceEnabled: OCR_SERVICE_ENABLED,
-    ocrServiceFallbackToMock: OCR_SERVICE_FALLBACK_TO_MOCK,
-    downstreamReachable: Boolean(downstream?.reachable),
-    downstreamReceiptRouteReachable: Boolean(downstreamReceiptRoute?.reachable),
-    downstream,
-    downstreamReceiptRoute,
-  };
-};
+export const inspectReceiptOcrHealth = async () => ({
+  routeMounted: true,
+  mountedBasePath: OCR_ROUTE_BASE_PATH,
+  receiptPath: OCR_ROUTE_ABSOLUTE_PATHS.receipt,
+  healthPath: OCR_ROUTE_ABSOLUTE_PATHS.health,
+  mode: RECEIPT_UPLOAD_MODE,
+  ocrStatusDefault: RECEIPT_UPLOAD_STATUS_DEFAULT,
+  storageProvider: RECEIPT_UPLOAD_STORAGE_PROVIDER,
+  storageRoot: RECEIPT_UPLOAD_STORAGE_ROOT,
+  storagePublicBaseUrl: RECEIPT_UPLOAD_PUBLIC_BASE_URL || null,
+  uploadField: 'receipt',
+  uploadMaxFileSizeBytes: MAX_RECEIPT_FILE_SIZE_BYTES,
+  acceptedMimePrefix: 'image/',
+  metadataPersistenceTable: 'appointment_receipt_uploads',
+  ocrServiceEnabled: false,
+  ocrServiceFallbackToMock: false,
+  downstreamBaseUrl: null,
+  downstreamHealthUrl: null,
+  downstreamReceiptUrl: null,
+  downstreamReachable: false,
+  downstreamReceiptRouteReachable: false,
+  downstream: {
+    reachable: false,
+    status: null,
+    ok: false,
+    code: 'OCR_DISABLED',
+    message: 'Receipt upload route is running without OCR service integration',
+    url: null,
+    payload: null,
+  },
+  downstreamReceiptRoute: {
+    reachable: false,
+    status: null,
+    ok: false,
+    code: 'OCR_DISABLED',
+    message: 'Receipt upload route is running without OCR service integration',
+    url: null,
+    payload: null,
+  },
+});
 
 export default processReceiptOcrRequest;

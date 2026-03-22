@@ -3,7 +3,6 @@ import {
   inspectReceiptOcrHealth,
   processReceiptOcrRequest,
 } from '../services/ocr/receiptOcrService.js';
-import { getOcrDownstreamTargets } from '../services/ocr/pythonOcrClient.js';
 import { OCR_ROUTE_ABSOLUTE_PATHS } from '../services/ocr/ocrRouteConfig.js';
 
 const createRequestId = () => `ocr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -12,9 +11,9 @@ export const postReceiptOcr = async (req, res) => {
   const requestId = createRequestId();
   const startedAt = Date.now();
   const path = String(req.originalUrl || req.url || OCR_ROUTE_ABSOLUTE_PATHS.receipt);
-  const hasRawTextOverride =
-    typeof req.body?.rawText === 'string' && req.body.rawText.trim().length > 0;
-  const downstreamTargets = getOcrDownstreamTargets();
+  const appointmentId = req.body?.appointment_id || req.body?.appointmentId || '';
+  const bookingReference =
+    req.body?.booking_reference || req.body?.bookingReference || '';
 
   console.info(
     '[ReceiptOCRRoute]',
@@ -27,16 +26,17 @@ export const postReceiptOcr = async (req, res) => {
       fileName: req.file?.originalname || '',
       fileType: req.file?.mimetype || '',
       fileSize: Number(req.file?.size) || 0,
-      hasRawTextOverride,
-      downstreamBaseUrl: downstreamTargets.baseUrl,
-      downstreamReceiptUrl: downstreamTargets.receiptUrl,
+      appointmentId: appointmentId || null,
+      bookingReference: bookingReference || null,
+      mode: 'receipt-upload-only',
     })
   );
 
   try {
     const result = await processReceiptOcrRequest({
       file: req.file,
-      rawTextOverride: req.body?.rawText,
+      appointmentId,
+      bookingReference,
     });
 
     console.info(
@@ -51,8 +51,13 @@ export const postReceiptOcr = async (req, res) => {
         mode: result.mode || null,
         ocrStatus: result.ocrStatus || null,
         success: result.success === true,
-        downstreamBaseUrl: downstreamTargets.baseUrl,
-        downstreamReceiptUrl: downstreamTargets.receiptUrl,
+        receiptImageRef: result.receiptImageRef || null,
+        storageProvider: result.ocrMetadata?.storage?.provider || null,
+        uploadId: result.ocrMetadata?.uploadRecord?.id || null,
+        persistedAppointmentId:
+          result.ocrMetadata?.uploadRecord?.appointmentId || null,
+        persistedBookingReference:
+          result.ocrMetadata?.uploadRecord?.bookingReference || null,
       })
     );
 
@@ -69,8 +74,9 @@ export const postReceiptOcr = async (req, res) => {
         status: error.status || 500,
         code: error.code || 'OCR_PROCESSING_FAILED',
         message: error.message || 'Failed to process receipt OCR',
-        downstreamBaseUrl: downstreamTargets.baseUrl,
-        downstreamReceiptUrl: downstreamTargets.receiptUrl,
+        appointmentId: appointmentId || null,
+        bookingReference: bookingReference || null,
+        mode: 'receipt-upload-only',
       })
     );
 
@@ -90,7 +96,6 @@ export const getReceiptOcrHealth = async (req, res) => {
   const requestId = createRequestId();
   const startedAt = Date.now();
   const path = String(req.originalUrl || req.url || OCR_ROUTE_ABSOLUTE_PATHS.health);
-  const downstreamTargets = getOcrDownstreamTargets();
 
   console.info(
     '[ReceiptOCRRoute]',
@@ -100,9 +105,7 @@ export const getReceiptOcrHealth = async (req, res) => {
       method: String(req.method || 'GET').toUpperCase(),
       path,
       origin: req.headers?.origin || null,
-      downstreamBaseUrl: downstreamTargets.baseUrl,
-      downstreamHealthUrl: downstreamTargets.healthUrl,
-      downstreamReceiptUrl: downstreamTargets.receiptUrl,
+      mode: 'receipt-upload-only',
     })
   );
 
@@ -117,12 +120,9 @@ export const getReceiptOcrHealth = async (req, res) => {
         method: String(req.method || 'GET').toUpperCase(),
         path,
         durationMs: Date.now() - startedAt,
-        downstreamReachable: Boolean(health?.downstream?.reachable),
-        downstreamStatus: health?.downstream?.status ?? null,
-        downstreamReceiptRouteReachable: Boolean(health?.downstreamReceiptRoute?.reachable),
-        downstreamBaseUrl: health?.downstreamBaseUrl || downstreamTargets.baseUrl,
-        downstreamHealthUrl: health?.downstreamHealthUrl || downstreamTargets.healthUrl,
-        downstreamReceiptUrl: health?.downstreamReceiptUrl || downstreamTargets.receiptUrl,
+        mode: health?.mode || 'receipt-upload-only',
+        ocrStatusDefault: health?.ocrStatusDefault || null,
+        storageProvider: health?.storageProvider || null,
       })
     );
 
@@ -137,9 +137,7 @@ export const getReceiptOcrHealth = async (req, res) => {
         path,
         durationMs: Date.now() - startedAt,
         message: error?.message || 'Failed to inspect OCR health',
-        downstreamBaseUrl: downstreamTargets.baseUrl,
-        downstreamHealthUrl: downstreamTargets.healthUrl,
-        downstreamReceiptUrl: downstreamTargets.receiptUrl,
+        mode: 'receipt-upload-only',
       })
     );
 

@@ -329,3 +329,11 @@
   - after prediction during OCR result post-processing
 - Image decode and receipt parsing remain separate logged helper stages.
 - No route path or response schema changed.
+
+## Update 2026-03-22T17:05:00+07:00
+
+### Receipt Upload Refactor
+- `POST /api/ocr/receipt` now runs in upload-only mode on the Node backend.
+- The route still accepts and validates a receipt image, but it no longer calls any downstream OCR service.
+- Successful uploads now store a local file reference and return `ocrStatus: "pending"` with empty OCR result fields.
+- `GET /api/ocr/health` now reports storage-backed upload mode instead of downstream OCR bridge health.

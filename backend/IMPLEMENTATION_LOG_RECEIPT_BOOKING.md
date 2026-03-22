@@ -218,6 +218,48 @@ Constraints/indexes added:
 - `POST /api/ocr/receipt` no longer needs a successful OCR run just to prove route existence.
   - hitting it without a file now returns `400 OCR_IMAGE_REQUIRED` instead of `404`.
 
+## 2026-03-22 18:10 +07:00 — add receipt upload metadata table for deferred OCR
+
+### Goal
+- Add the minimal PostgreSQL schema needed to persist uploaded receipt image metadata now that OCR processing is moving out of the LIFF runtime path.
+
+### Design Decision
+- Chosen design: separate table `appointment_receipt_uploads`.
+- Reason:
+  - keeps `appointments` unchanged
+  - avoids overloading `appointment_receipts`, which is still the appointment-level evidence table
+  - supports one or more uploaded images per appointment if needed later
+  - allows rows to be linked by `appointment_id` when available or by a fallback `booking_reference`
+
+### New Schema / Migration
+- Added `backend/scripts/migrate_appointment_receipt_uploads.js`
+- Added npm script `migrate:appointment-receipt-uploads`
+
+`appointment_receipt_uploads` fields:
+- `id`
+- `appointment_id`
+- `booking_reference`
+- `receipt_image_ref`
+- `original_filename`
+- `mime_type`
+- `file_size_bytes`
+- `uploaded_at`
+- `ocr_status` default `pending`
+- `ocr_processed_at`
+- `ocr_error_message`
+
+Constraints/indexes added:
+- require at least one linkage target: `appointment_id` or non-empty `booking_reference`
+- non-empty checks for file reference, filename, and MIME type
+- non-negative file size check
+- OCR status check for `pending`, `processing`, `processed`, `failed`
+- indexes for uploaded time, appointment lookup, booking reference lookup, and OCR status queueing
+
+### Rollback Note
+- Repo migration style is forward-only.
+- Manual rollback only if no dependent production data exists:
+  - `DROP TABLE IF EXISTS public.appointment_receipt_uploads;`
+
 ### Validation in this pass
 - `node --check backend/src/services/ocr/ocrRouteConfig.js`
 - `node --check backend/src/services/ocr/pythonOcrClient.js`
@@ -405,3 +447,23 @@ Constraints/indexes added:
 ### Public behavior
 - No route path changed.
 - No response schema changed.
+
+## 2026-03-22 17:05 +07:00 — switched receipt upload route to upload-only mode
+
+### Goal
+- Keep the receipt upload route alive while removing all downstream OCR-service calls from the active Node backend path.
+
+### What changed
+- Updated `backend/src/services/ocr/receiptOcrService.js`
+  - removed downstream OCR request/health logic from the route path
+  - now stores uploaded receipts locally under a generated file reference
+  - returns `ocrStatus: "pending"` with backward-compatible empty OCR result fields
+- Updated `backend/src/controllers/ocrController.js`
+  - route logs now reflect upload-only mode and stored receipt reference
+- Updated `backend/server.js`
+  - startup logs no longer advertise downstream OCR bridge config
+
+### Public behavior
+- `POST /api/ocr/receipt` still accepts multipart field `receipt`
+- `GET /api/ocr/health` still exists
+- OCR result fields are no longer populated by backend OCR in this path

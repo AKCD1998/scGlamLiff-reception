@@ -35,6 +35,9 @@
 - New CORS preflight allowance exists for `X-Line-Id-Token`, `X-Line-Access-Token`, and `X-Liff-App-Id` headers used by the LIFF verification flow.
 - New OCR upload route exists at `POST /api/ocr/receipt`.
 - New OCR debug route exists at `GET /api/ocr/health`.
+- New schema step: run `npm run migrate:appointment-receipt-uploads` before storing uploaded receipt image metadata for later OCR processing outside LIFF.
+- Uploaded image metadata now belongs in PostgreSQL table `appointment_receipt_uploads`, keyed by `appointment_id` when available or a fallback `booking_reference`.
+- Rollback note for this schema step stays manual/forward-only in repo style: only drop `public.appointment_receipt_uploads` if no production data depends on it.
 - This backend now owns the active public OCR route for Bill Verification and now also contains the Python OCR app source at `backend/services/ocr_python`.
 - The old Python OCR folder in `scGlamLiFFF/scGlamLiFF/backend/services/ocr_python` remains a temporary duplicate until deployment cutover is complete.
 - OCR response contract is standardized around:

@@ -5,12 +5,6 @@ import {
   OCR_ROUTE_ABSOLUTE_PATHS,
   OCR_ROUTE_BASE_PATH,
 } from './src/services/ocr/ocrRouteConfig.js';
-import {
-  getOcrDownstreamTargets,
-  OCR_SERVICE_BASE_URL,
-  OCR_SERVICE_ENABLED,
-  OCR_SERVICE_FALLBACK_TO_MOCK,
-} from './src/services/ocr/pythonOcrClient.js';
 
 const app = createApp();
 const PORT = Number(process.env.PORT) || 5050;
@@ -57,7 +51,6 @@ async function logSchemaHealth() {
 }
 
 app.listen(PORT, () => {
-  const downstreamTargets = getOcrDownstreamTargets();
   console.log(`Listening on port ${PORT}`);
   const databaseInfo = readDatabaseInfo(process.env.DATABASE_URL);
   if (databaseInfo) {
@@ -68,26 +61,20 @@ app.listen(PORT, () => {
   console.log(
     '[startup]',
     JSON.stringify({
-      event: 'ocr_downstream_config',
-      ocrServiceBaseUrl: OCR_SERVICE_BASE_URL,
-      downstreamHealthUrl: downstreamTargets.healthUrl,
-      downstreamReceiptUrl: downstreamTargets.receiptUrl,
-      ocrServiceEnabled: OCR_SERVICE_ENABLED,
-      ocrServiceFallbackToMock: OCR_SERVICE_FALLBACK_TO_MOCK,
+      event: 'receipt_upload_mode',
+      mode: 'receipt-upload-only',
+      ocrStatusDefault: 'pending',
     })
   );
   console.log(
     '[startup]',
     JSON.stringify({
-      event: 'ocr_runtime_ready',
+      event: 'receipt_upload_runtime_ready',
       mountedBasePath: OCR_ROUTE_BASE_PATH,
       healthPath: OCR_ROUTE_ABSOLUTE_PATHS.health,
       receiptPath: OCR_ROUTE_ABSOLUTE_PATHS.receipt,
-      ocrServiceBaseUrl: OCR_SERVICE_BASE_URL,
-      downstreamHealthUrl: downstreamTargets.healthUrl,
-      downstreamReceiptUrl: downstreamTargets.receiptUrl,
-      ocrServiceEnabled: OCR_SERVICE_ENABLED,
-      ocrServiceFallbackToMock: OCR_SERVICE_FALLBACK_TO_MOCK,
+      mode: 'receipt-upload-only',
+      ocrStatusDefault: 'pending',
     })
   );
   void logSchemaHealth();

@@ -197,3 +197,35 @@
 - `backend/services/ocr_python/app/main.py`
 - `backend/services/ocr_python/app/services/paddle_ocr_service.py`
 - `OCR_INTEGRATION_STATUS.md`
+
+## Update 2026-03-22T17:05:00+07:00
+
+### Summary
+- Refactored `POST /api/ocr/receipt` into a receipt-upload-only endpoint in the Node backend.
+- The route now stores receipt files locally, returns a file reference plus metadata, and defaults `ocrStatus` to `pending`.
+- Removed the active Node backend path's dependency on the downstream OCR bridge.
+
+### Files Updated
+- `backend/src/controllers/ocrController.js`
+- `backend/src/services/ocr/receiptOcrService.js`
+- `backend/server.js`
+- `OCR_INTEGRATION_STATUS.md`
+
+## Update 2026-03-22T18:10:00+07:00
+
+### Summary
+- Added a new PostgreSQL migration for receipt upload metadata that can be processed by OCR later outside the LIFF request path.
+- Chosen table: `public.appointment_receipt_uploads`.
+- The table links uploaded receipt image references to an existing `appointment_id` when known, or to a fallback `booking_reference` when the appointment linkage is not yet available.
+- OCR state now has a DB-native queue/status field with default `pending`.
+
+### Files Updated
+- `backend/scripts/migrate_appointment_receipt_uploads.js`
+- `backend/package.json`
+- `backend/API_CHANGELOG_NOTES.md`
+- `backend/IMPLEMENTATION_LOG_RECEIPT_BOOKING.md`
+
+### Next Actions
+1. Run `npm run migrate:appointment-receipt-uploads` in `backend/`.
+2. Update the upload-only receipt route to insert a metadata row into `appointment_receipt_uploads`.
+3. Decide whether later offline OCR processing should read rows by `ocr_status='pending'` or via a separate queue worker.
