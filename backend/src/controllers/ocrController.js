@@ -3,6 +3,7 @@ import {
   inspectReceiptOcrHealth,
   processReceiptOcrRequest,
 } from '../services/ocr/receiptOcrService.js';
+import { getOcrDownstreamTargets } from '../services/ocr/pythonOcrClient.js';
 import { OCR_ROUTE_ABSOLUTE_PATHS } from '../services/ocr/ocrRouteConfig.js';
 
 const createRequestId = () => `ocr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -13,6 +14,7 @@ export const postReceiptOcr = async (req, res) => {
   const path = String(req.originalUrl || req.url || OCR_ROUTE_ABSOLUTE_PATHS.receipt);
   const hasRawTextOverride =
     typeof req.body?.rawText === 'string' && req.body.rawText.trim().length > 0;
+  const downstreamTargets = getOcrDownstreamTargets();
 
   console.info(
     '[ReceiptOCRRoute]',
@@ -26,6 +28,8 @@ export const postReceiptOcr = async (req, res) => {
       fileType: req.file?.mimetype || '',
       fileSize: Number(req.file?.size) || 0,
       hasRawTextOverride,
+      downstreamBaseUrl: downstreamTargets.baseUrl,
+      downstreamReceiptUrl: downstreamTargets.receiptUrl,
     })
   );
 
@@ -47,6 +51,8 @@ export const postReceiptOcr = async (req, res) => {
         mode: result.mode || null,
         ocrStatus: result.ocrStatus || null,
         success: result.success === true,
+        downstreamBaseUrl: downstreamTargets.baseUrl,
+        downstreamReceiptUrl: downstreamTargets.receiptUrl,
       })
     );
 
@@ -63,6 +69,8 @@ export const postReceiptOcr = async (req, res) => {
         status: error.status || 500,
         code: error.code || 'OCR_PROCESSING_FAILED',
         message: error.message || 'Failed to process receipt OCR',
+        downstreamBaseUrl: downstreamTargets.baseUrl,
+        downstreamReceiptUrl: downstreamTargets.receiptUrl,
       })
     );
 
@@ -82,6 +90,7 @@ export const getReceiptOcrHealth = async (req, res) => {
   const requestId = createRequestId();
   const startedAt = Date.now();
   const path = String(req.originalUrl || req.url || OCR_ROUTE_ABSOLUTE_PATHS.health);
+  const downstreamTargets = getOcrDownstreamTargets();
 
   console.info(
     '[ReceiptOCRRoute]',
@@ -91,6 +100,9 @@ export const getReceiptOcrHealth = async (req, res) => {
       method: String(req.method || 'GET').toUpperCase(),
       path,
       origin: req.headers?.origin || null,
+      downstreamBaseUrl: downstreamTargets.baseUrl,
+      downstreamHealthUrl: downstreamTargets.healthUrl,
+      downstreamReceiptUrl: downstreamTargets.receiptUrl,
     })
   );
 
@@ -107,6 +119,10 @@ export const getReceiptOcrHealth = async (req, res) => {
         durationMs: Date.now() - startedAt,
         downstreamReachable: Boolean(health?.downstream?.reachable),
         downstreamStatus: health?.downstream?.status ?? null,
+        downstreamReceiptRouteReachable: Boolean(health?.downstreamReceiptRoute?.reachable),
+        downstreamBaseUrl: health?.downstreamBaseUrl || downstreamTargets.baseUrl,
+        downstreamHealthUrl: health?.downstreamHealthUrl || downstreamTargets.healthUrl,
+        downstreamReceiptUrl: health?.downstreamReceiptUrl || downstreamTargets.receiptUrl,
       })
     );
 
@@ -121,6 +137,9 @@ export const getReceiptOcrHealth = async (req, res) => {
         path,
         durationMs: Date.now() - startedAt,
         message: error?.message || 'Failed to inspect OCR health',
+        downstreamBaseUrl: downstreamTargets.baseUrl,
+        downstreamHealthUrl: downstreamTargets.healthUrl,
+        downstreamReceiptUrl: downstreamTargets.receiptUrl,
       })
     );
 

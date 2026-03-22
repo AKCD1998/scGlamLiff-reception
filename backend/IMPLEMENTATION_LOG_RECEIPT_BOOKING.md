@@ -229,3 +229,113 @@ Constraints/indexes added:
 - temporary app-instance runtime check:
   - `GET /api/ocr/health` -> `200`
   - `POST /api/ocr/receipt` without file -> `400 OCR_IMAGE_REQUIRED`
+
+## 2026-03-22 12:41 +07:00 — downstream OCR route mismatch found in production
+
+### What was observed
+- Production `GET /api/ocr/health` said the OCR route was mounted and the downstream OCR host was reachable.
+- Production `POST /api/ocr/receipt` without a file confirmed the public backend route exists.
+- But production upload with a real file still failed because the configured downstream OCR host returned:
+  - `404 Cannot POST /ocr/receipt`
+
+### Root cause found
+- The configured downstream OCR host on Render is alive on `/health` but does not expose the expected upload route.
+- That means the current failure is likely:
+  - wrong `OCR_SERVICE_BASE_URL`
+  - or an outdated/downstream OCR deployment on Render
+
+### Code changes in this pass
+- Updated `backend/src/services/ocr/pythonOcrClient.js`
+  - upstream `404`/`405` on the Python OCR host now normalize to `503 OCR_DOWNSTREAM_ROUTE_NOT_FOUND`
+  - added a downstream receipt-route probe for health reporting
+- Updated `backend/src/services/ocr/receiptOcrService.js`
+  - `/api/ocr/health` now includes the downstream receipt-route probe result
+
+### Why this matters
+- Before this change, a downstream OCR-host `404` could bubble up in a way that the frontend misread as if the main backend route were missing.
+- After this change, the backend reports the failure as a downstream OCR integration error instead.
+
+## 2026-03-22 14:06 +07:00 — copied Python OCR app into backend repo as migration-safe source of truth
+
+### Goal
+- Make `scGlamLiff-reception` the repository source of truth for OCR backend code without changing current frontend behavior or deleting the old frontend-repo copy yet.
+
+### What changed
+- Added Python OCR source under:
+  - `backend/services/ocr_python/README.md`
+  - `backend/services/ocr_python/requirements.txt`
+  - `backend/services/ocr_python/app/main.py`
+  - `backend/services/ocr_python/app/services/*`
+- Preserved Python route paths:
+  - `GET /health`
+  - `POST /ocr/receipt`
+- Added backend-repo documentation for:
+  - Render root directory
+  - build command
+  - start command
+  - required env vars
+- Kept the old Python OCR folder in `scGlamLiFFF/scGlamLiFF/backend/services/ocr_python` as a temporary duplicate during migration.
+
+### Why this is safe
+- The active public Node OCR route in this repo is unchanged.
+- Frontend callers are unchanged.
+- `OCR_SERVICE_BASE_URL` behavior is unchanged.
+- Production cutover is still a separate step.
+
+### Next migration step
+- Deploy the Python OCR service from this repo and only then remove the temporary duplicate from `scGlamLiFFF`.
+
+## 2026-03-22 14:18 +07:00 — documented dual Render deployment from one repo
+
+### Goal
+- Document how `scGlamLiff-reception` should be deployed as two separate Render services without changing the current Node-to-Python OCR bridge behavior.
+
+### What changed
+- Added `backend/RENDER_DEPLOYMENT.md` with explicit settings for:
+  - Service A: main Node backend
+  - Service B: Python OCR backend
+- Documented for each service:
+  - root directory
+  - build command
+  - start command
+  - required env vars
+  - health endpoint
+- Added a concise Render checklist and curl verification steps.
+- Updated `backend/README-backend.md` and `OCR_INTEGRATION_STATUS.md` to point at the new deployment source of truth.
+
+### Important invariant
+- Node OCR bridge behavior is unchanged in this documentation step.
+- The main backend must still call the Python OCR service through `OCR_SERVICE_BASE_URL`.
+
+## 2026-03-22 14:18 +07:00 — improved OCR observability in Node backend
+
+### Goal
+- Make OCR routing/debug failures easier to diagnose from backend logs and `GET /api/ocr/health` without changing public behavior.
+
+### What changed
+- Updated `backend/server.js`
+  - startup now logs `ocr_downstream_config`
+  - startup log includes:
+    - `ocrServiceBaseUrl`
+    - downstream health URL
+    - downstream receipt URL
+- Updated `backend/src/controllers/ocrController.js`
+  - OCR request-entry logs now include downstream base/receipt URLs
+  - OCR health logs now include downstream base/health/receipt URLs
+- Updated `backend/src/services/ocr/pythonOcrClient.js`
+  - bridge logs now record downstream target path and full target URL for:
+    - live OCR requests
+    - downstream `/health` probe
+    - downstream `/ocr/receipt` probe
+- Updated `backend/src/services/ocr/receiptOcrService.js`
+  - `/api/ocr/health` now adds top-level downstream clarity fields:
+    - `downstreamBaseUrl`
+    - `downstreamHealthUrl`
+    - `downstreamReceiptUrl`
+    - `downstreamReachable`
+    - `downstreamReceiptRouteReachable`
+
+### Public behavior
+- No route paths changed.
+- No request/response fields were removed.
+- Existing clients remain compatible; health response only gained additive fields.

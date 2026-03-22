@@ -3065,7 +3065,8 @@ Why they are legacy:
 - This route is additive. It does not replace canonical appointment create or receipt evidence persistence.
 - Current ownership split:
   - this repo owns the public Node route and contract
-  - the Python OCR runtime is currently called over HTTP from the sibling repo `scGlamLiFFF/scGlamLiFF/backend/services/ocr_python`
+  - this repo now also contains the Python OCR app source at `backend/services/ocr_python`
+  - the old Python OCR folder in `scGlamLiFFF/scGlamLiFF/backend/services/ocr_python` is still retained temporarily during deployment migration
 
 ### Request
 - Method: `POST`

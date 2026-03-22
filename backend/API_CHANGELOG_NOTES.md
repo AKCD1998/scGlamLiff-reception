@@ -35,7 +35,8 @@
 - New CORS preflight allowance exists for `X-Line-Id-Token`, `X-Line-Access-Token`, and `X-Liff-App-Id` headers used by the LIFF verification flow.
 - New OCR upload route exists at `POST /api/ocr/receipt`.
 - New OCR debug route exists at `GET /api/ocr/health`.
-- This backend now owns the active public OCR route for Bill Verification, while the Python OCR runtime is still called from the sibling repo `scGlamLiFFF/scGlamLiFF/backend/services/ocr_python`.
+- This backend now owns the active public OCR route for Bill Verification and now also contains the Python OCR app source at `backend/services/ocr_python`.
+- The old Python OCR folder in `scGlamLiFFF/scGlamLiFF/backend/services/ocr_python` remains a temporary duplicate until deployment cutover is complete.
 - OCR response contract is standardized around:
   - `success`
   - `rawText` / `ocrText`

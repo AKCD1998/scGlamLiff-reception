@@ -1,3 +1,6 @@
-﻿node_modules/
+node_modules/
 .env
 .DS_Store
+services/ocr_python/.venv/
+services/ocr_python/**/__pycache__/
+services/ocr_python/**/*.pyc

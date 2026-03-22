@@ -135,11 +135,19 @@ Optional SQL guardrail (manual run, not automatic):
 ## OCR runtime note
 - The active public OCR route is `POST /api/ocr/receipt` in this repo.
 - Debug/verification route is `GET /api/ocr/health`.
-- The current Python OCR runtime is still hosted in the sibling repo `scGlamLiFFF/scGlamLiFF/backend/services/ocr_python`.
+- The Python OCR source of truth now lives in this repo at `backend/services/ocr_python`.
+- The old Python OCR copy in `scGlamLiFFF/scGlamLiFF/backend/services/ocr_python` is intentionally retained only as a temporary migration duplicate until deployment cutover is finished.
 - Default backend expectation:
   - `OCR_SERVICE_BASE_URL=http://127.0.0.1:8001`
   - `OCR_SERVICE_ENABLED=true`
   - `OCR_SERVICE_FALLBACK_TO_MOCK=false`
+
+### Render deployment
+- This repo is intended to deploy as two separate Render services:
+  - Node backend from `backend`
+  - Python OCR backend from `backend/services/ocr_python`
+- Full settings and post-deploy verification:
+  - `backend/RENDER_DEPLOYMENT.md`
 
 ### OCR verification with curl
 ```bash
@@ -153,6 +161,17 @@ curl -i -X POST https://<your-backend-host>/api/ocr/receipt
 Expected deployment-safe checks:
 - `/api/ocr/health` should return `200` with route/debug data even if downstream OCR is unreachable
 - `/api/ocr/receipt` should return `400 OCR_IMAGE_REQUIRED` if the route is mounted but no file is sent
+- `/api/ocr/health` now also reports:
+  - `routeMounted`
+  - `mountedBasePath`
+  - `downstreamBaseUrl`
+  - `downstreamHealthUrl`
+  - `downstreamReceiptUrl`
+  - `downstreamReachable`
+  - `downstreamReceiptRouteReachable`
+- startup logs now include:
+  - `ocr_downstream_config`
+  - `ocr_runtime_ready`
 
 ## Vite proxy note
 Add this to `vite.config.js` on the frontend if you want `/api` to proxy to the backend:

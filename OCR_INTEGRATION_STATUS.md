@@ -1,7 +1,7 @@
 # OCR Integration Status
 
 ## Updated At
-- `2026-03-22T11:00:09.6216262+07:00`
+- `2026-03-22T14:06:04.9264876+07:00`
 
 ## Active OCR Path
 1. Frontend upload UI:
@@ -19,7 +19,10 @@
    - `backend/src/services/ocr/receiptOcrService.js`
    - `backend/src/services/ocr/pythonOcrClient.js`
    - `backend/src/services/ocr/receiptParser.js`
-7. Python OCR runtime in sibling repo:
+7. Python OCR source of truth in this repo:
+   - `backend/services/ocr_python/app/main.py`
+   - `backend/services/ocr_python/app/services/receipt_parser.py`
+8. Temporary duplicate retained during migration:
    - `..\scGlamLiFFF\scGlamLiFF\backend\services\ocr_python\app\main.py`
    - `..\scGlamLiFFF\scGlamLiFF\backend\services\ocr_python\app\services\receipt_parser.py`
 
@@ -39,7 +42,7 @@
 
 ### Uncertain
 - Whether the deployed production host already includes this new OCR route
-- Whether the Python OCR runtime will stay in the sibling repo long-term
+- Whether Render has been cut over yet to run the Python OCR service from this repo-owned source tree
 
 ## Request Contract
 - Method: `POST`
@@ -57,8 +60,13 @@
   - `receiptPath`
   - `healthPath`
   - `ocrServiceBaseUrl`
+  - `downstreamBaseUrl`
+  - `downstreamHealthUrl`
+  - `downstreamReceiptUrl`
   - `ocrServiceEnabled`
   - `ocrServiceFallbackToMock`
+  - `downstreamReachable`
+  - `downstreamReceiptRouteReachable`
   - `downstream.reachable`
   - `downstream.status`
   - `downstream.code`
@@ -149,6 +157,7 @@
 
 ## Diagnostics
 - Startup logs:
+  - `ocr_downstream_config`
   - `ocr_routes_mounted`
   - `ocr_runtime_ready`
 - Controller logs:
@@ -158,6 +167,17 @@
   - `health_requested`
   - `health_succeeded`
   - `health_failed`
+- Bridge logs:
+  - `downstream_request_started`
+  - `downstream_request_succeeded`
+  - `downstream_request_failed`
+  - `downstream_request_rejected`
+  - `downstream_health_probe_started`
+  - `downstream_health_probe_finished`
+  - `downstream_health_probe_failed`
+  - `downstream_receipt_probe_started`
+  - `downstream_receipt_probe_finished`
+  - `downstream_receipt_probe_failed`
 - Upload middleware returns structured OCR error payloads for invalid image type and upload errors.
 - OCR service returns explicit `OCR_SERVICE_DISABLED` and `OCR_SERVICE_UNAVAILABLE` responses when real OCR is not reachable.
 
@@ -167,7 +187,7 @@
   - `http://127.0.0.1:8001`
 
 ## Current Local Blocker
-- Real OCR cannot run locally until the sibling Python service installs:
+- Real OCR cannot run locally until the in-repo Python service installs:
   - `fastapi`
   - `paddle`
   - `paddleocr`
@@ -184,3 +204,94 @@
 - temporary app-instance runtime check for:
   - `GET /api/ocr/health` -> `200`
   - `POST /api/ocr/receipt` without file -> `400 OCR_IMAGE_REQUIRED`
+
+## Update 2026-03-22T12:41:44.6473621+07:00
+
+### Production Reality Check
+- Verified on production:
+  - `GET https://scglamliff-reception.onrender.com/api/ocr/health` returns the OCR route as mounted
+  - `POST https://scglamliff-reception.onrender.com/api/ocr/receipt` without a file returns `OCR_IMAGE_REQUIRED`
+  - backend reports `ocrServiceBaseUrl=https://scglamliff.onrender.com`
+- Verified on the configured downstream OCR host:
+  - `GET https://scglamliff.onrender.com/health` returns `200`
+  - `POST https://scglamliff.onrender.com/ocr/receipt` returns `404 Cannot POST /ocr/receipt`
+
+### Interpretation
+- The public backend route in this repo is healthy.
+- The downstream OCR host configured through Render is alive but does not expose the expected upload route.
+- Plausible causes:
+  - `OCR_SERVICE_BASE_URL` points at the wrong Render service
+  - or the Python OCR Render service is deployed with older code than `backend/services/ocr_python/app/main.py`
+
+### Health Endpoint Improvement
+- `backend/src/services/ocr/pythonOcrClient.js` now also probes the downstream receipt route itself.
+- `GET /api/ocr/health` now includes `downstreamReceiptRoute` so Render misconfiguration is visible without needing a real customer upload.
+
+### Error Normalization Improvement
+- upstream downstream-route failures (`404` / `405` from the Python OCR host) are now normalized into:
+  - status `503`
+  - code `OCR_DOWNSTREAM_ROUTE_NOT_FOUND`
+- This avoids making the frontend think the main backend OCR route is missing when only the downstream OCR service route is missing.
+
+## Update 2026-03-22T14:06:04.9264876+07:00
+
+### Source-of-Truth Migration Step
+- Copied the Python OCR app source into this repo at `backend/services/ocr_python`.
+- Route paths stay unchanged:
+  - Python health: `GET /health`
+  - Python OCR upload: `POST /ocr/receipt`
+- No frontend behavior changed in this step.
+- No public Node route changed in this step.
+
+### Current Ownership After This Step
+- Backend repo source of truth:
+  - `backend/services/ocr_python/**`
+- Temporary duplicate still retained:
+  - `..\scGlamLiFFF\scGlamLiFF\backend\services\ocr_python/**`
+
+### Render Runtime Notes
+- Recommended Python OCR Render root directory:
+  - `backend/services/ocr_python`
+- Recommended start command:
+  - `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Required app env vars:
+  - no custom OCR env vars
+  - Render `PORT` is required by the start command
+
+### Two-Service Render Layout
+- Service A:
+  - repo root directory `backend`
+  - build `npm install`
+  - start `npm start`
+  - health `GET /api/health`
+- Service B:
+  - repo root directory `backend/services/ocr_python`
+  - build `pip install -r requirements.txt`
+  - start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+  - health `GET /health`
+- Node bridge behavior stays unchanged:
+  - Node still calls the Python service over HTTP through `OCR_SERVICE_BASE_URL`
+
+## Update 2026-03-22T14:18:31.7770729+07:00
+
+### Observability Update
+- Startup now logs the configured OCR downstream target explicitly, including:
+  - `ocrServiceBaseUrl`
+  - downstream health URL
+  - downstream receipt URL
+- OCR request entry logs now include the downstream OCR target URL.
+- Bridge-level logs now show which downstream path is being called for:
+  - live OCR upload
+  - downstream `/health` probe
+  - downstream `/ocr/receipt` probe
+- `/api/ocr/health` now returns additive top-level fields for faster debugging:
+  - `downstreamBaseUrl`
+  - `downstreamHealthUrl`
+  - `downstreamReceiptUrl`
+  - `downstreamReachable`
+  - `downstreamReceiptRouteReachable`
+
+### Public Behavior
+- No public route path changed.
+- No frontend behavior changed.
+- Existing health payload fields were preserved; new fields were added without removing old ones.

@@ -1,9 +1,11 @@
 import { parseReceiptText } from './receiptParser.js';
 import {
+  getOcrDownstreamTargets,
   OCR_SERVICE_BASE_URL,
   OCR_SERVICE_ENABLED,
   OCR_SERVICE_FALLBACK_TO_MOCK,
   checkPythonOcrHealth,
+  checkPythonOcrReceiptRoute,
   requestPythonReceiptOcr,
 } from './pythonOcrClient.js';
 import {
@@ -392,7 +394,9 @@ export const processReceiptOcrRequest = async ({ file, rawTextOverride }) => {
 };
 
 export const inspectReceiptOcrHealth = async () => {
+  const downstreamTargets = getOcrDownstreamTargets();
   const downstream = await checkPythonOcrHealth();
+  const downstreamReceiptRoute = await checkPythonOcrReceiptRoute();
 
   return {
     routeMounted: true,
@@ -400,9 +404,15 @@ export const inspectReceiptOcrHealth = async () => {
     receiptPath: OCR_ROUTE_ABSOLUTE_PATHS.receipt,
     healthPath: OCR_ROUTE_ABSOLUTE_PATHS.health,
     ocrServiceBaseUrl: OCR_SERVICE_BASE_URL,
+    downstreamBaseUrl: downstreamTargets.baseUrl,
+    downstreamHealthUrl: downstreamTargets.healthUrl,
+    downstreamReceiptUrl: downstreamTargets.receiptUrl,
     ocrServiceEnabled: OCR_SERVICE_ENABLED,
     ocrServiceFallbackToMock: OCR_SERVICE_FALLBACK_TO_MOCK,
+    downstreamReachable: Boolean(downstream?.reachable),
+    downstreamReceiptRouteReachable: Boolean(downstreamReceiptRoute?.reachable),
     downstream,
+    downstreamReceiptRoute,
   };
 };
 
