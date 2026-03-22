@@ -17,6 +17,7 @@ The app exposes these route groups:
 - `/api/admin` for admin appointment detail/edit and staff-user management
 - `/api/reporting` for authenticated read-only KPI/report summaries
 - `/api/branch-device-registrations` for LIFF branch-device registration and LIFF identity lookup
+- `/api/ocr` for receipt image OCR upload used by Bill Verification
 - `/api/customers` for customer list/profile reads
 - `/api/visits` and `/api/sheet-visits` for legacy sheet-backed flows
 - `/api/debug` for a non-production admin debug endpoint
@@ -3057,6 +3058,70 @@ Why they are legacy:
 - Send real JSON booleans, not string booleans.
 - Treat GAS and sheet endpoints as legacy.
 
+## OCR Receipt Route
+
+### Purpose
+- `POST /api/ocr/receipt` is the active public OCR upload route used by Bill Verification.
+- This route is additive. It does not replace canonical appointment create or receipt evidence persistence.
+- Current ownership split:
+  - this repo owns the public Node route and contract
+  - the Python OCR runtime is currently called over HTTP from the sibling repo `scGlamLiFFF/scGlamLiFF/backend/services/ocr_python`
+
+### Request
+- Method: `POST`
+- Path: `/api/ocr/receipt`
+- Auth: public by current route code
+- Content type: `multipart/form-data`
+- File field: `receipt`
+
+### Debug health endpoint
+- Method: `GET`
+- Path: `/api/ocr/health`
+- Auth: public by current route code
+- Response style: `{ ok: true, data: ... }`
+- Returned debug fields include:
+  - `routeMounted`
+  - `mountedBasePath`
+  - `receiptPath`
+  - `healthPath`
+  - `ocrServiceBaseUrl`
+  - `ocrServiceEnabled`
+  - `ocrServiceFallbackToMock`
+  - downstream reachability/status/message
+
+### Response shape
+- Success fields:
+  - `success`
+  - `code`
+  - `message`
+  - `errorCode`
+  - `errorMessage`
+  - `rawText`
+  - `ocrText`
+  - `parsed`
+  - `parsed.receiptLine`
+  - `parsed.receiptLines`
+  - `parsed.totalAmount`
+  - `parsed.totalAmountValue`
+  - `parsed.receiptDate`
+  - `parsed.receiptTime`
+  - `parsed.merchant`
+  - `parsed.merchantName`
+  - top-level mirrors for `receiptLine`, `receiptLines`, `totalAmount`, `receiptDate`, `receiptTime`, `merchant`, `merchantName`
+- Error fields:
+  - same core keys above
+  - empty parsed/top-level receipt fields
+  - `error.code`
+  - `error.message`
+
+### Operational notes
+- Local backend port defaults to `5050`.
+- Python OCR base URL defaults to `http://127.0.0.1:8001`.
+- Startup logs now print the mounted OCR paths and OCR service runtime config.
+- Legacy/mock behavior is still present, but only as explicit fallback/testing paths:
+  - `rawTextOverride`
+  - mock fallback when configured
+
 ## 13. Open Questions / Uncertain Areas
 
 ### 1. `branch_id` format is inconsistent
@@ -3146,6 +3211,7 @@ Files inspected to generate this contract:
 - `backend/src/routes/visits.js`
 - `backend/src/routes/sheetVisits.js`
 - `backend/src/routes/debugRoutes.js`
+- `backend/src/routes/ocr.js`
 - `backend/src/controllers/authController.js`
 - `backend/src/controllers/appointmentsController.js`
 - `backend/src/controllers/appointmentDraftsController.js`
@@ -3158,15 +3224,20 @@ Files inspected to generate this contract:
 - `backend/src/controllers/visitsController.js`
 - `backend/src/controllers/sheetVisitsController.js`
 - `backend/src/controllers/debugAppointmentController.js`
+- `backend/src/controllers/ocrController.js`
 - `backend/src/middlewares/requireAuth.js`
 - `backend/src/middlewares/requireAdmin.js`
 - `backend/src/middlewares/legacySheetGuard.js`
 - `backend/src/middlewares/errorHandlers.js`
+- `backend/src/middlewares/receiptUpload.js`
 - `backend/src/services/gasService.js`
 - `backend/src/services/adminAppointmentStatusService.js`
 - `backend/src/services/appointmentDraftsService.js`
 - `backend/src/services/appointmentCreateService.js`
 - `backend/src/services/appointmentReceiptEvidenceService.js`
+- `backend/src/services/ocr/receiptOcrService.js`
+- `backend/src/services/ocr/pythonOcrClient.js`
+- `backend/src/services/ocr/receiptParser.js`
 - `backend/src/services/appointmentIdentitySql.js`
 - `backend/src/services/packageContinuity.js`
 - `backend/src/utils/branchContract.js`

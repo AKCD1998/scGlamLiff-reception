@@ -13,7 +13,12 @@ import debugRoutes from './routes/debugRoutes.js';
 import customersRoutes from './routes/customers.js';
 import visitsRoutes from './routes/visits.js';
 import sheetVisitsRoutes from './routes/sheetVisits.js';
+import ocrRoutes from './routes/ocr.js';
 import { notFoundHandler, errorHandler } from './middlewares/errorHandlers.js';
+import {
+  OCR_ROUTE_ABSOLUTE_PATHS,
+  OCR_ROUTE_BASE_PATH,
+} from './services/ocr/ocrRouteConfig.js';
 
 const IS_PRODUCTION = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || (IS_PRODUCTION ? '' : 'http://localhost:5173');
@@ -194,6 +199,7 @@ export function createApp() {
   app.use('/api/admin', adminAppointmentRoutes);
   app.use('/api/branch-device-registrations', branchDeviceRegistrationRoutes);
   app.use('/api/reporting', reportingRoutes);
+  app.use(OCR_ROUTE_BASE_PATH, ocrRoutes);
   if (!IS_PRODUCTION) {
     app.use('/api/debug', debugRoutes);
   }
@@ -203,6 +209,16 @@ export function createApp() {
 
   app.use(notFoundHandler);
   app.use(errorHandler);
+
+  console.log(
+    '[startup]',
+    JSON.stringify({
+      event: 'ocr_routes_mounted',
+      mountedBasePath: OCR_ROUTE_BASE_PATH,
+      healthPath: OCR_ROUTE_ABSOLUTE_PATHS.health,
+      receiptPath: OCR_ROUTE_ABSOLUTE_PATHS.receipt,
+    })
+  );
 
   return app;
 }

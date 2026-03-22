@@ -33,6 +33,24 @@
 - `GET /api/branch-device-registrations/me` is the device-facing verification endpoint. It verifies the current LIFF identity, returns branch registration status, and updates `last_seen_at` when the device is known.
 - New schema step: run `npm run migrate:branch-device-registrations` before using the branch-device registration endpoints.
 - New CORS preflight allowance exists for `X-Line-Id-Token`, `X-Line-Access-Token`, and `X-Liff-App-Id` headers used by the LIFF verification flow.
+- New OCR upload route exists at `POST /api/ocr/receipt`.
+- New OCR debug route exists at `GET /api/ocr/health`.
+- This backend now owns the active public OCR route for Bill Verification, while the Python OCR runtime is still called from the sibling repo `scGlamLiFFF/scGlamLiFF/backend/services/ocr_python`.
+- OCR response contract is standardized around:
+  - `success`
+  - `rawText` / `ocrText`
+  - `parsed`
+  - `merchant`
+  - `receiptDate`
+  - `totalAmount`
+  - `receiptLines`
+  - `errorCode`
+  - `errorMessage`
+- OCR deployment/runtime diagnostics now include:
+  - startup log showing mounted OCR paths
+  - request logs with method/path/origin for `/api/ocr/receipt`
+  - downstream reachability data from `/api/ocr/health`
+- Local OCR runtime still requires the sibling Python service on `http://127.0.0.1:8001` unless deployment/runtime configuration changes.
 - New read-only reporting endpoint exists at `GET /api/reporting/kpi-dashboard`.
 - This endpoint requires existing staff cookie auth, is viewable by all authenticated roles, and uses PostgreSQL summary queries only (`SELECT` / `WITH`).
 - The KPI dashboard intentionally marks unavailable metrics such as free facial scan conversion, skincare/product upsell conversion, and service-vs-product revenue mix when current schema cannot support them transparently.

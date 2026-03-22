@@ -1,6 +1,15 @@
 import 'dotenv/config';
 import { createApp } from './src/app.js';
 import { query } from './src/db.js';
+import {
+  OCR_ROUTE_ABSOLUTE_PATHS,
+  OCR_ROUTE_BASE_PATH,
+} from './src/services/ocr/ocrRouteConfig.js';
+import {
+  OCR_SERVICE_BASE_URL,
+  OCR_SERVICE_ENABLED,
+  OCR_SERVICE_FALLBACK_TO_MOCK,
+} from './src/services/ocr/pythonOcrClient.js';
 
 const app = createApp();
 const PORT = Number(process.env.PORT) || 5050;
@@ -54,5 +63,17 @@ app.listen(PORT, () => {
   } else {
     console.log('[startup] DATABASE host/db unavailable');
   }
+  console.log(
+    '[startup]',
+    JSON.stringify({
+      event: 'ocr_runtime_ready',
+      mountedBasePath: OCR_ROUTE_BASE_PATH,
+      healthPath: OCR_ROUTE_ABSOLUTE_PATHS.health,
+      receiptPath: OCR_ROUTE_ABSOLUTE_PATHS.receipt,
+      ocrServiceBaseUrl: OCR_SERVICE_BASE_URL,
+      ocrServiceEnabled: OCR_SERVICE_ENABLED,
+      ocrServiceFallbackToMock: OCR_SERVICE_FALLBACK_TO_MOCK,
+    })
+  );
   void logSchemaHealth();
 });

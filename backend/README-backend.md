@@ -30,7 +30,7 @@ Required:
 - `JWT_SECRET`
 
 Optional:
-- `PORT` (defaults to 3001)
+- `PORT` (defaults to 5050)
 - `NODE_ENV=production` on Render
 - `PGSSLMODE=disable` only if your DB does not require SSL
 - `FRONTEND_ORIGIN` / `FRONTEND_ORIGINS` (comma-separated) for allowed CORS origins
@@ -92,6 +92,8 @@ node scripts/migrate_branch_device_registrations.js
 - `GET /api/branch-device-registrations` (authenticated list)
 - `GET /api/branch-device-registrations/me` (LIFF identity lookup)
 - `PATCH /api/branch-device-registrations/:id` (authenticated patch)
+- `GET /api/ocr/health` (OCR route/debug health)
+- `POST /api/ocr/receipt` (receipt OCR upload for Bill Verification)
 
 Responses:
 - Success: `{ ok: true, data: ... }`
@@ -130,13 +132,35 @@ npm run fix:booked-usage-consistency:apply
 Optional SQL guardrail (manual run, not automatic):
 - `backend/scripts/sql/2026-03-01_package_usages_unique_appointment.sql`
 
+## OCR runtime note
+- The active public OCR route is `POST /api/ocr/receipt` in this repo.
+- Debug/verification route is `GET /api/ocr/health`.
+- The current Python OCR runtime is still hosted in the sibling repo `scGlamLiFFF/scGlamLiFF/backend/services/ocr_python`.
+- Default backend expectation:
+  - `OCR_SERVICE_BASE_URL=http://127.0.0.1:8001`
+  - `OCR_SERVICE_ENABLED=true`
+  - `OCR_SERVICE_FALLBACK_TO_MOCK=false`
+
+### OCR verification with curl
+```bash
+curl -i https://<your-backend-host>/api/ocr/health
+```
+
+```bash
+curl -i -X POST https://<your-backend-host>/api/ocr/receipt
+```
+
+Expected deployment-safe checks:
+- `/api/ocr/health` should return `200` with route/debug data even if downstream OCR is unreachable
+- `/api/ocr/receipt` should return `400 OCR_IMAGE_REQUIRED` if the route is mounted but no file is sent
+
 ## Vite proxy note
 Add this to `vite.config.js` on the frontend if you want `/api` to proxy to the backend:
 
 ```js
 server: {
   proxy: {
-    '/api': 'http://localhost:3001'
+    '/api': 'http://localhost:5050'
   }
 }
 ```

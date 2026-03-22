@@ -137,3 +137,95 @@ Constraints/indexes added:
 - There is no dedicated patch/delete endpoint for receipt evidence yet; current support is create-time insert plus admin read.
 - Queue rows were intentionally left unchanged, so integrations needing receipt evidence must use the create response or admin detail read path.
 - If deployment order runs code before the migration, normal create without `receipt_evidence` still works, admin detail is tolerant, but receipt-backed create still depends on the new table existing.
+
+## 2026-03-22 10:14 +07:00 — OCR receipt route added for Bill Verification
+
+### Goal
+- Add the active public OCR route to the backend SSOT repo so the Bill Verification frontend can call the real backend path.
+
+### What changed
+- Added `POST /api/ocr/receipt` and mounted it in `backend/src/app.js`.
+- Added multipart upload handling for `receipt`.
+- Added backend OCR controller, upload middleware, parser, service, and Python bridge under `backend/src`.
+- Standardized the OCR response contract with:
+  - `success`
+  - `rawText`
+  - `ocrText`
+  - `parsed`
+  - `merchant`
+  - `receiptDate`
+  - `totalAmount`
+  - `receiptLines`
+  - `errorCode`
+  - `errorMessage`
+- Kept the Python OCR runtime external to this repo for now, using the sibling repo path `scGlamLiFFF/scGlamLiFF/backend/services/ocr_python`.
+
+### Active path after this update
+1. `backend/src/app.js`
+2. `backend/src/routes/ocr.js`
+3. `backend/src/controllers/ocrController.js`
+4. `backend/src/middlewares/receiptUpload.js`
+5. `backend/src/services/ocr/receiptOcrService.js`
+6. `backend/src/services/ocr/pythonOcrClient.js`
+7. `scGlamLiFFF/scGlamLiFF/backend/services/ocr_python/app/main.py`
+
+### Legacy / fallback path
+- `rawTextOverride`
+- mock fallback only when explicitly configured
+- older local backend OCR modules inside `scGlamLiFFF/scGlamLiFF/backend`
+
+### Validation in this pass
+- `node --check backend/src/app.js`
+- `node --check backend/src/routes/ocr.js`
+- `node --check backend/src/controllers/ocrController.js`
+- `node --check backend/src/middlewares/receiptUpload.js`
+- `node --check backend/src/services/ocr/receiptOcrService.js`
+- `node --check backend/src/services/ocr/pythonOcrClient.js`
+- `node --check backend/src/services/ocr/receiptParser.js`
+
+### Remaining blocker
+- Real OCR still depends on Python packages not installed in the current local environment:
+  - `fastapi`
+  - `paddle`
+  - `paddleocr`
+  - `python_multipart`
+
+## 2026-03-22 11:00 +07:00 — OCR route deployment-safety checks
+
+### Goal
+- Make the OCR route easier to verify in runtime and safer to diagnose after deployment.
+
+### What changed
+- Added a shared OCR route config module so mount/log path strings are not duplicated by hand.
+- Added `GET /api/ocr/health` for deployment/debug inspection.
+- Added startup logs showing:
+  - OCR base path
+  - OCR health path
+  - OCR receipt path
+  - OCR service base URL
+  - OCR service enable/fallback flags
+- Expanded OCR controller logs so receipt requests include:
+  - method
+  - path
+  - origin
+
+### Runtime verification added
+- `GET /api/ocr/health` now returns:
+  - `routeMounted`
+  - mounted paths
+  - current OCR service base URL
+  - whether downstream OCR is reachable
+- `POST /api/ocr/receipt` no longer needs a successful OCR run just to prove route existence.
+  - hitting it without a file now returns `400 OCR_IMAGE_REQUIRED` instead of `404`.
+
+### Validation in this pass
+- `node --check backend/src/services/ocr/ocrRouteConfig.js`
+- `node --check backend/src/services/ocr/pythonOcrClient.js`
+- `node --check backend/src/services/ocr/receiptOcrService.js`
+- `node --check backend/src/controllers/ocrController.js`
+- `node --check backend/src/routes/ocr.js`
+- `node --check backend/src/app.js`
+- `node --check backend/server.js`
+- temporary app-instance runtime check:
+  - `GET /api/ocr/health` -> `200`
+  - `POST /api/ocr/receipt` without file -> `400 OCR_IMAGE_REQUIRED`
