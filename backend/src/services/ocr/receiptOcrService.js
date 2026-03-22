@@ -48,7 +48,7 @@ const resolveStorageRoot = () => {
     : path.resolve(process.cwd(), configuredRoot);
 };
 
-const RECEIPT_UPLOAD_STORAGE_ROOT = resolveStorageRoot();
+export const RECEIPT_UPLOAD_STORAGE_ROOT = resolveStorageRoot();
 export const RECEIPT_UPLOAD_PUBLIC_BASE_URL = trimTrailingSlash(
   process.env.RECEIPT_UPLOAD_PUBLIC_BASE_URL || RECEIPT_UPLOAD_PUBLIC_PATH
 );
