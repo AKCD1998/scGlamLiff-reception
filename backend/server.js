@@ -5,6 +5,7 @@ import {
   OCR_ROUTE_ABSOLUTE_PATHS,
   OCR_ROUTE_BASE_PATH,
 } from './src/services/ocr/ocrRouteConfig.js';
+import { RECEIPT_UPLOAD_STORAGE_BACKEND } from './src/services/ocr/receiptOcrService.js';
 
 const app = createApp();
 const PORT = Number(process.env.PORT) || 5050;
@@ -64,6 +65,7 @@ app.listen(PORT, () => {
       event: 'receipt_upload_mode',
       mode: 'receipt-upload-only',
       ocrStatusDefault: 'pending',
+      storageBackend: RECEIPT_UPLOAD_STORAGE_BACKEND,
     })
   );
   console.log(
@@ -75,6 +77,7 @@ app.listen(PORT, () => {
       receiptPath: OCR_ROUTE_ABSOLUTE_PATHS.receipt,
       mode: 'receipt-upload-only',
       ocrStatusDefault: 'pending',
+      storageBackend: RECEIPT_UPLOAD_STORAGE_BACKEND,
     })
   );
   void logSchemaHealth();

@@ -229,3 +229,70 @@
 1. Run `npm run migrate:appointment-receipt-uploads` in `backend/`.
 2. Update the upload-only receipt route to insert a metadata row into `appointment_receipt_uploads`.
 3. Decide whether later offline OCR processing should read rows by `ocr_status='pending'` or via a separate queue worker.
+
+## Update 2026-03-22T20:57:00+07:00
+
+### Summary
+- Wired the active upload-only receipt route to persist runtime metadata into `appointment_receipt_uploads`.
+- Replaced the default receipt storage path with a storage abstraction that now prefers Cloudflare R2 and falls back to local disk only when R2 is not configured.
+- Local static serving of uploaded receipts is now disabled automatically when Cloudflare R2 is the active storage backend.
+
+### Files Updated
+- `backend/src/services/appointmentReceiptUploadService.js`
+- `backend/src/services/ocr/receiptOcrService.js`
+- `backend/src/app.js`
+- `backend/server.js`
+- `backend/package.json`
+- `backend/package-lock.json`
+- `backend/IMPLEMENTATION_LOG_RECEIPT_BOOKING.md`
+- `OCR_INTEGRATION_STATUS.md`
+
+### Current State
+- `POST /api/ocr/receipt` remains upload-only.
+- Successful uploads now:
+  1. store the image in R2 when configured
+  2. insert metadata into PostgreSQL
+  3. return `ocrStatus: "pending"`
+- The LIFF path no longer depends on OCR runtime availability.
+
+## Update 2026-03-23T16:35:00+07:00
+
+### Summary
+- Added a temporary LIFF-only promo booking path for receipt-backed bookings.
+- Chosen model: treat the promo as a one-off `treatments` catalog row, not as a `packages` row.
+- `GET /api/appointments/booking-options` can now return a promo-only option list when called with the dedicated LIFF promo channel.
+- Final appointment creation now guards the promo by active window and required LIFF promo verification metadata.
+
+### Files Updated
+- `backend/src/config/liffReceiptPromoCampaign.js`
+- `backend/scripts/migrate_liff_receipt_promo_treatment.js`
+- `backend/package.json`
+- `backend/src/controllers/appointmentsQueueController.js`
+- `backend/src/services/appointmentCreateService.js`
+
+### Next Actions
+1. Run `npm run migrate:liff-receipt-promo-treatment` in `backend/`.
+2. Redeploy backend so the promo-only booking options endpoint and create guards are live.
+3. Verify `GET /api/appointments/booking-options?channel=liff_receipt_promo_q2_2026` returns one option during the active window.
+
+## Update 2026-03-23T16:50:00+07:00
+
+### Deployment / QA Checklist
+- Deploy order:
+  1. run `npm run migrate:liff-receipt-promo-treatment`
+  2. deploy `scGlamLiff-reception`
+  3. verify backend promo option endpoint
+  4. deploy `scGlamLiFFF/scGlamLiFF`
+  5. run mobile LIFF smoke test
+- Pre-deploy:
+  - verify R2 env is still valid
+  - verify `appointment_receipt_uploads` migration is already applied
+  - verify Bangkok promo window values remain correct
+- Post-deploy:
+  - `GET /api/appointments/booking-options?channel=liff_receipt_promo_q2_2026` returns one promo option during active window
+  - `GET /api/ocr/health` still shows upload-only receipt mode
+  - LIFF shows only promo option and still supports draft save with receipt attachment
+- Rollback:
+  - rollback frontend first if only LIFF UI fails
+  - rollback backend if promo option endpoint or create guards fail
+  - deactivate treatment code `promo_receipt_900_q2_2026` if promo data must be turned off quickly

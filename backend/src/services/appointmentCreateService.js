@@ -1,5 +1,6 @@
 import { assertEventStaffIdentity } from './appointmentEventStaffGuard.js';
 import {
+  assertLiffReceiptPromoBookingAllowed,
   buildReceiptEvidenceSummary,
   insertAppointmentReceiptEvidence,
   parseOptionalReceiptEvidence,
@@ -415,8 +416,9 @@ export async function createCanonicalAppointmentFromBody({
     }
 
     let resolvedTreatmentId = null;
+    let resolvedTreatmentCode = '';
     if (UUID_PATTERN.test(payload.treatmentId)) {
-      const exists = await client.query('SELECT id FROM treatments WHERE id = $1 LIMIT 1', [
+      const exists = await client.query('SELECT id, code FROM treatments WHERE id = $1 LIMIT 1', [
         payload.treatmentId,
       ]);
       if (exists.rowCount === 0) {
@@ -425,8 +427,9 @@ export async function createCanonicalAppointmentFromBody({
         throw err;
       }
       resolvedTreatmentId = payload.treatmentId;
+      resolvedTreatmentCode = normalizeText(exists.rows[0]?.code);
     } else {
-      const byCode = await client.query('SELECT id FROM treatments WHERE code = $1 LIMIT 1', [
+      const byCode = await client.query('SELECT id, code FROM treatments WHERE code = $1 LIMIT 1', [
         payload.treatmentId,
       ]);
       if (byCode.rowCount === 0) {
@@ -435,7 +438,13 @@ export async function createCanonicalAppointmentFromBody({
         throw err;
       }
       resolvedTreatmentId = byCode.rows[0].id;
+      resolvedTreatmentCode = normalizeText(byCode.rows[0]?.code);
     }
+
+    assertLiffReceiptPromoBookingAllowed({
+      treatmentCode: resolvedTreatmentCode,
+      receiptEvidence: payload.receiptEvidence,
+    });
 
     if (!payload.canApplyAdminOverride) {
       const collision = await client.query(

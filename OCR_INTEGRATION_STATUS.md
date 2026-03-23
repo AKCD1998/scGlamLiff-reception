@@ -337,3 +337,33 @@
 - The route still accepts and validates a receipt image, but it no longer calls any downstream OCR service.
 - Successful uploads now store a local file reference and return `ocrStatus: "pending"` with empty OCR result fields.
 - `GET /api/ocr/health` now reports storage-backed upload mode instead of downstream OCR bridge health.
+
+## Update 2026-03-22T20:57:00+07:00
+
+### Upload Persistence And Storage Backend
+- The upload-only receipt route now persists a row to `appointment_receipt_uploads` for each successful upload.
+- The route accepts optional linkage fields:
+  - `appointment_id`
+  - `booking_reference`
+- Receipt storage is now wired to prefer Cloudflare R2 when these env vars are configured:
+  - `R2_BUCKET`
+  - `R2_ACCESS_KEY_ID`
+  - `R2_SECRET_ACCESS_KEY`
+  - `R2_ENDPOINT`
+  - optional `R2_KEY_PREFIX`
+- Local disk storage remains only as a fallback path when R2 config is absent.
+- `GET /api/ocr/health` now exposes additive storage fields for debugging:
+  - `storageProvider`
+  - `storageRoot`
+  - `storagePublicBaseUrl`
+  - `r2Configured`
+  - `r2Bucket`
+  - `r2Endpoint`
+  - `r2KeyPrefix`
+
+### Current Production Direction
+- LIFF/backend receipt upload is now intended to:
+  1. upload/store the image
+  2. persist metadata in PostgreSQL
+  3. return `ocrStatus: "pending"`
+- OCR execution is intentionally out of the active LIFF request path.

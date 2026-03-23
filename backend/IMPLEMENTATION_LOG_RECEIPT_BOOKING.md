@@ -467,3 +467,163 @@ Constraints/indexes added:
 - `POST /api/ocr/receipt` still accepts multipart field `receipt`
 - `GET /api/ocr/health` still exists
 - OCR result fields are no longer populated by backend OCR in this path
+
+## 2026-03-22 20:57 +07:00 — persisted upload metadata and rewired receipt storage to Cloudflare R2
+
+### Goal
+- Finish the upload-only receipt path so successful uploads are stored durably and linked to PostgreSQL metadata without reintroducing OCR into the LIFF path.
+
+### What changed
+- Added `backend/src/services/appointmentReceiptUploadService.js`
+  - inserts one row into `appointment_receipt_uploads` for each successful upload
+  - accepts `appointment_id` when present, otherwise uses `booking_reference`
+  - logs insert success and failure
+- Updated `backend/src/controllers/ocrController.js`
+  - route now reads optional `appointment_id` / `booking_reference` from multipart form fields
+  - request/response logs now include upload record linkage where available
+- Updated `backend/src/services/ocr/receiptOcrService.js`
+  - upload route now persists upload metadata after the file/object is stored
+  - storage backend now prefers Cloudflare R2 when `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_ENDPOINT` are configured
+  - local disk storage remains as a fallback only when R2 is not configured
+  - `receiptImageRef` now points to an R2 object reference when R2 is active
+  - health payload now reports storage backend details including R2 configuration status
+- Updated `backend/src/app.js`
+  - local static receipt serving is now mounted only when the backend is using local disk storage
+- Updated `backend/server.js`
+  - startup logs now include the active receipt storage backend
+- Updated backend dependency manifest
+  - added `@aws-sdk/client-s3` for Cloudflare R2 uploads
+
+### Runtime outcome
+- The active receipt path is now:
+  1. validate multipart upload
+  2. store receipt image in Cloudflare R2 when configured
+  3. insert metadata row into `appointment_receipt_uploads`
+  4. return upload success with `ocrStatus: "pending"`
+
+### Public behavior
+- No route path changed.
+- `POST /api/ocr/receipt` remains upload-only and does not call OCR.
+- Response shape stays backward-compatible; additive metadata now includes the persisted upload record.
+
+## 2026-03-23 16:35 +07:00 — added temporary LIFF-only receipt promo booking path
+
+### Goal
+- Support a temporary LIFF-only promo booking flow for receipt-backed bookings without changing the core appointment creation algorithm.
+- Keep the backend appointment/draft flow on the existing tables and APIs.
+
+### What changed
+- Added `backend/src/config/liffReceiptPromoCampaign.js`
+  - defines the temporary promo treatment code, LIFF booking channel, fixed active window, and promo option builder
+- Added `backend/scripts/migrate_liff_receipt_promo_treatment.js`
+  - ensures one promo treatment row exists in `treatments`
+- Updated `backend/package.json`
+  - added `migrate:liff-receipt-promo-treatment`
+- Updated `backend/src/controllers/appointmentsQueueController.js`
+  - `GET /api/appointments/booking-options` now supports query `channel=liff_receipt_promo_q2_2026`
+  - when this LIFF promo channel is requested during the active window, backend returns exactly one booking option for the temporary promo
+  - when outside the active window, backend returns an empty option list for that promo channel
+- Updated `backend/src/services/appointmentCreateService.js`
+  - final canonical appointment create now blocks the temporary promo when it is outside the active window
+  - final canonical appointment create now requires LIFF promo verification metadata when the promo treatment is used
+
+### Design decision
+- The temporary promo is modeled as a one-off `treatment`, not a `package`.
+- Reason:
+  - keeps package continuity logic unchanged
+  - avoids touching `customer_packages` and `package_usages`
+  - allows the appointment algorithm to stay on the canonical `appointments` path
+
+### Assumption in this pass
+- Promo eligibility is enforced at booking create / draft submit time.
+- Active window used:
+  - start: `2026-04-01T00:00:00+07:00`
+  - end: `2026-06-30T23:59:59.999+07:00`
+
+### Runtime outcome
+- LIFF can now request promo-only booking options from backend.
+- Real appointment creation still uses the same canonical appointment create flow.
+- If promo treatment is selected but required LIFF promo metadata is missing, backend rejects the request instead of silently creating a normal appointment.
+
+## 2026-03-23 16:50 +07:00 — deployment and QA checklist for LIFF receipt promo
+
+### Deploy order
+1. Run backend data migration in `scGlamLiff-reception/backend`:
+   - `npm run migrate:liff-receipt-promo-treatment`
+2. Deploy backend `scGlamLiff-reception`
+3. Verify backend promo booking-options endpoint and create guards
+4. Deploy frontend `scGlamLiFFF/scGlamLiFF`
+5. Run mobile LIFF smoke test against production
+
+### Pre-deploy checks
+- Confirm promo active window is still intended to be enforced at booking create / draft submit time:
+  - start: `2026-04-01T00:00:00+07:00`
+  - end: `2026-06-30T23:59:59.999+07:00`
+- Confirm bucket/env for receipt upload are already valid in production:
+  - `R2_BUCKET`
+  - `R2_ACCESS_KEY_ID`
+  - `R2_SECRET_ACCESS_KEY`
+  - `R2_ENDPOINT`
+  - optional `R2_KEY_PREFIX`
+- Confirm PostgreSQL migration `appointment_receipt_uploads` has already been applied
+- Confirm backend package install is up to date after adding promo migration script and prior R2 dependency changes
+
+### Post-deploy smoke tests
+- Backend:
+  - `GET /api/appointments/booking-options?channel=liff_receipt_promo_q2_2026`
+    - should return exactly one option during the active window
+    - returned option should use source `promo`
+  - `GET /api/ocr/health`
+    - should still report upload-only receipt mode
+    - should still show the active storage backend for receipt uploads
+- Frontend / LIFF:
+  - LIFF booking modal should show only the temporary promo option
+  - smooth package options should not appear in LIFF
+  - receipt upload should succeed without waiting for OCR extraction
+  - saving draft with receipt attached should remain possible when date/time are incomplete
+  - final submit should still create a normal appointment through the canonical backend flow
+
+### DB verification checklist
+- `treatments`
+  - promo row exists with code `promo_receipt_900_q2_2026`
+  - row is active
+- `appointment_receipt_uploads`
+  - new upload creates a row with:
+    - `appointment_id` or `booking_reference`
+    - `receipt_image_ref`
+    - `original_filename`
+    - `mime_type`
+    - `file_size_bytes`
+    - `uploaded_at`
+    - `ocr_status = 'pending'`
+- `appointment_drafts`
+  - draft payload keeps `receipt_evidence.receipt_image_ref`
+  - promo booking metadata remains present in draft flow metadata
+- `appointments`
+  - final submitted promo booking creates a normal appointment row using the promo treatment id
+
+### Rollback steps
+1. If frontend LIFF promo flow fails but backend is healthy:
+   - redeploy previous frontend release only
+2. If backend promo-only booking-options or create guard fails:
+   - redeploy previous backend release
+3. If the promo treatment row itself causes issues:
+   - set `treatments.is_active = false` for code `promo_receipt_900_q2_2026`
+   - keep receipt upload route unchanged
+4. If a full rollback is needed:
+   - restore previous frontend
+   - restore previous backend
+   - leave `appointment_receipt_uploads` data intact
+   - optionally keep the promo treatment row but inactive instead of deleting it
+
+### Concise mobile tester script
+1. Open LIFF on a staff/device account
+2. Open the booking modal
+3. Confirm only the temporary receipt promo is selectable
+4. Attach a receipt image
+5. Leave date/time incomplete and save draft
+6. Confirm draft save succeeds
+7. Re-open the draft
+8. Confirm receipt attachment still appears as attached evidence, not OCR text
+9. Complete date/time and submit booking
+10. Confirm booking succeeds and no smooth package choice appears anywhere in the LIFF flow

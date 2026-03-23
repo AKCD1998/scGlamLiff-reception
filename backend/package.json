@@ -19,6 +19,7 @@
     "migrate:appointment-drafts": "node scripts/migrate_appointment_drafts.js",
     "migrate:appointment-receipts": "node scripts/migrate_appointment_receipts.js",
     "migrate:appointment-receipt-uploads": "node scripts/migrate_appointment_receipt_uploads.js",
+    "migrate:liff-receipt-promo-treatment": "node scripts/migrate_liff_receipt_promo_treatment.js",
     "migrate:branch-device-registrations": "node scripts/migrate_branch_device_registrations.js",
     "migrate:treatments-catalog:dry": "node scripts/migrate_treatments_catalog_fields.js --dry-run",
     "migrate:treatments-catalog": "node scripts/migrate_treatments_catalog_fields.js --apply",
@@ -35,6 +36,7 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1014.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",

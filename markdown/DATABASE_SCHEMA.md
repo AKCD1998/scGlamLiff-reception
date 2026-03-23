@@ -114,6 +114,94 @@ appointment_events (
 
 ---
 
+### 🧾 appointment_receipts
+
+> หลักฐานใบเสร็จระดับ appointment ที่ผูกกับการจองที่สร้างสำเร็จแล้ว 1:1
+
+```sql
+appointment_receipts (
+  id uuid PK,
+  appointment_id uuid UNIQUE FK -> appointments(id),
+  receipt_image_ref text,
+  receipt_number text,
+  receipt_line text,
+  receipt_identifier text,
+  total_amount_thb numeric(12,2),
+  ocr_status text,
+  ocr_raw_text text,
+  ocr_metadata jsonb,
+  verification_source text,
+  verification_metadata jsonb,
+  created_at timestamptz,
+  updated_at timestamptz
+)
+
+INDEX (created_at DESC)
+INDEX (verification_source)
+```
+
+📌 ใช้กับ canonical appointment flow ที่ส่ง `receipt_evidence` มาพร้อม `POST /api/appointments`
+📌 `appointment_id` เป็น `UNIQUE` เพราะ 1 appointment มี receipt evidence row ได้สูงสุด 1 แถว
+📌 ปัจจุบัน LIFF upload-only flow ไม่จำเป็นต้องเขียนตารางนี้ทันที
+
+---
+
+### 🗂️ appointment_receipt_uploads
+
+> metadata ของไฟล์ใบเสร็จที่อัปโหลดเก็บไว้ก่อน เพื่อไปทำ OCR / admin flow ภายหลังนอก LIFF
+
+```sql
+appointment_receipt_uploads (
+  id uuid PK,
+  appointment_id uuid FK -> appointments(id),   -- nullable
+  booking_reference text,                       -- nullable
+  receipt_image_ref text NOT NULL,
+  original_filename text NOT NULL,
+  mime_type text NOT NULL,
+  file_size_bytes bigint NOT NULL,
+  uploaded_at timestamptz NOT NULL DEFAULT now(),
+  ocr_status text NOT NULL DEFAULT 'pending',
+  ocr_processed_at timestamptz,
+  ocr_error_message text
+)
+
+CHECK (
+  appointment_id IS NOT NULL
+  OR booking_reference IS NOT NULL AND booking_reference <> ''
+)
+
+INDEX (uploaded_at DESC)
+INDEX (appointment_id, uploaded_at DESC) WHERE appointment_id IS NOT NULL
+INDEX (booking_reference, uploaded_at DESC) WHERE booking_reference IS NOT NULL
+INDEX (ocr_status, uploaded_at DESC)
+```
+
+📌 อย่างน้อยต้องมี `appointment_id` หรือ `booking_reference` อย่างใดอย่างหนึ่ง
+📌 ใช้เก็บ “ไฟล์จริง/metadata การอัปโหลด” แยกจาก `appointment_receipts`
+📌 runtime ปัจจุบันของ `scGlamLiff-reception` insert ตารางนี้ทุกครั้งที่ receipt upload สำเร็จ
+📌 `ocr_status` ใช้สถานะง่าย ๆ สำหรับ deferred processing เช่น `pending`, `processing`, `processed`, `failed`
+
+---
+
+### 📝 appointment_drafts.receipt_evidence
+
+> draft flow ฝั่ง admin/promo ยังมีช่อง `receipt_evidence` เป็น `jsonb` อยู่ในตาราง drafts
+
+```sql
+appointment_drafts (
+  ...
+  receipt_evidence jsonb,
+  ...
+)
+
+CHECK (receipt_evidence IS NULL OR jsonb_typeof(receipt_evidence) = 'object')
+```
+
+📌 ฟิลด์นี้เป็น draft payload ชั่วคราว ไม่ใช่ metadata table สำหรับเก็บไฟล์อัปโหลดจริง
+📌 ถ้าต้องการ reference schema ของ draft flow ให้ดูตาราง `appointment_drafts` เพิ่มเติมจาก migration จริง
+
+---
+
 ## 4️⃣ Product / Service Definition
 
 ### 💆 treatments

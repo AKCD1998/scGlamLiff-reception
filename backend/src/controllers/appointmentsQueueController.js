@@ -1,5 +1,14 @@
 import { query } from '../db.js';
 import {
+  buildLiffReceiptPromoBookingOption,
+  isLiffReceiptPromoActive,
+  isLiffReceiptPromoChannel,
+  LIFF_RECEIPT_PROMO_ACTIVE_FROM,
+  LIFF_RECEIPT_PROMO_ACTIVE_UNTIL,
+  LIFF_RECEIPT_PROMO_BOOKING_CHANNEL,
+  LIFF_RECEIPT_PROMO_TREATMENT_CODE,
+} from '../config/liffReceiptPromoCampaign.js';
+import {
   APPOINTMENT_IDENTITY_JOINS_SQL,
   RESOLVED_EMAIL_OR_LINEID_SQL,
   RESOLVED_PHONE_SQL,
@@ -252,6 +261,59 @@ async function fetchPackageCatalogByIds(packageIds) {
 
 export async function listBookingTreatmentOptions(req, res) {
   try {
+    const bookingChannel = normalizeText(req.query?.channel);
+
+    if (isLiffReceiptPromoChannel(bookingChannel)) {
+      if (!isLiffReceiptPromoActive()) {
+        return res.json({
+          ok: true,
+          options: [],
+          meta: {
+            booking_channel: LIFF_RECEIPT_PROMO_BOOKING_CHANNEL,
+            active: false,
+            active_from: LIFF_RECEIPT_PROMO_ACTIVE_FROM,
+            active_until: LIFF_RECEIPT_PROMO_ACTIVE_UNTIL,
+          },
+        });
+      }
+
+      const promoTreatmentResult = await query(
+        `
+          SELECT
+            id,
+            code,
+            title_th,
+            title_en,
+            is_active
+          FROM treatments
+          WHERE LOWER(COALESCE(code, '')) = LOWER($1)
+            AND is_active = true
+          LIMIT 1
+        `,
+        [LIFF_RECEIPT_PROMO_TREATMENT_CODE]
+      );
+
+      const promoTreatment = promoTreatmentResult.rows[0] || null;
+      if (!promoTreatment?.id) {
+        return res.status(500).json({
+          ok: false,
+          error: 'Temporary promo treatment is not configured',
+          code: 'LIFF_RECEIPT_PROMO_TREATMENT_MISSING',
+        });
+      }
+
+      return res.json({
+        ok: true,
+        options: [buildLiffReceiptPromoBookingOption(promoTreatment)],
+        meta: {
+          booking_channel: LIFF_RECEIPT_PROMO_BOOKING_CHANNEL,
+          active: true,
+          active_from: LIFF_RECEIPT_PROMO_ACTIVE_FROM,
+          active_until: LIFF_RECEIPT_PROMO_ACTIVE_UNTIL,
+        },
+      });
+    }
+
     const treatmentResult = await query(
       `
         SELECT

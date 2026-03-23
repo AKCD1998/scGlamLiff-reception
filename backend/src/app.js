@@ -23,6 +23,7 @@ import {
 import {
   RECEIPT_UPLOAD_PUBLIC_BASE_URL,
   RECEIPT_UPLOAD_PUBLIC_PATH,
+  RECEIPT_UPLOAD_STORAGE_BACKEND,
   RECEIPT_UPLOAD_STORAGE_ROOT,
 } from './services/ocr/receiptOcrService.js';
 
@@ -163,7 +164,11 @@ function buildCorsOptions(req, callback) {
 }
 
 function shouldServeReceiptUploadsFromLocalStaticPath() {
-  return RECEIPT_UPLOAD_PUBLIC_BASE_URL === RECEIPT_UPLOAD_PUBLIC_PATH;
+  return (
+    RECEIPT_UPLOAD_STORAGE_BACKEND === 'persistent-disk' &&
+    RECEIPT_UPLOAD_PUBLIC_BASE_URL === RECEIPT_UPLOAD_PUBLIC_PATH &&
+    Boolean(RECEIPT_UPLOAD_STORAGE_ROOT)
+  );
 }
 
 export function createApp() {
@@ -243,8 +248,9 @@ export function createApp() {
       mountedBasePath: OCR_ROUTE_BASE_PATH,
       healthPath: OCR_ROUTE_ABSOLUTE_PATHS.health,
       receiptPath: OCR_ROUTE_ABSOLUTE_PATHS.receipt,
+      receiptUploadStorageBackend: RECEIPT_UPLOAD_STORAGE_BACKEND,
       receiptUploadPublicPath: RECEIPT_UPLOAD_PUBLIC_PATH,
-      receiptUploadStorageRoot: RECEIPT_UPLOAD_STORAGE_ROOT,
+      receiptUploadStorageRoot: RECEIPT_UPLOAD_STORAGE_ROOT || null,
       receiptUploadStaticServingEnabled:
         shouldServeReceiptUploadsFromLocalStaticPath(),
     })
