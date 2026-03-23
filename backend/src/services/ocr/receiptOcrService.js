@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { mkdirSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
@@ -57,7 +57,7 @@ export const RECEIPT_UPLOAD_STORAGE_BACKEND = IS_R2_CONFIGURED
   ? RECEIPT_UPLOAD_STORAGE_PROVIDER_R2
   : RECEIPT_UPLOAD_STORAGE_PROVIDER_LOCAL;
 
-const resolveStorageRoot = () => {
+const resolveConfiguredStorageRoot = () => {
   const configuredRoot = trimText(process.env.RECEIPT_UPLOAD_STORAGE_DIR);
 
   if (!configuredRoot) {
@@ -69,7 +69,94 @@ const resolveStorageRoot = () => {
     : path.resolve(process.cwd(), configuredRoot);
 };
 
-export const RECEIPT_UPLOAD_STORAGE_ROOT = IS_R2_CONFIGURED ? null : resolveStorageRoot();
+const normalizeResolvedPath = (value) => path.resolve(String(value || ''));
+const hasSameResolvedPath = (left, right) =>
+  normalizeResolvedPath(left) === normalizeResolvedPath(right);
+
+const ensureLocalStorageDirectory = (directoryPath) => {
+  mkdirSync(directoryPath, { recursive: true });
+  return directoryPath;
+};
+
+export function resolveActiveLocalReceiptStorageRoot({
+  configuredRoot,
+  defaultRoot = DEFAULT_RECEIPT_UPLOADS_DIR,
+  ensureWritableDirectory = ensureLocalStorageDirectory,
+  logger = console,
+} = {}) {
+  const candidateRoot = trimText(configuredRoot) || defaultRoot;
+  const fallbackRoot = trimText(defaultRoot) || DEFAULT_RECEIPT_UPLOADS_DIR;
+
+  try {
+    ensureWritableDirectory(candidateRoot);
+    return candidateRoot;
+  } catch (error) {
+    const canFallback = !hasSameResolvedPath(candidateRoot, fallbackRoot);
+
+    logger?.warn?.(
+      '[ReceiptUploadStorage]',
+      JSON.stringify({
+        event: 'local_storage_root_unavailable',
+        configuredRoot: candidateRoot,
+        fallbackRoot: canFallback ? fallbackRoot : null,
+        message: error?.message || 'Failed to prepare local receipt storage root',
+        code: error?.code || null,
+      })
+    );
+
+    if (!canFallback) {
+      return candidateRoot;
+    }
+
+    try {
+      ensureWritableDirectory(fallbackRoot);
+
+      logger?.warn?.(
+        '[ReceiptUploadStorage]',
+        JSON.stringify({
+          event: 'local_storage_root_fallback_selected',
+          configuredRoot: candidateRoot,
+          activeRoot: fallbackRoot,
+        })
+      );
+
+      return fallbackRoot;
+    } catch (fallbackError) {
+      logger?.error?.(
+        '[ReceiptUploadStorage]',
+        JSON.stringify({
+          event: 'local_storage_root_fallback_failed',
+          configuredRoot: candidateRoot,
+          fallbackRoot,
+          message:
+            fallbackError?.message || 'Failed to prepare fallback local receipt storage root',
+          code: fallbackError?.code || null,
+        })
+      );
+
+      return candidateRoot;
+    }
+  }
+}
+
+const CONFIGURED_RECEIPT_UPLOAD_STORAGE_ROOT = IS_R2_CONFIGURED
+  ? null
+  : resolveConfiguredStorageRoot();
+export const RECEIPT_UPLOAD_STORAGE_ROOT = IS_R2_CONFIGURED
+  ? null
+  : resolveActiveLocalReceiptStorageRoot({
+      configuredRoot: CONFIGURED_RECEIPT_UPLOAD_STORAGE_ROOT,
+      defaultRoot: DEFAULT_RECEIPT_UPLOADS_DIR,
+    });
+export const RECEIPT_UPLOAD_CONFIGURED_STORAGE_ROOT =
+  CONFIGURED_RECEIPT_UPLOAD_STORAGE_ROOT;
+export const RECEIPT_UPLOAD_STORAGE_ROOT_FALLBACK_ACTIVE =
+  !IS_R2_CONFIGURED &&
+  Boolean(CONFIGURED_RECEIPT_UPLOAD_STORAGE_ROOT) &&
+  !hasSameResolvedPath(
+    CONFIGURED_RECEIPT_UPLOAD_STORAGE_ROOT,
+    RECEIPT_UPLOAD_STORAGE_ROOT
+  );
 export const RECEIPT_UPLOAD_PUBLIC_BASE_URL = IS_R2_CONFIGURED
   ? R2_PUBLIC_BASE_URL
   : trimTrailingSlash(process.env.RECEIPT_UPLOAD_PUBLIC_BASE_URL || RECEIPT_UPLOAD_PUBLIC_PATH);
@@ -515,7 +602,9 @@ export const inspectReceiptOcrHealth = async () => ({
   mode: RECEIPT_UPLOAD_MODE,
   ocrStatusDefault: RECEIPT_UPLOAD_STATUS_DEFAULT,
   storageProvider: RECEIPT_UPLOAD_STORAGE_BACKEND,
+  configuredStorageRoot: RECEIPT_UPLOAD_CONFIGURED_STORAGE_ROOT,
   storageRoot: RECEIPT_UPLOAD_STORAGE_ROOT,
+  storageRootFallbackActive: RECEIPT_UPLOAD_STORAGE_ROOT_FALLBACK_ACTIVE,
   storagePublicBaseUrl: RECEIPT_UPLOAD_PUBLIC_BASE_URL || null,
   r2Configured: IS_R2_CONFIGURED,
   r2Bucket: R2_BUCKET || null,

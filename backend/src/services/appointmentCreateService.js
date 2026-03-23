@@ -1,10 +1,10 @@
 import { assertEventStaffIdentity } from './appointmentEventStaffGuard.js';
 import {
-  assertLiffReceiptPromoBookingAllowed,
   buildReceiptEvidenceSummary,
   insertAppointmentReceiptEvidence,
   parseOptionalReceiptEvidence,
 } from './appointmentReceiptEvidenceService.js';
+import { assertLiffReceiptPromoBookingAllowed } from '../config/liffReceiptPromoCampaign.js';
 import {
   isPackageStyleTreatmentText,
   resolvePackageIdForBooking,
