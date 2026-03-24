@@ -261,3 +261,22 @@ Endpoints added:
   settings during same-origin rollout.
 - Cross-origin API access for GitHub Pages remains unchanged because `/api/*`
   still uses the same CORS policy as before.
+
+## Update 2026-03-24T16:35:00+07:00
+
+### Scope
+- Add one more targeted auth diagnostic for backend-origin LIFF rollout so a
+  `POST /api/auth/login` 500 can be explained from Render logs immediately.
+
+### What changed
+- `src/controllers/authController.js` now emits
+  `event:"login_failed_internal"` before returning `500`.
+- The log includes request metadata plus:
+  - `attemptedUsername`
+  - `errorName`
+  - `errorMessage`
+- No password or token values are logged.
+
+### Operational meaning
+- If the LIFF login UI shows `Server error`, Render logs now show whether the
+  failure came from DB access, JWT signing, or another backend exception.

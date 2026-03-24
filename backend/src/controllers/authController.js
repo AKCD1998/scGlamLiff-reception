@@ -55,7 +55,13 @@ export async function login(req, res) {
         display_name: user.display_name,
       },
     });
-  } catch (_error) {
+  } catch (error) {
+    logStaffAuthEvent('login_failed_internal', {
+      ...summarizeStaffAuthRequest(req),
+      attemptedUsername: typeof req.body?.username === 'string' ? req.body.username.trim() || null : null,
+      errorName: error?.name || null,
+      errorMessage: error?.message || null,
+    });
     return res.status(500).json({ ok: false, error: 'Server error' });
   }
 }
