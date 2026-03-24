@@ -88,30 +88,54 @@ function buildAllowedOrigins() {
 
 const ALLOWED_ORIGINS = buildAllowedOrigins();
 
+function getRequestOriginFromHostHeaders(req) {
+  const forwardedProto = normalizeText(req.headers?.['x-forwarded-proto'])
+    .split(',')
+    .map((value) => normalizeText(value))
+    .find(Boolean);
+  const protocol = forwardedProto || (req.socket?.encrypted ? 'https' : 'http');
+  const host = normalizeText(req.headers?.['x-forwarded-host'] || req.headers?.host);
+
+  if (!protocol || !host) {
+    return '';
+  }
+
+  return normalizeOriginValue(`${protocol}://${host}`);
+}
+
 function buildCorsDecision(req) {
   const requestOrigin = normalizeText(req.headers?.origin);
   const normalizedRequestOrigin = normalizeOriginValue(requestOrigin);
+  const normalizedSelfOrigin = getRequestOriginFromHostHeaders(req);
   const matchedConfiguredOrigin = normalizedRequestOrigin
     ? ALLOWED_ORIGINS.includes(normalizedRequestOrigin)
     : false;
+  const matchedSelfOrigin =
+    normalizedRequestOrigin && normalizedSelfOrigin
+      ? normalizedRequestOrigin === normalizedSelfOrigin
+      : false;
   const matchedLocalhostPattern =
     !IS_PRODUCTION && normalizedRequestOrigin
       ? LOCALHOST_ORIGIN_PATTERN.test(normalizedRequestOrigin)
       : false;
   const matched =
-    !requestOrigin || matchedConfiguredOrigin || matchedLocalhostPattern;
+    !requestOrigin || matchedConfiguredOrigin || matchedSelfOrigin || matchedLocalhostPattern;
 
   return {
     requestOrigin: requestOrigin || null,
     normalizedRequestOrigin: normalizedRequestOrigin || null,
+    normalizedSelfOrigin: normalizedSelfOrigin || null,
     normalizedAllowedOrigins: [...ALLOWED_ORIGINS],
     matched,
     matchedConfiguredOrigin,
+    matchedSelfOrigin,
     matchedLocalhostPattern,
     matchReason: !requestOrigin
       ? 'no_origin_header'
       : matchedConfiguredOrigin
         ? 'configured_origin'
+        : matchedSelfOrigin
+          ? 'same_origin_request'
         : matchedLocalhostPattern
           ? 'localhost_dev_pattern'
           : 'not_allowed',
@@ -138,11 +162,13 @@ function logCorsDecision(decision) {
       event: 'cors_decision',
       requestOrigin: decision?.requestOrigin || null,
       normalizedRequestOrigin: decision?.normalizedRequestOrigin || null,
+      normalizedSelfOrigin: decision?.normalizedSelfOrigin || null,
       normalizedAllowedOrigins: Array.isArray(decision?.normalizedAllowedOrigins)
         ? decision.normalizedAllowedOrigins
         : [],
       matched: Boolean(decision?.matched),
       matchedConfiguredOrigin: Boolean(decision?.matchedConfiguredOrigin),
+      matchedSelfOrigin: Boolean(decision?.matchedSelfOrigin),
       matchedLocalhostPattern: Boolean(decision?.matchedLocalhostPattern),
       matchReason: decision?.matchReason || null,
       isOptions: Boolean(decision?.isOptions),

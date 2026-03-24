@@ -280,3 +280,23 @@ Endpoints added:
 ### Operational meaning
 - If the LIFF login UI shows `Server error`, Render logs now show whether the
   failure came from DB access, JWT signing, or another backend exception.
+
+## Update 2026-03-24T16:45:00+07:00
+
+### Scope
+- Prevent same-origin LIFF API calls from being rejected by the stale
+  cross-site CORS allowlist during rollout.
+
+### What changed
+- `src/app.js` now auto-allows an `Origin` header when it matches the request's
+  own host/protocol, even under `/api/*`.
+- CORS debug logging now includes:
+  - `normalizedSelfOrigin`
+  - `matchedSelfOrigin`
+- Added a production-like regression test proving `/api/health` still returns
+  `200` for same-origin requests even when `FRONTEND_ORIGIN` is set only to the
+  old GitHub Pages host.
+
+### Operational meaning
+- Backend-origin LIFF no longer depends on `FRONTEND_ORIGINS` being updated
+  first before `/api/auth/login` or `/api/auth/me` can work from the same host.

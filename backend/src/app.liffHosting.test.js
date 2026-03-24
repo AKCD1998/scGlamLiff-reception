@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import { once } from 'node:events';
+import { spawn } from 'node:child_process';
 
 import { createApp } from './app.js';
 
@@ -128,5 +129,75 @@ test('liff assets still load when a browser sends an Origin header', async (t) =
     assert.equal(response.status, 200);
     assert.match(response.headers.get('content-type') || '', /javascript|ecmascript|text\/plain/i);
     assert.match(body, /LIFF TEST ASSET/);
+  });
+});
+
+test('same-origin API requests are accepted even when the cross-site allowlist is stale', async () => {
+  const script = `
+    import { createApp } from './src/app.js';
+    import http from 'node:http';
+    const app = createApp();
+    const server = http.createServer(app);
+    server.listen(0, '127.0.0.1', async () => {
+      const { port } = server.address();
+      const origin = 'http://127.0.0.1:' + port;
+      const response = await fetch(origin + '/api/health', {
+        headers: { Origin: origin }
+      });
+      const body = await response.text();
+      console.log(JSON.stringify({
+        status: response.status,
+        contentType: response.headers.get('content-type'),
+        body
+      }));
+      server.close(() => process.exit(0));
+    });
+  `;
+
+  const child = spawn(
+    process.execPath,
+    ['--input-type=module', '--eval', script],
+    {
+      cwd: path.resolve(process.cwd()),
+      env: {
+        ...process.env,
+        NODE_ENV: 'production',
+        FRONTEND_ORIGIN: 'https://akcd1998.github.io',
+        FRONTEND_ORIGINS: '',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }
+  );
+
+  let stdout = '';
+  let stderr = '';
+
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
+
+  const [exitCode] = await once(child, 'close');
+
+  assert.equal(exitCode, 0, stderr || stdout);
+  const lines = stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const lastLine = lines.at(-1);
+  assert.ok(lastLine, stdout);
+
+  const payload = JSON.parse(lastLine);
+  assert.equal(payload.status, 200, stdout);
+  assert.match(payload.contentType || '', /application\/json/i);
+  assert.deepEqual(JSON.parse(payload.body), {
+    ok: true,
+    data: {
+      status: 'ok',
+    },
   });
 });
