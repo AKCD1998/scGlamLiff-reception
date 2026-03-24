@@ -1,5 +1,25 @@
 import jwt from 'jsonwebtoken';
 import { query } from '../db.js';
+import {
+  AUTH_COOKIE_NAME,
+  logStaffAuthEvent,
+  summarizeStaffAuthRequest,
+} from '../utils/staffAuthSession.js';
+
+function isAuthMeRequest(req) {
+  return String(req.originalUrl || req.url || '').startsWith('/api/auth/me');
+}
+
+function logAuthMeEvent(event, req, payload = {}) {
+  if (!isAuthMeRequest(req)) {
+    return;
+  }
+
+  logStaffAuthEvent(event, {
+    ...summarizeStaffAuthRequest(req),
+    ...payload,
+  });
+}
 
 function sendUnauthorized(req, res, { reason = 'missing_staff_auth', error = null } = {}) {
   if (typeof req.authFailureHandler === 'function') {
@@ -10,9 +30,14 @@ function sendUnauthorized(req, res, { reason = 'missing_staff_auth', error = nul
 }
 
 export default async function requireAuth(req, res, next) {
+  logAuthMeEvent('auth_me_check', req);
+
   try {
-    const token = req.cookies?.token;
+    const token = req.cookies?.[AUTH_COOKIE_NAME];
     if (!token) {
+      logAuthMeEvent('auth_me_missing_cookie', req, {
+        authFailureReason: 'missing_staff_auth',
+      });
       return sendUnauthorized(req, res, { reason: 'missing_staff_auth' });
     }
 
@@ -29,12 +54,26 @@ export default async function requireAuth(req, res, next) {
     );
 
     if (rows.length === 0) {
+      logAuthMeEvent('auth_me_missing_user', req, {
+        authFailureReason: 'missing_staff_auth',
+        tokenSubject: payload?.sub || null,
+      });
       return sendUnauthorized(req, res, { reason: 'missing_staff_auth' });
     }
 
     req.user = rows[0];
+    logAuthMeEvent('auth_me_verified', req, {
+      userId: req.user?.id || null,
+      username: req.user?.username || null,
+      roleName: req.user?.role_name || null,
+    });
     return next();
   } catch (error) {
+    logAuthMeEvent('auth_me_failed', req, {
+      authFailureReason: 'missing_staff_auth',
+      jwtErrorName: error?.name || null,
+      jwtErrorMessage: error?.message || null,
+    });
     return sendUnauthorized(req, res, {
       reason: 'missing_staff_auth',
       error,

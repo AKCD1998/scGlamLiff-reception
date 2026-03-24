@@ -70,6 +70,9 @@ Frontend/browser implication:
 - Cookie name: `token`
 - Storage: HttpOnly cookie
 - JWT lifetime: `7d`
+- Cookie `Path`: `/`
+- Cookie `Max-Age`: `604800` seconds / `604800000` ms
+- Cookie `Domain`: unset by default (host-only for the API origin) unless `COOKIE_DOMAIN` is explicitly configured
 - `sameSite`:
   - `COOKIE_SAMESITE` if explicitly set to `lax`, `strict`, or `none`
   - otherwise `none` in production
@@ -78,6 +81,10 @@ Frontend/browser implication:
   - true if `COOKIE_SECURE=true`
   - or if `sameSite === 'none'`
   - or in production
+- Cross-site LIFF note:
+  - when frontend runs on GitHub Pages and backend runs on Render, the staff cookie is third-party from the WebView's perspective
+  - even with `SameSite=None; Secure`, some LINE/Safari WebView environments may not persist or resend that cookie
+  - confirm staff login by checking `POST /api/auth/login` followed immediately by `GET /api/auth/me` plus backend auth logs
 
 ### Auth Endpoints
 

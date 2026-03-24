@@ -138,3 +138,46 @@ Endpoints added:
 - Decide where LIFF branch-device verification should be enforced in frontend/backend flows.
 - Normalize the branch domain model before adding stronger device-per-branch enforcement everywhere.
 - Add an admin UI for viewing/updating branch-device registrations if the operational workflow needs it.
+
+## Update 2026-03-24T11:45:00+07:00
+
+### Scope
+- Inspect the existing `/api/auth/login` -> cookie -> `/api/auth/me` flow used by the LIFF startup gate.
+- Add backend diagnostics so production Render logs can prove whether the staff cookie was issued and whether the WebView sent it back.
+
+### What was confirmed
+- Backend staff auth is still cookie-JWT only.
+- `POST /api/auth/login` sets the HttpOnly cookie and does not rely on any Bearer token auth.
+- `GET /api/auth/me` still depends entirely on `cookie-parser` populating `req.cookies.token`, then `requireAuth` verifying the JWT.
+- Frontend LIFF login/recheck flow already uses `fetch(..., { credentials: 'include' })` for both endpoints, so the client request shape is not the primary bug.
+
+### Most likely production cause
+- The deployment is cross-site: GitHub Pages frontend and Render backend are different origins.
+- Inside LINE LIFF WebView, that makes the staff cookie a third-party cookie.
+- Even when the backend sends the correct cookie attributes (`HttpOnly`, `SameSite=None`, `Secure`), some WebView environments can still refuse to persist or resend it.
+- That explains the observed pattern:
+  - `POST /api/auth/login` can return `200`
+  - but the immediate `GET /api/auth/me` still returns `401 missing_staff_auth`
+
+### Backend changes in this pass
+- Centralized staff session cookie settings in `src/utils/staffAuthSession.js`.
+- Made cookie shape explicit:
+  - name `token`
+  - `HttpOnly`
+  - `Path=/`
+  - `Max-Age=7d`
+  - `SameSite` defaults to `none` in production
+  - `Secure` defaults to true in production / cross-site mode
+  - optional host override via `COOKIE_DOMAIN`
+- Added Render-log diagnostics for:
+  - login success
+  - cookie options used
+  - whether `Set-Cookie` was attached
+  - whether `/api/auth/me` arrived with a raw `Cookie` header
+  - whether `cookie-parser` found the `token` cookie
+  - whether JWT verification and user lookup succeeded
+
+### Operational meaning
+- If login succeeds and Render logs `setCookieHeaderPresent:true`, backend is issuing the cookie.
+- If the next `/api/auth/me` log shows `cookieHeaderPresent:false` and `parsedTokenPresent:false`, the cookie was not sent back by the client/WebView.
+- In that case the blocker is no longer the login handler itself; it is cross-site cookie persistence in the deployed LIFF environment.
