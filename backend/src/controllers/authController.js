@@ -7,6 +7,7 @@ import {
   buildStaffSessionCookieOptions,
   logStaffAuthEvent,
   summarizeStaffAuthRequest,
+  summarizeSetCookieHeaders,
   summarizeStaffSessionCookieOptions,
 } from '../utils/staffAuthSession.js';
 
@@ -44,7 +45,7 @@ export async function login(req, res) {
       userId: user.id,
       username: user.username,
       cookie: cookieSummary,
-      setCookieHeaderPresent: Boolean(res.getHeader('Set-Cookie')),
+      ...summarizeSetCookieHeaders(res.getHeader('Set-Cookie')),
     });
     return res.json({
       ok: true,

@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import path from 'node:path';
 
 import requireAuth from './middlewares/requireAuth.js';
 import authRoutes from './routes/auth.js';
@@ -26,6 +27,11 @@ import {
   RECEIPT_UPLOAD_STORAGE_BACKEND,
   RECEIPT_UPLOAD_STORAGE_ROOT,
 } from './services/ocr/receiptOcrService.js';
+import {
+  LIFF_FRONTEND_BASE_PATH,
+  LIFF_FRONTEND_LEGACY_ASSET_BASE_PATH,
+  resolveLiffFrontendHostingConfig,
+} from './config/liffFrontendHosting.js';
 
 const IS_PRODUCTION = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || (IS_PRODUCTION ? '' : 'http://localhost:5173');
@@ -44,6 +50,7 @@ const CORS_ALLOWED_METHODS = ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'];
 const CORS_LOG_PREFIX = '[CORS]';
 const LOCALHOST_ORIGIN_PATTERN = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i;
 const BRANCH_DEVICE_GUARD_LOG_PREFIX = '[BranchDeviceGuard]';
+const LIFF_SPA_EXCLUDED_SUBPATH_PREFIXES = ['/api', '/health', '/internal'];
 
 function normalizeText(value) {
   if (value === null || value === undefined) return '';
@@ -171,8 +178,57 @@ function shouldServeReceiptUploadsFromLocalStaticPath() {
   );
 }
 
+function requestLooksLikeStaticAsset(req) {
+  const requestPath = String(req.path || req.originalUrl || req.url || '');
+  return path.extname(requestPath) !== '';
+}
+
+function shouldServeLiffSpaShell(req) {
+  const method = String(req.method || '').trim().toUpperCase();
+  const requestPath = String(req.path || req.originalUrl || req.url || '');
+
+  if (!(method === 'GET' || method === 'HEAD')) {
+    return false;
+  }
+
+  if (
+    LIFF_SPA_EXCLUDED_SUBPATH_PREFIXES.some(
+      (prefix) => requestPath === prefix || requestPath.startsWith(`${prefix}/`)
+    )
+  ) {
+    return false;
+  }
+
+  return !requestLooksLikeStaticAsset(req);
+}
+
+function createLiffFrontendRouter(liffFrontendHosting) {
+  const router = express.Router();
+  const staticOptions = {
+    fallthrough: true,
+    index: false,
+    redirect: false,
+  };
+
+  router.use(express.static(liffFrontendHosting.distDir, staticOptions));
+
+  const serveLiffSpaShell = (req, res, next) => {
+    if (!shouldServeLiffSpaShell(req)) {
+      return next();
+    }
+
+    return res.sendFile(liffFrontendHosting.indexHtmlPath);
+  };
+
+  router.get('/', serveLiffSpaShell);
+  router.get('*', serveLiffSpaShell);
+
+  return router;
+}
+
 export function createApp() {
   const app = express();
+  const liffFrontendHosting = resolveLiffFrontendHostingConfig();
 
   app.use((req, res, next) => {
     const path = String(req.originalUrl || req.url || '');
@@ -224,6 +280,9 @@ export function createApp() {
     res.json({ ok: true, data: { status: 'ok' } });
   });
 
+  // Keep every API route above the LIFF SPA mount.
+  // If `/api/*` falls through into the frontend shell, API/auth failures become
+  // misleading HTML responses and debugging gets much harder.
   app.use('/api/auth', authRoutes);
   app.use('/api/appointments', appointmentRoutes);
   app.use('/api/appointment-drafts', appointmentDraftRoutes);
@@ -237,6 +296,31 @@ export function createApp() {
   app.use('/api/customers', customersRoutes);
   app.use('/api/visits', visitsRoutes);
   app.use('/api/sheet-visits', sheetVisitsRoutes);
+
+  if (liffFrontendHosting.enabled) {
+    // Mount the LIFF SPA on a dedicated sub-router so only `/liff/*` can ever
+    // reach the frontend shell. `/api/*`, `/api/health`, and
+    // `/api/internal/receipt-uploads/*` stay above this block and never enter
+    // the LIFF router at all. Inside the LIFF router, backend-like subpaths
+    // such as `/liff/api/*` are also rejected so they 404 instead of returning
+    // misleading SPA HTML.
+    app.use(
+      LIFF_FRONTEND_BASE_PATH,
+      createLiffFrontendRouter(liffFrontendHosting)
+    );
+
+    // The current LIFF build still emits `/ScGlamLiFF/assets/*` URLs from its
+    // GitHub Pages base config. Keep this read-only alias until the frontend
+    // build is repointed at `/liff/`.
+    app.use(
+      LIFF_FRONTEND_LEGACY_ASSET_BASE_PATH,
+      express.static(liffFrontendHosting.distDir, {
+        fallthrough: true,
+        index: false,
+        redirect: false,
+      })
+    );
+  }
 
   app.use(notFoundHandler);
   app.use(errorHandler);
@@ -253,6 +337,17 @@ export function createApp() {
       receiptUploadStorageRoot: RECEIPT_UPLOAD_STORAGE_ROOT || null,
       receiptUploadStaticServingEnabled:
         shouldServeReceiptUploadsFromLocalStaticPath(),
+    })
+  );
+  console.log(
+    '[startup]',
+    JSON.stringify({
+      event: 'liff_frontend_hosting',
+      enabled: liffFrontendHosting.enabled,
+      basePath: liffFrontendHosting.basePath,
+      legacyAssetBasePath: liffFrontendHosting.legacyAssetBasePath,
+      distDir: liffFrontendHosting.distDir,
+      candidatePaths: liffFrontendHosting.candidatePaths,
     })
   );
 

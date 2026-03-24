@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/liff/assets/favicon-BjbksZ4o.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LIFF App</title>
+    <style>
+      #boot-status {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: rgba(255, 255, 255, 0.95);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        padding: 24px;
+        color: #2a2a2a;
+        font-size: 16px;
+        display: flex;
+        align-items: flex-start;
+        justify-content: flex-start;
+        white-space: pre-wrap;
+      }
+    </style>
+    <script type="module" crossorigin src="/liff/assets/index-6S4IZBn8.js"></script>
+    <link rel="stylesheet" crossorigin href="/liff/assets/index-BSVtEI-z.css">
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="boot-status">Loading...</div>
+    <script>
+      window.__SCGLAM_BOOT__ = { htmlLoaded: true, jsStarted: false };
+      const bootEl = document.getElementById("boot-status");
+      if (bootEl) {
+        bootEl.textContent = "HTML loaded. Waiting for app...";
+      }
+      window.addEventListener("error", function (event) {
+        if (bootEl && event && event.message) {
+          bootEl.textContent = "JS error: " + event.message;
+        }
+      });
+      window.addEventListener("unhandledrejection", function (event) {
+        const reason = event && event.reason ? event.reason.message || event.reason : "";
+        if (bootEl && reason) {
+          bootEl.textContent = "Promise error: " + reason;
+        }
+      });
+      setTimeout(() => {
+        if (!window.__SCGLAM_BOOT__ || !window.__SCGLAM_BOOT__.jsStarted) {
+          if (bootEl) {
+            bootEl.textContent =
+              "App failed to start. Please refresh or check network.";
+          }
+        }
+      }, 5000);
+    </script>
+  </body>
+</html>

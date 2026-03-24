@@ -35,6 +35,17 @@ function extractCookieNames(cookieHeader) {
     .filter(Boolean);
 }
 
+function normalizeSetCookieHeaders(setCookieHeader) {
+  if (Array.isArray(setCookieHeader)) {
+    return setCookieHeader
+      .map((headerValue) => normalizeText(headerValue))
+      .filter(Boolean);
+  }
+
+  const normalizedHeader = normalizeText(setCookieHeader);
+  return normalizedHeader ? [normalizedHeader] : [];
+}
+
 export function buildStaffSessionCookieOptions() {
   const requestedSameSite = normalizeSameSiteValue(process.env.COOKIE_SAMESITE);
   const sameSite = requestedSameSite || (isProductionRuntime() ? 'none' : 'lax');
@@ -88,6 +99,18 @@ export function summarizeStaffAuthRequest(req = {}) {
     cookieHeaderPresent: Boolean(cookieHeader),
     cookieNames: extractCookieNames(cookieHeader),
     parsedTokenPresent: Boolean(normalizeText(req.cookies?.[AUTH_COOKIE_NAME])),
+  };
+}
+
+export function summarizeSetCookieHeaders(setCookieHeader) {
+  const normalizedHeaders = normalizeSetCookieHeaders(setCookieHeader);
+
+  return {
+    setCookieHeaderPresent: normalizedHeaders.length > 0,
+    setCookieHeaderCount: normalizedHeaders.length,
+    setCookieCookieNames: normalizedHeaders
+      .map((headerValue) => extractCookieNames(headerValue)[0] || null)
+      .filter(Boolean),
   };
 }
 

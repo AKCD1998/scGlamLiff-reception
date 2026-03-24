@@ -180,4 +180,64 @@ Endpoints added:
 ### Operational meaning
 - If login succeeds and Render logs `setCookieHeaderPresent:true`, backend is issuing the cookie.
 - If the next `/api/auth/me` log shows `cookieHeaderPresent:false` and `parsedTokenPresent:false`, the cookie was not sent back by the client/WebView.
+
+## Update 2026-03-24T13:05:00+07:00
+
+### Scope
+- Add backend-side static hosting for the separate LIFF frontend build so the app can be served from the same origin as the Render API under `/liff/`.
+
+### What changed
+- Added LIFF frontend hosting config in `src/config/liffFrontendHosting.js`.
+- Express now resolves a built frontend bundle from:
+  - `LIFF_FRONTEND_DIST_DIR`
+  - `backend/public/liff`
+  - local sibling workspace `../../scGlamLiFFF/scGlamLiFF/dist`
+- Mounted the LIFF frontend at `/liff/` after all `/api/*` routes and before the generic 404/error handlers.
+- Added a narrow SPA fallback only for `GET /liff/*`.
+- Added a temporary static compatibility alias at `/ScGlamLiFF/*` because the current GitHub Pages build still points its asset URLs at `/ScGlamLiFF/assets/*`.
+- Added startup logging so Render can show whether LIFF static hosting is enabled and which dist directory was selected.
+
+### Operational meaning
+- `/api/*` behavior stays unchanged because those routes are mounted before the LIFF frontend shell.
+- If the backend starts with `enabled:false` for `liff_frontend_hosting`, Render does not currently have a usable frontend build directory yet.
+- Once a real LIFF build is present and the LINE console points to `https://<backend-host>/liff/`, staff auth cookies can become first-party on the backend origin.
 - In that case the blocker is no longer the login handler itself; it is cross-site cookie persistence in the deployed LIFF environment.
+
+## Update 2026-03-24T13:20:00+07:00
+
+### Scope
+- Tighten staff-auth observability so same-origin LIFF cookie verification can be confirmed from Render logs without exposing raw token values.
+
+### What changed
+- Kept the existing `[StaffAuth]` log format.
+- `login_success` now also logs:
+  - `setCookieHeaderCount`
+  - `setCookieCookieNames`
+- `/api/auth/me` request logs continue to emit:
+  - `cookieHeaderPresent`
+  - `cookieNames`
+  - `parsedTokenPresent`
+  - plus the existing verification outcome events
+
+### Operational meaning
+- Expected same-origin success path:
+  - `login_success` with `setCookieHeaderPresent:true` and `setCookieCookieNames:["token"]`
+  - `auth_me_check` with `cookieHeaderPresent:true`, `cookieNames:["token"]`, `parsedTokenPresent:true`
+  - `auth_me_verified`
+  - `auth_me_success`
+- If `login_success` appears but the next `auth_me_check` still shows `cookieHeaderPresent:false`, the client is still not returning the cookie to the backend.
+
+## Update 2026-03-24T14:20:00+07:00
+
+### Scope
+- Prepare a staged rollout path so the LIFF frontend can move to backend-origin hosting under `/liff/` without immediately removing the existing GitHub Pages deployment.
+
+### What changed
+- Documented the deployment order in `backend/README-backend.md`.
+- Added `backend/public/liff/README.md` as the stable artifact drop-in location for a built LIFF frontend bundle.
+- Kept the GitHub Pages deployment path intentionally unchanged for rollback safety.
+
+### Operational meaning
+- Backend-origin LIFF can now be deployed and verified independently first.
+- The LINE endpoint should only be repointed after `/liff/` is live and backend logs confirm the frontend bundle is being served.
+- Rollback is only a LIFF endpoint switch back to GitHub Pages unless a new frontend build there is also needed.
