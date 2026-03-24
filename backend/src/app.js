@@ -253,7 +253,12 @@ export function createApp() {
     return next();
   });
 
+  // CORS is only needed for API routes. Keeping it off the LIFF static hosting
+  // path avoids turning same-origin module/script requests into misleading 500s
+  // when a browser includes an `Origin` header that is not in the cross-site
+  // allowlist yet.
   app.use(
+    '/api',
     cors(buildCorsOptions)
   );
 

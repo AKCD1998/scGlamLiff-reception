@@ -241,3 +241,23 @@ Endpoints added:
 - Backend-origin LIFF can now be deployed and verified independently first.
 - The LINE endpoint should only be repointed after `/liff/` is live and backend logs confirm the frontend bundle is being served.
 - Rollback is only a LIFF endpoint switch back to GitHub Pages unless a new frontend build there is also needed.
+
+## Update 2026-03-24T16:20:00+07:00
+
+### Scope
+- Fix a backend-origin LIFF regression where the global CORS middleware could
+  reject `/liff/assets/*.js` module requests with a 500 even though direct
+  top-level navigation to the same asset returned 200.
+
+### What changed
+- CORS now mounts only on `/api/*` in `src/app.js`.
+- The LIFF static shell and assets under `/liff/*` no longer pass through the
+  cross-site frontend origin allowlist.
+- Added a regression test that requests `/liff/assets/app.js` with an `Origin`
+  header and confirms the asset still returns `200`.
+
+### Operational meaning
+- Backend-hosted LIFF assets are no longer sensitive to stale `FRONTEND_ORIGINS`
+  settings during same-origin rollout.
+- Cross-origin API access for GitHub Pages remains unchanged because `/api/*`
+  still uses the same CORS policy as before.

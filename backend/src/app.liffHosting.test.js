@@ -15,6 +15,12 @@ async function withLiffHostingServer(t, run) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'liff-hosting-'));
 
   await fs.writeFile(path.join(tempDir, 'index.html'), LIFF_TEST_SHELL, 'utf8');
+  await fs.mkdir(path.join(tempDir, 'assets'), { recursive: true });
+  await fs.writeFile(
+    path.join(tempDir, 'assets', 'app.js'),
+    'console.log("LIFF TEST ASSET");',
+    'utf8'
+  );
 
   process.env.LIFF_FRONTEND_DIST_DIR = tempDir;
 
@@ -107,5 +113,20 @@ test('backend-like subpaths under /liff still 404 instead of returning the SPA s
       ok: false,
       error: 'Not found',
     });
+  });
+});
+
+test('liff assets still load when a browser sends an Origin header', async (t) => {
+  await withLiffHostingServer(t, async ({ baseUrl }) => {
+    const response = await fetch(`${baseUrl}/liff/assets/app.js`, {
+      headers: {
+        Origin: 'https://scglamliff-reception.onrender.com',
+      },
+    });
+    const body = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') || '', /javascript|ecmascript|text\/plain/i);
+    assert.match(body, /LIFF TEST ASSET/);
   });
 });

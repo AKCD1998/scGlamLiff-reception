@@ -55,6 +55,9 @@ Resolution order:
 
 Notes:
 - `/api/*` routes still take priority over the LIFF SPA shell.
+- CORS now applies only to `/api/*`. The backend-hosted LIFF shell and its
+  static assets under `/liff/*` are served without the API origin allowlist so
+  same-origin module/script requests cannot fail with misleading CORS 500s.
 - The current GitHub Pages LIFF build still emits `/ScGlamLiFF/assets/*` URLs, so the backend temporarily exposes a compatibility static alias for that asset path until the frontend build base is repointed to `/liff/`.
 
 ### Staged rollout plan for backend-hosted LIFF
