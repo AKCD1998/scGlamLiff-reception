@@ -537,7 +537,7 @@ Constraints/indexes added:
 ### Assumption in this pass
 - Promo eligibility is enforced at booking create / draft submit time.
 - Active window used:
-  - start: `2026-04-01T00:00:00+07:00`
+  - start: `2026-03-23T00:00:00+07:00`
   - end: `2026-06-30T23:59:59.999+07:00`
 
 ### Runtime outcome
@@ -557,7 +557,7 @@ Constraints/indexes added:
 
 ### Pre-deploy checks
 - Confirm promo active window is still intended to be enforced at booking create / draft submit time:
-  - start: `2026-04-01T00:00:00+07:00`
+  - start: `2026-03-23T00:00:00+07:00`
   - end: `2026-06-30T23:59:59.999+07:00`
 - Confirm bucket/env for receipt upload are already valid in production:
   - `R2_BUCKET`
