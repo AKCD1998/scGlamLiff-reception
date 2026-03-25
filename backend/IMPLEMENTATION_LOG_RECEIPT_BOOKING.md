@@ -698,3 +698,23 @@ Constraints/indexes added:
   existing draft-flow assertions intact.
 - Frontend appointment contract tests now verify that promo create payloads
   include `booking_channel=liff_receipt_promo_q2_2026`.
+
+## 2026-03-25 10:35 +07:00 — unblock draft submit when canonical create writes receipt evidence
+
+### Goal
+- Fix the remaining `Server error` on LIFF `บันทึก` after draft save already succeeds.
+
+### Root cause
+- Draft submit calls canonical appointment create, and canonical create writes
+  `receipt_evidence` into `appointment_receipts`.
+- That path still assumed the `appointment_receipts` migration had already been
+  applied everywhere, so a missing table/index set could surface as a generic
+  500 during submit even though draft save already worked.
+
+### What changed
+- `backend/src/services/appointmentReceiptEvidenceService.js`
+  - now ensures the `appointment_receipts` schema/indexes exist before insert/read
+  - now logs safe structured insert-attempt and insert-failure details
+- Added `backend/src/services/appointmentReceiptEvidenceService.test.js`
+  - covers schema bootstrap plus happy-path insert
+  - covers the null short-circuit when no receipt evidence is present
