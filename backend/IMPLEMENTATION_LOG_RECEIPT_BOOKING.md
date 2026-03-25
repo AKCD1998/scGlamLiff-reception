@@ -627,3 +627,41 @@ Constraints/indexes added:
 8. Confirm receipt attachment still appears as attached evidence, not OCR text
 9. Complete date/time and submit booking
 10. Confirm booking succeeds and no smooth package choice appears anywhere in the LIFF flow
+
+## 2026-03-25 08:55 +07:00 — self-heal receipt upload metadata schema at runtime
+
+### Goal
+- Fix the backend root cause behind `Failed to persist receipt upload metadata`
+  without changing LIFF draft/save gating or the public OCR upload contract.
+
+### Root cause
+- The insert path in `backend/src/services/appointmentReceiptUploadService.js`
+  already sends a schema-compatible payload for the intended
+  `appointment_receipt_uploads` table.
+- The fragile part was the runtime assumption that the one-off migration had
+  already been applied everywhere before the first real receipt upload.
+- When the table or its supporting indexes were missing in a deployed
+  environment, the upload storage step succeeded but the metadata insert failed,
+  which then blocked LIFF draft/save because the frontend correctly treats the
+  receipt upload as unresolved.
+
+### What changed
+- `backend/src/services/appointmentReceiptUploadService.js`
+  - now ensures `appointment_receipt_uploads` exists with the expected core
+    schema before inserting metadata
+  - now inserts an explicit UUID `id` generated in Node instead of relying on a
+    database-side default
+  - now logs a structured, safe insert-attempt payload and richer PG error
+    fields (`table`, `column`, `where`, `constraint`, `detail`, `code`)
+- Added `backend/src/services/appointmentReceiptUploadService.test.js`
+  - covers fallback booking-reference generation
+  - covers happy-path metadata persistence
+  - covers invalid appointment id rejection
+  - covers schema-ensure DDL execution
+
+### Operational meaning
+- A successful receipt file/object write is no longer followed by an avoidable
+  metadata insert failure just because the receipt-upload migration was missed on
+  one environment.
+- Frontend draft/save gating stays unchanged; the backend now makes it much more
+  likely that receipt upload resolves to success as designed.
