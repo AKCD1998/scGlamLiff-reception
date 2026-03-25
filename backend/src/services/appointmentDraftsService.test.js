@@ -4,6 +4,7 @@ import {
   createAppointmentDraft,
   listAppointmentDrafts,
   patchAppointmentDraft,
+  resetAppointmentDraftsSchemaEnsureCacheForTests,
   submitAppointmentDraft,
 } from './appointmentDraftsService.js';
 
@@ -20,6 +21,10 @@ const CANCELLED_DRAFT_ID = '88888888-8888-4888-8888-888888888888';
 const APPOINTMENT_ID = '22222222-2222-4222-8222-222222222222';
 const TREATMENT_ID = '33333333-3333-4333-8333-333333333333';
 const PACKAGE_ID = '44444444-4444-4444-8444-444444444444';
+
+test.beforeEach(() => {
+  resetAppointmentDraftsSchemaEnsureCacheForTests();
+});
 
 function buildDraftRow(overrides = {}) {
   return {
@@ -139,6 +144,15 @@ function createMockDraftDb(initialDrafts = []) {
     async query(sql, params = []) {
       const queryText = String(sql || '').trim();
       const normalized = queryText.toLowerCase();
+
+      if (
+        normalized.startsWith('create extension if not exists "pgcrypto"') ||
+        normalized.startsWith('create table if not exists public.appointment_drafts') ||
+        normalized.startsWith('create index if not exists appointment_drafts_') ||
+        normalized.startsWith('create unique index if not exists appointment_drafts_')
+      ) {
+        return { rowCount: null, rows: [] };
+      }
 
       if (normalized === 'begin') {
         state.beginCount += 1;

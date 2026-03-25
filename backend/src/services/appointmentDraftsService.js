@@ -4,6 +4,7 @@ import { normalizeBranchWriteValue } from '../utils/branchContract.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const APPOINTMENT_DRAFTS_TABLE = 'appointment_drafts';
 const ALL_DRAFT_STATUSES = ['draft', 'submitted', 'cancelled'];
 const DEFAULT_LIST_STATUSES = ['draft', 'submitted'];
 const ALLOWED_CREATE_PATCH_STATUSES = new Set(['draft', 'cancelled']);
@@ -16,6 +17,68 @@ const IMMUTABLE_DRAFT_FIELDS = new Set([
   'created_by_staff_user_id',
   'updated_by_staff_user_id',
 ]);
+const APPOINTMENT_DRAFTS_SCHEMA_STATEMENTS = Object.freeze([
+  `
+    CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS public.appointment_drafts (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      status text NOT NULL DEFAULT 'draft',
+      customer_full_name text,
+      phone text,
+      branch_id text,
+      treatment_id uuid REFERENCES public.treatments(id),
+      treatment_item_text text,
+      package_id uuid REFERENCES public.packages(id),
+      staff_name text,
+      scheduled_at timestamptz,
+      receipt_evidence jsonb,
+      source text NOT NULL DEFAULT 'promo_receipt_draft',
+      flow_metadata jsonb,
+      created_by_staff_user_id uuid REFERENCES public.staff_users(id) ON DELETE SET NULL,
+      updated_by_staff_user_id uuid REFERENCES public.staff_users(id) ON DELETE SET NULL,
+      submitted_appointment_id uuid REFERENCES public.appointments(id),
+      submitted_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      CONSTRAINT appointment_drafts_status_check
+        CHECK (LOWER(status) = ANY (ARRAY['draft'::text, 'submitted'::text, 'cancelled'::text])),
+      CONSTRAINT appointment_drafts_receipt_evidence_object_check
+        CHECK (receipt_evidence IS NULL OR jsonb_typeof(receipt_evidence) = 'object'),
+      CONSTRAINT appointment_drafts_flow_metadata_object_check
+        CHECK (flow_metadata IS NULL OR jsonb_typeof(flow_metadata) = 'object'),
+      CONSTRAINT appointment_drafts_submission_state_check
+        CHECK (
+          (
+            LOWER(status) = 'submitted'
+            AND submitted_appointment_id IS NOT NULL
+            AND submitted_at IS NOT NULL
+          )
+          OR (
+            LOWER(status) <> 'submitted'
+            AND submitted_appointment_id IS NULL
+            AND submitted_at IS NULL
+          )
+        )
+    );
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS appointment_drafts_status_created_at_idx
+    ON public.appointment_drafts (status, created_at DESC);
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS appointment_drafts_phone_idx
+    ON public.appointment_drafts (phone);
+  `,
+  `
+    CREATE UNIQUE INDEX IF NOT EXISTS appointment_drafts_submitted_appointment_id_uidx
+    ON public.appointment_drafts (submitted_appointment_id)
+    WHERE submitted_appointment_id IS NOT NULL;
+  `,
+]);
+
+let ensureAppointmentDraftsSchemaPromise = null;
 
 function normalizeText(value) {
   if (value === null || value === undefined) return '';
@@ -75,6 +138,45 @@ function parseNullableScheduledAt(value) {
 function normalizeNullableText(value) {
   const normalized = normalizeText(value);
   return normalized || null;
+}
+
+async function ensureAppointmentDraftsSchema({
+  queryFn,
+  logger = console,
+} = {}) {
+  for (const statement of APPOINTMENT_DRAFTS_SCHEMA_STATEMENTS) {
+    await queryFn(statement);
+  }
+
+  logger?.info?.(
+    '[AppointmentDrafts]',
+    JSON.stringify({
+      event: 'appointment_drafts_schema_ensured',
+      table: APPOINTMENT_DRAFTS_TABLE,
+      statementsApplied: APPOINTMENT_DRAFTS_SCHEMA_STATEMENTS.length,
+    })
+  );
+}
+
+async function ensureAppointmentDraftsSchemaOnce({
+  queryFn,
+  logger = console,
+} = {}) {
+  if (!ensureAppointmentDraftsSchemaPromise) {
+    ensureAppointmentDraftsSchemaPromise = ensureAppointmentDraftsSchema({
+      queryFn,
+      logger,
+    }).catch((error) => {
+      ensureAppointmentDraftsSchemaPromise = null;
+      throw error;
+    });
+  }
+
+  return ensureAppointmentDraftsSchemaPromise;
+}
+
+export function resetAppointmentDraftsSchemaEnsureCacheForTests() {
+  ensureAppointmentDraftsSchemaPromise = null;
 }
 
 function toOutputDatetime(value) {
@@ -282,6 +384,10 @@ export async function createAppointmentDraft({ body = {}, user, dbPool = null } 
   const client = await resolvedDbPool.connect();
 
   try {
+    await ensureAppointmentDraftsSchemaOnce({
+      queryFn: client.query.bind(client),
+    });
+
     const result = await client.query(
       `
         INSERT INTO appointment_drafts (
@@ -345,6 +451,10 @@ export async function getAppointmentDraftById({ draftId, dbPool = null } = {}) {
   const resolvedDbPool = await resolveDbPool(dbPool);
   const client = await resolvedDbPool.connect();
   try {
+    await ensureAppointmentDraftsSchemaOnce({
+      queryFn: client.query.bind(client),
+    });
+
     const row = await fetchDraftById(client, draftId);
     if (!row) {
       const err = new Error('Appointment draft not found');
@@ -363,6 +473,10 @@ export async function listAppointmentDrafts({ status, dbPool = null } = {}) {
   const client = await resolvedDbPool.connect();
 
   try {
+    await ensureAppointmentDraftsSchemaOnce({
+      queryFn: client.query.bind(client),
+    });
+
     const result = await client.query(
       `
         SELECT *
@@ -391,6 +505,10 @@ export async function patchAppointmentDraft({ draftId, body = {}, user, dbPool =
   const client = await resolvedDbPool.connect();
 
   try {
+    await ensureAppointmentDraftsSchemaOnce({
+      queryFn: client.query.bind(client),
+    });
+
     await client.query('BEGIN');
 
     const current = await fetchDraftById(client, draftId, { forUpdate: true });
@@ -462,6 +580,10 @@ export async function submitAppointmentDraft({
   const client = await resolvedDbPool.connect();
 
   try {
+    await ensureAppointmentDraftsSchemaOnce({
+      queryFn: client.query.bind(client),
+    });
+
     await client.query('BEGIN');
 
     const draft = await fetchDraftById(client, draftId, { forUpdate: true });

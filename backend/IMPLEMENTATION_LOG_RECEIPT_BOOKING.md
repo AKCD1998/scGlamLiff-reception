@@ -665,3 +665,36 @@ Constraints/indexes added:
   one environment.
 - Frontend draft/save gating stays unchanged; the backend now makes it much more
   likely that receipt upload resolves to success as designed.
+
+## 2026-03-25 10:20 +07:00 — unblock promo draft/save after receipt upload recovery
+
+### Goal
+- Keep the receipt-upload success path intact while fixing the next two LIFF
+  blockers:
+  - `POST /api/appointment-drafts` returning a generic `Server error`
+  - direct promo booking create failing with
+    `Temporary LIFF receipt promo requires LIFF promo booking metadata`
+
+### Root cause
+- Draft save still assumed the `appointment_drafts` table/indexes had already
+  been migrated in every environment.
+- Direct appointment create and draft create were no longer symmetric:
+  the draft payload reused the shared LIFF promo verification metadata builder,
+  but the direct create payload omitted `verification_metadata.booking_channel`,
+  so backend promo validation correctly rejected the create request.
+
+### What changed
+- `backend/src/services/appointmentDraftsService.js`
+  - now ensures the `appointment_drafts` schema/indexes exist before draft
+    create/list/get/patch/submit operations
+- `backend/src/controllers/appointmentDraftsController.js`
+  - now logs structured internal draft failures for production debugging
+- `scGlamLiFFF/scGlamLiFF/src/services/appointmentContract.js`
+  - direct create now uses the same LIFF promo verification metadata builder as
+    the draft flow, including `booking_channel` for promo selections
+
+### Regression protection
+- Draft service tests now tolerate the schema-bootstrap DDL path and keep the
+  existing draft-flow assertions intact.
+- Frontend appointment contract tests now verify that promo create payloads
+  include `booking_channel=liff_receipt_promo_q2_2026`.

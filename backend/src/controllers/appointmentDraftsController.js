@@ -12,7 +12,20 @@ function sendDraftError(res, error) {
   const response = buildAppointmentDraftErrorResponse(error, { isProd });
 
   if (response.status >= 500) {
-    console.error(error);
+    console.error(
+      '[AppointmentDrafts]',
+      JSON.stringify({
+        event: 'request_failed',
+        status: response.status,
+        message: error?.message || 'Server error',
+        code: error?.code || null,
+        detail: error?.detail || null,
+        constraint: error?.constraint || null,
+        table: error?.table || null,
+        column: error?.column || null,
+        where: error?.where || null,
+      })
+    );
   }
   return res.status(response.status).json(response.body);
 }
