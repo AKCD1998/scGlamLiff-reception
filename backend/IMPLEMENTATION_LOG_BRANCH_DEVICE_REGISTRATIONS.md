@@ -300,3 +300,25 @@ Endpoints added:
 ### Operational meaning
 - Backend-origin LIFF no longer depends on `FRONTEND_ORIGINS` being updated
   first before `/api/auth/login` or `/api/auth/me` can work from the same host.
+
+## Update 2026-03-24T17:05:00+07:00
+
+### Scope
+- Stop LIFF startup from getting stuck when `/api/auth/me` is revalidated as
+  `304 Not Modified` even though the backend already verified the staff session.
+
+### What changed
+- `src/routes/auth.js` now applies no-store headers to every `/api/auth/*`
+  route:
+  - `Cache-Control: no-store, no-cache, must-revalidate, private, max-age=0`
+  - `Pragma: no-cache`
+  - `Expires: 0`
+- The same middleware now strips `If-None-Match` and `If-Modified-Since` from
+  auth requests so Express cannot downgrade a verified `/api/auth/me` response
+  to `304`.
+- Added `src/routes/auth.test.js` to lock the no-store middleware behavior.
+
+### Operational meaning
+- LIFF session checks should now always receive a fresh JSON body from
+  `/api/auth/me` instead of a conditional-cache response that `fetch` treats as
+  non-OK.
