@@ -70,7 +70,7 @@ export default function Homepage(props) {
 
   return (
     <section
-      className="workbench-body homepage-content"
+      className="workbench-body homepage-content homepage-content--appointments-grid"
       aria-busy={loading ? "true" : undefined}
     >
       <ScheduleCalendarPanel

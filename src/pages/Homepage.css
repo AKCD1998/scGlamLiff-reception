@@ -1,3 +1,18 @@
 .homepage-content {
   position: relative;
 }
+
+.homepage-content--appointments-grid {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  grid-template-rows: none;
+  margin-top: 24px;
+  gap: 24px;
+}
+
+@media (max-width: 960px) {
+  .homepage-content--appointments-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+}
