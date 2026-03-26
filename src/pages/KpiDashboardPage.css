@@ -1,5 +1,11 @@
 .kpi-dashboard-page {
   grid-template-columns: 1fr;
+  grid-template-rows: 340px 1fr;
+}
+
+.kpi-dashboard-main {
+  display: grid;
+  gap: 24px;
 }
 
 .kpi-hero-panel {
@@ -146,6 +152,12 @@
   align-items: flex-start;
 }
 
+.kpi-summary-card .kpi-summary-top {
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: flex-start;
+}
+
 .kpi-badge {
   display: inline-flex;
   align-items: center;
@@ -177,8 +189,21 @@
 
 .kpi-two-column {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
   gap: 24px;
+  align-items: start;
+}
+
+.kpi-overview-sales-row {
+  grid-template-rows: auto auto;
+}
+
+.kpi-staff-redemption-row {
+  grid-template-rows: none;
+}
+
+.kpi-two-column--retention-unavailable {
+  grid-template-rows: auto auto;
 }
 
 .kpi-mini-stats {
@@ -383,6 +408,16 @@
   gap: 14px;
 }
 
+.kpi-panel--unavailable-compact .panel-title {
+  margin-bottom: 14px;
+}
+
+.kpi-panel--unavailable-compact .kpi-unavailable-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
 .kpi-unavailable-card {
   display: grid;
   gap: 10px;
@@ -392,12 +427,37 @@
   background: rgba(255, 247, 240, 0.7);
 }
 
+.kpi-panel--unavailable-compact .kpi-unavailable-card {
+  gap: 8px;
+  padding: 14px;
+  border-radius: 14px;
+}
+
+.kpi-panel--unavailable-compact .kpi-unavailable-card:last-child {
+  grid-column: 1 / -1;
+}
+
 .kpi-unavailable-card strong {
   color: var(--text-strong);
 }
 
+.kpi-panel--unavailable-compact .kpi-unavailable-card strong {
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
 .kpi-unavailable-card small {
   color: var(--text-muted);
+}
+
+.kpi-panel--unavailable-compact .kpi-unavailable-card small {
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.kpi-panel--unavailable-compact .kpi-fallback-box {
+  padding: 12px;
+  gap: 4px;
 }
 
 .kpi-assumption-list {
@@ -406,6 +466,15 @@
   color: var(--text-soft);
   display: grid;
   gap: 8px;
+}
+
+.kpi-dashboard-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.kpi-assumptions-panel {
+  width: 100%;
 }
 
 .kpi-empty {
@@ -442,6 +511,14 @@ body[data-theme="dark"] .kpi-summary-card.is-unavailable {
   .kpi-hero-panel,
   .kpi-two-column {
     grid-template-columns: 1fr;
+  }
+
+  .kpi-panel--unavailable-compact .kpi-unavailable-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .kpi-panel--unavailable-compact .kpi-unavailable-card:last-child {
+    grid-column: auto;
   }
 }
 

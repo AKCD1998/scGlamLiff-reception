@@ -19,6 +19,33 @@ const THAI_MONTHS = [
   'ธันวาคม',
 ];
 const TEST_RECORD_REGEX_SQL = '^(e2e_|e2e_workflow_|verify-)';
+const FREE_SCAN_SIGNAL_REGEX_SQL =
+  '(free[^a-z0-9ก-๙]*scan|scan[^a-z0-9ก-๙]*free|skin[^a-z0-9ก-๙]*scan|scan[^a-z0-9ก-๙]*skin|facial[^a-z0-9ก-๙]*scan|scan[^a-z0-9ก-๙]*facial|สแกนผิว)';
+const REPORTING_CAPABILITY_TABLES = ['appointments', 'appointment_drafts', 'appointment_receipts', 'toppings'];
+const EXPLICIT_PRODUCT_CATEGORY_TOKENS = new Set([
+  'product',
+  'products',
+  'product_addon',
+  'product_addons',
+  'retail',
+  'retail_product',
+  'retail_products',
+  'skincare',
+  'skin_care',
+  'สินค้า',
+  'สกินแคร์',
+]);
+const EXPLICIT_SERVICE_CATEGORY_TOKENS = new Set([
+  'service',
+  'services',
+  'service_addon',
+  'service_addons',
+  'treatment',
+  'treatments',
+  'session',
+  'บริการ',
+  'ทรีตเมนต์',
+]);
 
 function normalizeText(value) {
   if (value === null || value === undefined) return '';
@@ -59,6 +86,126 @@ function toThaiMonthLabel(month) {
   return `${THAI_MONTHS[monthIndex] || month} ${year + 543}`;
 }
 
+function uniqueTextList(values = []) {
+  return [...new Set(values.map((value) => normalizeText(value)).filter(Boolean))];
+}
+
+function normalizeCategoryToken(value) {
+  return normalizeText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9ก-๙]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function classifyToppingCategory(category) {
+  const token = normalizeCategoryToken(category);
+  if (
+    EXPLICIT_PRODUCT_CATEGORY_TOKENS.has(token) ||
+    token.startsWith('product_') ||
+    token.endsWith('_product') ||
+    token.startsWith('skincare_') ||
+    token.endsWith('_skincare')
+  ) {
+    return 'product';
+  }
+  if (
+    EXPLICIT_SERVICE_CATEGORY_TOKENS.has(token) ||
+    token.startsWith('service_') ||
+    token.endsWith('_service') ||
+    token.startsWith('treatment_') ||
+    token.endsWith('_treatment')
+  ) {
+    return 'service';
+  }
+  return 'unknown';
+}
+
+function mapTopicStatusToCardAvailability(status) {
+  return status === 'available' ? 'available' : 'unavailable';
+}
+
+function buildTopicSection({
+  status = 'unavailable',
+  title,
+  value = null,
+  summary = '',
+  explanation = '',
+  assumptions = [],
+  dataSource = [],
+  missingRequirements = [],
+  fallback = null,
+  extra = {},
+} = {}) {
+  const normalizedStatus =
+    status === 'available' || status === 'fallback' || status === 'unavailable'
+      ? status
+      : 'unavailable';
+
+  return {
+    availability: normalizedStatus,
+    status: normalizedStatus,
+    title,
+    value,
+    summary: normalizeText(summary) || null,
+    explanation: normalizeText(explanation) || null,
+    assumptions: uniqueTextList(assumptions),
+    dataSource: uniqueTextList(dataSource),
+    missingRequirements: uniqueTextList(missingRequirements),
+    fallback,
+    reason:
+      normalizedStatus === 'unavailable' ? normalizeText(explanation) || normalizeText(summary) || null : null,
+    note: normalizedStatus === 'fallback' ? normalizeText(explanation) || null : null,
+    ...extra,
+  };
+}
+
+async function fetchReportingSchemaCapabilities(queryFn) {
+  const result = await queryFn(
+    `
+      SELECT
+        table_name,
+        column_name,
+        data_type,
+        udt_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = ANY($1::text[])
+    `,
+    [REPORTING_CAPABILITY_TABLES]
+  );
+
+  const tables = new Map(REPORTING_CAPABILITY_TABLES.map((tableName) => [tableName, new Map()]));
+  for (const row of result.rows || []) {
+    const tableName = normalizeText(row.table_name).toLowerCase();
+    const columnName = normalizeText(row.column_name).toLowerCase();
+    if (!tableName || !columnName) continue;
+    if (!tables.has(tableName)) {
+      tables.set(tableName, new Map());
+    }
+    tables.get(tableName).set(columnName, {
+      data_type: normalizeText(row.data_type).toLowerCase(),
+      udt_name: normalizeText(row.udt_name).toLowerCase(),
+    });
+  }
+
+  return { tables };
+}
+
+function hasColumn(capabilities, tableName, columnName) {
+  return Boolean(
+    capabilities?.tables instanceof Map &&
+      capabilities.tables.get(tableName)?.has(String(columnName || '').toLowerCase())
+  );
+}
+
+function hasJsonbColumn(capabilities, tableName, columnName) {
+  const metadata =
+    capabilities?.tables instanceof Map
+      ? capabilities.tables.get(tableName)?.get(String(columnName || '').toLowerCase())
+      : null;
+  return Boolean(metadata && (metadata.udt_name === 'jsonb' || metadata.data_type === 'jsonb'));
+}
+
 export function resolveDashboardMonthRange(rawMonth, now = new Date()) {
   const fallbackMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const month = normalizeText(rawMonth) || fallbackMonth;
@@ -74,7 +221,6 @@ export function resolveDashboardMonthRange(rawMonth, now = new Date()) {
   const [yearText, monthText] = month.split('-');
   const year = Number.parseInt(yearText, 10);
   const monthIndex = Number.parseInt(monthText, 10) - 1;
-  const start = new Date(Date.UTC(year, monthIndex, 1));
   const end = new Date(Date.UTC(year, monthIndex + 1, 0));
   const startDate = `${yearText}-${monthText}-01`;
   const endDate = `${end.getUTCFullYear()}-${String(end.getUTCMonth() + 1).padStart(2, '0')}-${String(
@@ -106,16 +252,6 @@ function buildCard({
     availability,
     reason: reason || null,
     note: note || null,
-  };
-}
-
-function buildNoDataSection({ title, reason, note = '', fallback = null }) {
-  return {
-    availability: 'unavailable',
-    title,
-    reason,
-    note: note || null,
-    fallback,
   };
 }
 
@@ -642,6 +778,551 @@ async function fetchReceiptFallbackSummary(queryFn, { startDate, endDate }) {
   };
 }
 
+async function fetchAppointmentAddonRows(
+  queryFn,
+  { startDate, endDate },
+  { requireReceipts = false, completedOnly = false } = {}
+) {
+  const receiptSelect = requireReceipts
+    ? ', ar.total_amount_thb AS receipt_total_amount_thb'
+    : ', NULL::numeric(12, 2) AS receipt_total_amount_thb';
+  const receiptJoin = requireReceipts ? 'JOIN appointment_receipts ar ON ar.appointment_id = a.id' : '';
+  const completedClause = completedOnly ? "AND LOWER(COALESCE(a.status, '')) = 'completed'" : '';
+
+  const result = await queryFn(
+    `
+      SELECT
+        a.id AS appointment_id,
+        a.customer_id,
+        COALESCE(a.addons_total_thb, 0)::int AS addons_total_thb,
+        topping_codes.code AS topping_code,
+        t.category AS topping_category
+        ${receiptSelect}
+      FROM appointments a
+      LEFT JOIN customers c ON c.id = a.customer_id
+      ${receiptJoin}
+      LEFT JOIN LATERAL jsonb_array_elements_text(
+        CASE
+          WHEN jsonb_typeof(COALESCE(a.selected_toppings, '[]'::jsonb)) = 'array'
+            THEN COALESCE(a.selected_toppings, '[]'::jsonb)
+          ELSE '[]'::jsonb
+        END
+      ) topping_codes(code) ON true
+      LEFT JOIN toppings t ON t.code = topping_codes.code
+      WHERE DATE(a.scheduled_at AT TIME ZONE 'Asia/Bangkok') BETWEEN $1 AND $2
+        AND NOT (
+          COALESCE(c.full_name, '') ~* $3
+          OR COALESCE(a.line_user_id, '') ~* $3
+        )
+        ${completedClause}
+      ORDER BY a.id ASC
+    `,
+    [startDate, endDate, TEST_RECORD_REGEX_SQL]
+  );
+
+  return (result.rows || []).map((row) => ({
+    appointment_id: normalizeText(row.appointment_id),
+    customer_id: normalizeText(row.customer_id),
+    addons_total_thb: toMoney(row.addons_total_thb),
+    topping_code: normalizeText(row.topping_code),
+    topping_category: normalizeText(row.topping_category),
+    receipt_total_amount_thb:
+      row.receipt_total_amount_thb === null || row.receipt_total_amount_thb === undefined
+        ? null
+        : toMoney(row.receipt_total_amount_thb),
+  }));
+}
+
+function analyzeUpsellRows(rows = []) {
+  const appointments = new Map();
+  const matchedProductCategories = new Set();
+
+  for (const row of rows) {
+    const appointmentId = normalizeText(row.appointment_id);
+    if (!appointmentId) continue;
+    if (!appointments.has(appointmentId)) {
+      appointments.set(appointmentId, {
+        customer_id: normalizeText(row.customer_id),
+        addons_total_thb: toMoney(row.addons_total_thb),
+        has_product: false,
+        has_service: false,
+        has_unknown: false,
+        has_topping_rows: false,
+      });
+    }
+
+    const target = appointments.get(appointmentId);
+    target.addons_total_thb = toMoney(row.addons_total_thb);
+
+    if (!normalizeText(row.topping_code)) continue;
+    target.has_topping_rows = true;
+    const categoryKind = classifyToppingCategory(row.topping_category);
+    if (categoryKind === 'product') {
+      target.has_product = true;
+      matchedProductCategories.add(normalizeCategoryToken(row.topping_category) || row.topping_category);
+      continue;
+    }
+    if (categoryKind === 'service') {
+      target.has_service = true;
+      continue;
+    }
+    target.has_unknown = true;
+  }
+
+  const eligibleCustomerIds = new Set();
+  const upsellCustomerIds = new Set();
+  let upsellAppointmentsCount = 0;
+  let ambiguousAppointmentsCount = 0;
+
+  for (const appointment of appointments.values()) {
+    if (appointment.customer_id) {
+      eligibleCustomerIds.add(appointment.customer_id);
+    }
+    if (appointment.has_product && appointment.customer_id) {
+      upsellCustomerIds.add(appointment.customer_id);
+    }
+    if (appointment.has_product) {
+      upsellAppointmentsCount += 1;
+      continue;
+    }
+
+    const isAmbiguous =
+      appointment.has_unknown || (appointment.addons_total_thb > 0 && !appointment.has_topping_rows);
+    if (isAmbiguous) {
+      ambiguousAppointmentsCount += 1;
+    }
+  }
+
+  const eligibleAppointmentsCount = appointments.size;
+  const classifiedAppointmentsCount = Math.max(eligibleAppointmentsCount - ambiguousAppointmentsCount, 0);
+  const rateDenominator =
+    ambiguousAppointmentsCount > 0 ? classifiedAppointmentsCount : eligibleAppointmentsCount;
+
+  return {
+    eligible_appointments_count: eligibleAppointmentsCount,
+    classified_appointments_count: classifiedAppointmentsCount,
+    ambiguous_appointments_count: ambiguousAppointmentsCount,
+    upsell_appointments_count: upsellAppointmentsCount,
+    eligible_customers_count: eligibleCustomerIds.size,
+    upsell_customers_count: upsellCustomerIds.size,
+    upsell_rate_pct: toRate(upsellAppointmentsCount, rateDenominator),
+    matched_product_categories: [...matchedProductCategories].sort(),
+  };
+}
+
+function analyzeRevenueMixRows(rows = []) {
+  const appointments = new Map();
+  const matchedProductCategories = new Set();
+
+  for (const row of rows) {
+    const appointmentId = normalizeText(row.appointment_id);
+    if (!appointmentId) continue;
+    if (!appointments.has(appointmentId)) {
+      appointments.set(appointmentId, {
+        addons_total_thb: toMoney(row.addons_total_thb),
+        receipt_total_amount_thb:
+          row.receipt_total_amount_thb === null || row.receipt_total_amount_thb === undefined
+            ? null
+            : toMoney(row.receipt_total_amount_thb),
+        has_product: false,
+        has_service: false,
+        has_unknown: false,
+        has_topping_rows: false,
+      });
+    }
+
+    const target = appointments.get(appointmentId);
+    target.addons_total_thb = toMoney(row.addons_total_thb);
+    target.receipt_total_amount_thb =
+      row.receipt_total_amount_thb === null || row.receipt_total_amount_thb === undefined
+        ? null
+        : toMoney(row.receipt_total_amount_thb);
+
+    if (!normalizeText(row.topping_code)) continue;
+    target.has_topping_rows = true;
+    const categoryKind = classifyToppingCategory(row.topping_category);
+    if (categoryKind === 'product') {
+      target.has_product = true;
+      matchedProductCategories.add(normalizeCategoryToken(row.topping_category) || row.topping_category);
+      continue;
+    }
+    if (categoryKind === 'service') {
+      target.has_service = true;
+      continue;
+    }
+    target.has_unknown = true;
+  }
+
+  let classifiableReceiptCount = 0;
+  let ambiguousReceiptCount = 0;
+  let serviceRevenueThb = 0;
+  let productRevenueThb = 0;
+  let totalReceiptRevenueThb = 0;
+  let ambiguousReceiptRevenueThb = 0;
+
+  for (const appointment of appointments.values()) {
+    const receiptTotal = toMoney(appointment.receipt_total_amount_thb);
+    totalReceiptRevenueThb += receiptTotal;
+
+    const candidateProductRevenue = appointment.has_product ? toMoney(appointment.addons_total_thb) : 0;
+    const isAmbiguous =
+      appointment.receipt_total_amount_thb === null ||
+      (appointment.addons_total_thb > 0 && !appointment.has_topping_rows) ||
+      (appointment.addons_total_thb > 0 && appointment.has_unknown) ||
+      (appointment.addons_total_thb > 0 && appointment.has_product && appointment.has_service) ||
+      candidateProductRevenue > receiptTotal;
+
+    if (isAmbiguous) {
+      ambiguousReceiptCount += 1;
+      ambiguousReceiptRevenueThb += receiptTotal;
+      continue;
+    }
+
+    classifiableReceiptCount += 1;
+    productRevenueThb += candidateProductRevenue;
+    serviceRevenueThb += Math.max(receiptTotal - candidateProductRevenue, 0);
+  }
+
+  const classifiedRevenueThb = serviceRevenueThb + productRevenueThb;
+  return {
+    receipt_count: appointments.size,
+    classifiable_receipt_count: classifiableReceiptCount,
+    ambiguous_receipt_count: ambiguousReceiptCount,
+    service_revenue_thb: toMoney(serviceRevenueThb),
+    product_revenue_thb: toMoney(productRevenueThb),
+    classified_revenue_thb: toMoney(classifiedRevenueThb),
+    total_receipt_revenue_thb: toMoney(totalReceiptRevenueThb),
+    ambiguous_receipt_revenue_thb: toMoney(ambiguousReceiptRevenueThb),
+    service_revenue_pct: toRate(serviceRevenueThb, classifiedRevenueThb),
+    product_revenue_pct: toRate(productRevenueThb, classifiedRevenueThb),
+    matched_product_categories: [...matchedProductCategories].sort(),
+  };
+}
+
+async function buildFreeScanConversionSection(queryFn, period, capabilities) {
+  const title = 'Free facial scan conversion';
+  const dataSource = [];
+  const joins = [];
+  const sourceExpressions = [];
+  const assumptions = [
+    'นับเฉพาะลูกค้าที่มี source/channel metadata ซึ่งมีคำเกี่ยวกับ free/skin/facial/scan อย่างชัดเจน',
+    'กลุ่มที่ถือว่า convert คือ customer ที่มี customer_packages.purchased_at อยู่ในเดือนเดียวกันตามเวลา Asia/Bangkok',
+  ];
+
+  if (hasColumn(capabilities, 'appointments', 'source')) {
+    dataSource.push('appointments.source');
+    sourceExpressions.push("NULLIF(a.source, '')");
+  }
+
+  const canJoinDrafts = hasColumn(capabilities, 'appointment_drafts', 'submitted_appointment_id');
+  if (canJoinDrafts) {
+    joins.push('LEFT JOIN appointment_drafts ad ON ad.submitted_appointment_id = a.id');
+    if (hasColumn(capabilities, 'appointment_drafts', 'source')) {
+      dataSource.push('appointment_drafts.source');
+      sourceExpressions.push("NULLIF(ad.source, '')");
+    }
+    if (hasJsonbColumn(capabilities, 'appointment_drafts', 'flow_metadata')) {
+      dataSource.push('appointment_drafts.flow_metadata.booking_channel');
+      dataSource.push('appointment_drafts.flow_metadata.campaign_code');
+      dataSource.push('appointment_drafts.flow_metadata.source');
+      sourceExpressions.push("NULLIF(ad.flow_metadata->>'booking_channel', '')");
+      sourceExpressions.push("NULLIF(ad.flow_metadata->>'campaign_code', '')");
+      sourceExpressions.push("NULLIF(ad.flow_metadata->>'source', '')");
+    }
+  }
+
+  const canJoinReceipts = hasColumn(capabilities, 'appointment_receipts', 'appointment_id');
+  if (canJoinReceipts && hasJsonbColumn(capabilities, 'appointment_receipts', 'verification_metadata')) {
+    joins.push('LEFT JOIN appointment_receipts ar ON ar.appointment_id = a.id');
+    dataSource.push('appointment_receipts.verification_metadata.booking_channel');
+    dataSource.push('appointment_receipts.verification_metadata.campaign_code');
+    dataSource.push('appointment_receipts.verification_metadata.source');
+    sourceExpressions.push("NULLIF(ar.verification_metadata->>'booking_channel', '')");
+    sourceExpressions.push("NULLIF(ar.verification_metadata->>'campaign_code', '')");
+    sourceExpressions.push("NULLIF(ar.verification_metadata->>'source', '')");
+  }
+
+  if (!sourceExpressions.length) {
+    return buildTopicSection({
+      status: 'unavailable',
+      title,
+      summary: 'ยังคำนวณไม่ได้อย่างโปร่งใส',
+      explanation:
+        'schema ปัจจุบันยังไม่มี field source/channel/metadata ที่ใช้ระบุ free facial scan ได้โดยตรง',
+      assumptions,
+      dataSource,
+      missingRequirements: [
+        'appointments.source หรือ appointment_drafts.source/flow_metadata หรือ appointment_receipts.verification_metadata ที่ระบุ free scan โดยตรง',
+      ],
+    });
+  }
+
+  const result = await queryFn(
+    `
+      WITH free_scan_appointments AS (
+        SELECT DISTINCT
+          a.id AS appointment_id,
+          a.customer_id,
+          LOWER(TRIM(signal.raw_signal)) AS normalized_signal
+        FROM appointments a
+        LEFT JOIN customers c ON c.id = a.customer_id
+        ${joins.join('\n')}
+        LEFT JOIN LATERAL UNNEST(ARRAY_REMOVE(ARRAY[${sourceExpressions.join(', ')}], NULL))
+          AS signal(raw_signal) ON true
+        WHERE DATE(a.scheduled_at AT TIME ZONE 'Asia/Bangkok') BETWEEN $1 AND $2
+          AND NOT (
+            COALESCE(c.full_name, '') ~* $3
+            OR COALESCE(a.line_user_id, '') ~* $3
+          )
+          AND COALESCE(TRIM(signal.raw_signal), '') <> ''
+          AND LOWER(TRIM(signal.raw_signal)) ~* $4
+      ),
+      monthly_buyers AS (
+        SELECT DISTINCT cp.customer_id
+        FROM customer_packages cp
+        LEFT JOIN customers c ON c.id = cp.customer_id
+        WHERE DATE(cp.purchased_at AT TIME ZONE 'Asia/Bangkok') BETWEEN $1 AND $2
+          AND NOT (COALESCE(c.full_name, '') ~* $3)
+      )
+      SELECT
+        COUNT(DISTINCT fsa.appointment_id)::int AS free_scan_appointments_count,
+        COUNT(DISTINCT fsa.customer_id)::int AS source_customer_count,
+        COUNT(DISTINCT CASE WHEN mb.customer_id IS NOT NULL THEN fsa.customer_id END)::int AS converted_customer_count,
+        COALESCE(
+          ARRAY_AGG(DISTINCT fsa.normalized_signal)
+            FILTER (WHERE fsa.normalized_signal IS NOT NULL),
+          ARRAY[]::text[]
+        ) AS matched_signals
+      FROM free_scan_appointments fsa
+      LEFT JOIN monthly_buyers mb ON mb.customer_id = fsa.customer_id
+    `,
+    [period.start_date, period.end_date, TEST_RECORD_REGEX_SQL, FREE_SCAN_SIGNAL_REGEX_SQL]
+  );
+
+  const row = result.rows?.[0] || {};
+  const sourceCustomerCount = toInt(row.source_customer_count);
+  const convertedCustomerCount = toInt(row.converted_customer_count);
+  const freeScanAppointmentsCount = toInt(row.free_scan_appointments_count);
+  const conversionRatePct = toRate(convertedCustomerCount, sourceCustomerCount);
+  const matchedSignals = Array.isArray(row.matched_signals) ? uniqueTextList(row.matched_signals) : [];
+  const summary =
+    sourceCustomerCount > 0
+      ? `${conversionRatePct}% ของลูกค้ากลุ่ม free scan ซื้อคอร์สในเดือนนี้ (${convertedCustomerCount}/${sourceCustomerCount} คน)`
+      : 'ยังไม่พบลูกค้าที่มี source free facial scan ชัดเจนในเดือนที่เลือก';
+
+  return buildTopicSection({
+    status: 'available',
+    title,
+    value: conversionRatePct,
+    summary,
+    explanation:
+      'วัดจาก customer ที่มี source/channel metadata ระบุ free scan อย่างชัดเจน และตรวจว่ามีการซื้อคอร์สในเดือนเดียวกันหรือไม่',
+    assumptions,
+    dataSource,
+    extra: {
+      free_scan_appointments_count: freeScanAppointmentsCount,
+      source_customer_count: sourceCustomerCount,
+      converted_customer_count: convertedCustomerCount,
+      conversion_rate_pct: conversionRatePct,
+      matched_signals: matchedSignals,
+    },
+  });
+}
+
+async function buildUpsellConversionSection(queryFn, period, capabilities) {
+  const title = 'Upsell conversion to skincare / products';
+  const assumptions = [
+    'นับเฉพาะ appointment สถานะ completed ในเดือนที่เลือกตามเวลา Asia/Bangkok',
+    'ถือว่า topping.category ที่ระบุ product/skincare/retail อย่างชัดเจนคือ product upsell',
+  ];
+  const dataSource = ['appointments.selected_toppings', 'toppings.code', 'toppings.category'];
+  const missingRequirements = [];
+
+  if (!hasJsonbColumn(capabilities, 'appointments', 'selected_toppings')) {
+    missingRequirements.push('appointments.selected_toppings (jsonb)');
+  }
+  if (!hasColumn(capabilities, 'toppings', 'code')) {
+    missingRequirements.push('toppings.code');
+  }
+  if (!hasColumn(capabilities, 'toppings', 'category')) {
+    missingRequirements.push('toppings.category ที่ระบุ product/skincare/service อย่างชัดเจน');
+  }
+
+  if (missingRequirements.length > 0) {
+    return buildTopicSection({
+      status: 'unavailable',
+      title,
+      summary: 'ยังคำนวณไม่ได้อย่างโปร่งใส',
+      explanation:
+        'schema ปัจจุบันยังไม่มี line item / category ที่พอจะแยกได้ว่า appointment ใดมี product upsell อย่างชัดเจน',
+      assumptions,
+      dataSource,
+      missingRequirements,
+    });
+  }
+
+  const rows = await fetchAppointmentAddonRows(queryFn, period, {
+    requireReceipts: false,
+    completedOnly: true,
+  });
+  const analysis = analyzeUpsellRows(rows);
+  const hasAmbiguity = analysis.ambiguous_appointments_count > 0;
+  const rateDenominator = hasAmbiguity
+    ? analysis.classified_appointments_count
+    : analysis.eligible_appointments_count;
+  const status = hasAmbiguity ? 'fallback' : 'available';
+  const summary =
+    rateDenominator > 0
+      ? hasAmbiguity
+        ? `${analysis.upsell_rate_pct}% ของนัดหมายที่จัดหมวดหมู่ topping ได้มี product upsell (${analysis.upsell_appointments_count}/${rateDenominator} นัด)`
+        : `${analysis.upsell_rate_pct}% ของนัดหมายที่สำเร็จมี product upsell (${analysis.upsell_appointments_count}/${rateDenominator} นัด)`
+      : 'ยังไม่พบนัดหมาย completed ในเดือนที่เลือก';
+  const explanation = hasAmbiguity
+    ? `ยังมี ${analysis.ambiguous_appointments_count} นัดที่มี topping/add-on แต่ category ไม่ชัดพอ จึงคำนวณได้เฉพาะนัดที่จัดหมวดหมู่ได้`
+    : 'ใช้ selected_toppings ของ appointment และ map กับ toppings.category เพื่อวัดว่า visit ไหนมี product/skincare add-on';
+
+  return buildTopicSection({
+    status,
+    title,
+    value: analysis.upsell_rate_pct,
+    summary,
+    explanation,
+    assumptions,
+    dataSource,
+    extra: {
+      eligible_appointments_count: analysis.eligible_appointments_count,
+      classified_appointments_count: analysis.classified_appointments_count,
+      ambiguous_appointments_count: analysis.ambiguous_appointments_count,
+      upsell_appointments_count: analysis.upsell_appointments_count,
+      eligible_customers_count: analysis.eligible_customers_count,
+      upsell_customers_count: analysis.upsell_customers_count,
+      upsell_rate_pct: analysis.upsell_rate_pct,
+      matched_product_categories: analysis.matched_product_categories,
+    },
+  });
+}
+
+async function buildRevenueMixSection(queryFn, period, capabilities, receiptFallbackResult) {
+  const title = 'Revenue mix (service vs product)';
+  const fallback = receiptFallbackResult?.ok ? receiptFallbackResult.data : null;
+  const assumptions = [
+    'นับเฉพาะ appointment_receipts ที่ผูกกับ appointment ในเดือนที่เลือกตามเวลา Asia/Bangkok',
+    'ถือว่า appointments.addons_total_thb คือมูลค่า add-on ที่บันทึกไว้ใน canonical appointment flow ปัจจุบัน',
+    'นับเป็น product revenue เฉพาะ add-on ที่ toppings.category ระบุ product/skincare/retail อย่างชัดเจน',
+  ];
+  const dataSource = [
+    'appointment_receipts.total_amount_thb',
+    'appointments.addons_total_thb',
+    'appointments.selected_toppings',
+    'toppings.code',
+    'toppings.category',
+  ];
+  const missingRequirements = [];
+
+  if (!hasColumn(capabilities, 'appointment_receipts', 'appointment_id')) {
+    missingRequirements.push('appointment_receipts.appointment_id');
+  }
+  if (!hasColumn(capabilities, 'appointment_receipts', 'total_amount_thb')) {
+    missingRequirements.push('appointment_receipts.total_amount_thb');
+  }
+  if (!hasJsonbColumn(capabilities, 'appointments', 'selected_toppings')) {
+    missingRequirements.push('appointments.selected_toppings (jsonb)');
+  }
+  if (!hasColumn(capabilities, 'appointments', 'addons_total_thb')) {
+    missingRequirements.push('appointments.addons_total_thb');
+  }
+  if (!hasColumn(capabilities, 'toppings', 'code')) {
+    missingRequirements.push('toppings.code');
+  }
+  if (!hasColumn(capabilities, 'toppings', 'category')) {
+    missingRequirements.push('toppings.category ที่ระบุ product/skincare/service อย่างชัดเจน');
+  }
+
+  if (missingRequirements.length > 0) {
+    return buildTopicSection({
+      status: fallback ? 'fallback' : 'unavailable',
+      title,
+      value: null,
+      summary: fallback
+        ? `ยังแยก service/product ไม่ได้ แต่มีใบเสร็จรวม ${formatMoneyForSummary(fallback.receipt_total_amount_thb)} จาก ${fallback.receipt_count} ใบ`
+        : 'ยังคำนวณไม่ได้อย่างโปร่งใส',
+      explanation: fallback
+        ? 'schema ยังไม่มี field พอจะแยก service revenue กับ product revenue อย่างสม่ำเสมอ จึงคงแสดงเฉพาะยอดรวมใบเสร็จ'
+        : 'schema ปัจจุบันยังไม่มีทั้งยอดใบเสร็จและ split field ที่พอใช้คำนวณ revenue mix แบบโปร่งใส',
+      assumptions,
+      dataSource,
+      missingRequirements,
+      fallback,
+    });
+  }
+
+  const rows = await fetchAppointmentAddonRows(queryFn, period, {
+    requireReceipts: true,
+    completedOnly: false,
+  });
+  const analysis = analyzeRevenueMixRows(rows);
+  const hasAmbiguity = analysis.ambiguous_receipt_count > 0;
+
+  if (analysis.receipt_count === 0) {
+    return buildTopicSection({
+      status: 'available',
+      title,
+      value: {
+        service_revenue_thb: 0,
+        product_revenue_thb: 0,
+        service_revenue_pct: 0,
+        product_revenue_pct: 0,
+      },
+      summary: 'ยังไม่พบใบเสร็จในเดือนที่เลือก',
+      explanation: 'เมื่อไม่มี appointment_receipts ในเดือนนี้ dashboard จะแสดง revenue mix เป็นศูนย์',
+      assumptions,
+      dataSource,
+      fallback,
+      extra: analysis,
+    });
+  }
+
+  const status = hasAmbiguity ? 'fallback' : 'available';
+  const classifiableSummary =
+    analysis.classifiable_receipt_count > 0
+      ? `บริการ ${analysis.service_revenue_pct}% / สินค้า ${analysis.product_revenue_pct}% จากใบเสร็จที่แยกได้ ${analysis.classifiable_receipt_count} ใบ`
+      : 'ยังไม่มีใบเสร็จที่แยก service/product ได้ครบ';
+
+  return buildTopicSection({
+    status,
+    title,
+    value: {
+      service_revenue_thb: analysis.service_revenue_thb,
+      product_revenue_thb: analysis.product_revenue_thb,
+      service_revenue_pct: analysis.service_revenue_pct,
+      product_revenue_pct: analysis.product_revenue_pct,
+    },
+    summary: classifiableSummary,
+    explanation: hasAmbiguity
+      ? `ยังมี ${analysis.ambiguous_receipt_count} ใบเสร็จที่ split add-on ไม่ชัดเจน จึงคำนวณ revenue mix ได้เฉพาะส่วนที่จัดหมวดหมู่ได้`
+      : 'ใช้ยอดรวมใบเสร็จของ appointment หักมูลค่า product add-on ที่จัดหมวดหมู่ได้ เพื่อแยก service revenue กับ product revenue',
+    assumptions: [
+      ...assumptions,
+      'ยอดที่เหลือจาก appointment_receipts.total_amount_thb หลังหัก product add-on ถูกนับเป็น service revenue เฉพาะเมื่อ add-on ของใบนั้นจัดหมวดหมู่ได้ครบ',
+    ],
+    dataSource,
+    missingRequirements: hasAmbiguity
+      ? [
+          'itemized receipt lines หรือ field แยกมูลค่า service/product ต่อใบเสร็จ เพื่อครอบคลุมใบที่ add-on ยังจัดหมวดหมู่ไม่ได้',
+        ]
+      : [],
+    fallback,
+    extra: analysis,
+  });
+}
+
+function formatMoneyForSummary(value) {
+  return new Intl.NumberFormat('th-TH', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(Number(value) || 0);
+}
+
 export async function getMonthlyKpiDashboardReport({
   month,
   now = new Date(),
@@ -652,6 +1333,71 @@ export async function getMonthlyKpiDashboardReport({
   }
 
   const period = resolveDashboardMonthRange(month, now);
+  const reportingCapabilitiesPromise = fetchReportingSchemaCapabilities(queryFn);
+  const appointmentOutcomePromise = readSectionSafely({
+    sectionKey: 'appointment_outcomes',
+    title: 'ภาพรวมสถานะนัดหมาย',
+    month: period.month,
+    run: async () => {
+      const [overview, dailyRows] = await Promise.all([
+        fetchAppointmentOverview(queryFn, period),
+        fetchDailyOutcomeRows(queryFn, period),
+      ]);
+      return {
+        overview,
+        daily_rows: dailyRows,
+      };
+    },
+  });
+  const courseSalesPromise = readSectionSafely({
+    sectionKey: 'course_sales_mix',
+    title: 'สัดส่วนยอดขายคอร์ส 399 / 999 / 2999',
+    month: period.month,
+    run: async () => fetchCourseSalesRows(queryFn, period),
+  });
+  const staffRowsPromise = readSectionSafely({
+    sectionKey: 'staff_utilization',
+    title: 'การใช้กำลังคนพนักงาน',
+    month: period.month,
+    run: async () => fetchStaffPerformanceRows(queryFn, period),
+  });
+  const courseRedemptionPromise = readSectionSafely({
+    sectionKey: 'course_redemption',
+    title: 'การตัดคอร์ส / การปิดคอร์ส',
+    month: period.month,
+    run: async () => fetchCourseRedemptionSummary(queryFn, period),
+  });
+  const repurchasePromise = readSectionSafely({
+    sectionKey: 'repurchase',
+    title: 'การต่อคอร์ส / ซื้อซ้ำ',
+    month: period.month,
+    run: async () => fetchRepurchaseSummary(queryFn, period),
+  });
+  const receiptFallbackPromise = readSectionSafely({
+    sectionKey: 'revenue_mix_receipt_fallback',
+    title: 'ข้อมูลทดแทนจากใบเสร็จ',
+    month: period.month,
+    run: async () => fetchReceiptFallbackSummary(queryFn, period),
+  });
+  const freeScanPromise = readSectionSafely({
+    sectionKey: 'free_scan_conversion',
+    title: 'Free facial scan conversion',
+    month: period.month,
+    run: async () => buildFreeScanConversionSection(queryFn, period, await reportingCapabilitiesPromise),
+  });
+  const upsellPromise = readSectionSafely({
+    sectionKey: 'upsell_conversion',
+    title: 'Upsell conversion to skincare / products',
+    month: period.month,
+    run: async () => buildUpsellConversionSection(queryFn, period, await reportingCapabilitiesPromise),
+  });
+  const revenueMixPromise = readSectionSafely({
+    sectionKey: 'revenue_mix',
+    title: 'Revenue mix (service vs product)',
+    month: period.month,
+    run: async () =>
+      buildRevenueMixSection(queryFn, period, await reportingCapabilitiesPromise, await receiptFallbackPromise),
+  });
   const [
     appointmentOutcomeResult,
     courseSalesMixResult,
@@ -659,52 +1405,19 @@ export async function getMonthlyKpiDashboardReport({
     courseRedemptionResult,
     repurchaseResult,
     receiptFallbackResult,
+    freeScanResult,
+    upsellResult,
+    revenueMixResult,
   ] = await Promise.all([
-    readSectionSafely({
-      sectionKey: 'appointment_outcomes',
-      title: 'ภาพรวมสถานะนัดหมาย',
-      month: period.month,
-      run: async () => {
-        const [overview, dailyRows] = await Promise.all([
-          fetchAppointmentOverview(queryFn, period),
-          fetchDailyOutcomeRows(queryFn, period),
-        ]);
-        return {
-          overview,
-          daily_rows: dailyRows,
-        };
-      },
-    }),
-    readSectionSafely({
-      sectionKey: 'course_sales_mix',
-      title: 'สัดส่วนยอดขายคอร์ส 399 / 999 / 2999',
-      month: period.month,
-      run: async () => fetchCourseSalesRows(queryFn, period),
-    }),
-    readSectionSafely({
-      sectionKey: 'staff_utilization',
-      title: 'การใช้กำลังคนพนักงาน',
-      month: period.month,
-      run: async () => fetchStaffPerformanceRows(queryFn, period),
-    }),
-    readSectionSafely({
-      sectionKey: 'course_redemption',
-      title: 'การตัดคอร์ส / การปิดคอร์ส',
-      month: period.month,
-      run: async () => fetchCourseRedemptionSummary(queryFn, period),
-    }),
-    readSectionSafely({
-      sectionKey: 'repurchase',
-      title: 'การต่อคอร์ส / ซื้อซ้ำ',
-      month: period.month,
-      run: async () => fetchRepurchaseSummary(queryFn, period),
-    }),
-    readSectionSafely({
-      sectionKey: 'revenue_mix_receipt_fallback',
-      title: 'ข้อมูลทดแทนจากใบเสร็จ',
-      month: period.month,
-      run: async () => fetchReceiptFallbackSummary(queryFn, period),
-    }),
+    appointmentOutcomePromise,
+    courseSalesPromise,
+    staffRowsPromise,
+    courseRedemptionPromise,
+    repurchasePromise,
+    receiptFallbackPromise,
+    freeScanPromise,
+    upsellPromise,
+    revenueMixPromise,
   ]);
 
   const warnings = [
@@ -714,12 +1427,14 @@ export async function getMonthlyKpiDashboardReport({
     courseRedemptionResult.warning,
     repurchaseResult.warning,
     receiptFallbackResult.warning,
+    freeScanResult.warning,
+    upsellResult.warning,
+    revenueMixResult.warning,
   ].filter(Boolean);
 
   const appointmentOverview = appointmentOutcomeResult.data?.overview || null;
   const dailyOutcomeRows = appointmentOutcomeResult.data?.daily_rows || [];
   const staffRows = staffRowsResult.data || [];
-  const receiptFallback = receiptFallbackResult.data || null;
 
   const appointmentSection = appointmentOutcomeResult.ok
     ? {
@@ -792,9 +1507,42 @@ export async function getMonthlyKpiDashboardReport({
         ...buildRecoverableSectionReason(repurchaseResult.error),
       });
 
-  const revenueMixFallbackNote = receiptFallbackResult.ok
-    ? null
-    : buildRecoverableSectionReason(receiptFallbackResult.error).reason;
+  const freeScanSection = freeScanResult.ok
+    ? freeScanResult.data
+    : buildTopicSection({
+        status: 'unavailable',
+        title: freeScanResult.title,
+        summary: 'ยังคำนวณไม่ได้อย่างโปร่งใส',
+        explanation: buildRecoverableSectionReason(freeScanResult.error).reason,
+        extra: {
+          note: buildRecoverableSectionReason(freeScanResult.error).note,
+        },
+      });
+
+  const upsellSection = upsellResult.ok
+    ? upsellResult.data
+    : buildTopicSection({
+        status: 'unavailable',
+        title: upsellResult.title,
+        summary: 'ยังคำนวณไม่ได้อย่างโปร่งใส',
+        explanation: buildRecoverableSectionReason(upsellResult.error).reason,
+        extra: {
+          note: buildRecoverableSectionReason(upsellResult.error).note,
+        },
+      });
+
+  const revenueMixSection = revenueMixResult.ok
+    ? revenueMixResult.data
+    : buildTopicSection({
+        status: 'unavailable',
+        title: revenueMixResult.title,
+        summary: 'ยังคำนวณไม่ได้อย่างโปร่งใส',
+        explanation: buildRecoverableSectionReason(revenueMixResult.error).reason,
+        fallback: receiptFallbackResult.ok ? receiptFallbackResult.data : null,
+        extra: {
+          note: buildRecoverableSectionReason(revenueMixResult.error).note,
+        },
+      });
 
   const summaryCards = [
     appointmentOutcomeResult.ok
@@ -870,8 +1618,12 @@ export async function getMonthlyKpiDashboardReport({
     buildCard({
       id: 'free_scan_conversion',
       label: 'แปลงจากสแกนผิวฟรี',
-      availability: 'unavailable',
-      reason: 'ยังไม่มี field หรือ source ที่ระบุ free facial scan และผลลัพธ์การแปลงได้อย่างเชื่อถือได้ใน schema ปัจจุบัน',
+      value:
+        freeScanSection.status === 'available' ? freeScanSection.conversion_rate_pct ?? freeScanSection.value : null,
+      unit: freeScanSection.status === 'available' ? '%' : '',
+      availability: mapTopicStatusToCardAvailability(freeScanSection.status),
+      reason: freeScanSection.explanation || freeScanSection.reason || '',
+      note: freeScanSection.summary || freeScanSection.note || '',
     }),
   ];
 
@@ -884,23 +1636,9 @@ export async function getMonthlyKpiDashboardReport({
       course_sales_mix: courseSalesSection,
       staff_utilization: staffUtilizationSection,
       no_show_cancellation: noShowCancellationSection,
-      free_scan_conversion: buildNoDataSection({
-        title: 'Free facial scan conversion',
-        reason:
-          'ยังไม่มีตาราง lead/source หรือ field ที่บอกชัดว่า appointment/customer รายใดมาจาก free facial scan จึงยังคำนวณ conversion funnel นี้ไม่ได้อย่างโปร่งใส',
-      }),
-      upsell_conversion: buildNoDataSection({
-        title: 'Upsell conversion to skincare / products',
-        reason:
-          'ยังไม่มีตารางขายสินค้าแยกรายการหรือ field ที่บอกว่าใบเสร็จนี้มีการ upsell ผลิตภัณฑ์ จึงยังคำนวณ product upsell conversion ไม่ได้',
-      }),
-      revenue_mix: buildNoDataSection({
-        title: 'Revenue mix (service vs product)',
-        reason:
-          'appointment_receipts มีเพียง total_amount_thb ระดับใบเสร็จ แต่ยังไม่มี itemized split ว่าเป็นรายได้บริการหรือรายได้สินค้า',
-        fallback: receiptFallback,
-        note: revenueMixFallbackNote,
-      }),
+      free_scan_conversion: freeScanSection,
+      upsell_conversion: upsellSection,
+      revenue_mix: revenueMixSection,
       course_redemption: courseRedemptionSection,
       repurchase: repurchaseSection,
     },

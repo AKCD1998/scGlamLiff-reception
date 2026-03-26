@@ -62,7 +62,7 @@ body[data-theme="dark"] {
 
 .workbench-body {
   display: grid;
-  grid-template-columns: 340px 1fr;
+  grid-template-rows: 340px 1fr;
   gap: 24px;
   margin-top: 24px;
 }

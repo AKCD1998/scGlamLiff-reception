@@ -96,7 +96,7 @@ describe("KpiDashboardPage", () => {
   });
 
   it("loads and renders monthly KPI data", async () => {
-    render(<KpiDashboardPage />);
+    const { container } = render(<KpiDashboardPage />);
 
     expect(screen.getByText(/สรุปผลรายเดือนสำหรับประชุมทีม/i)).toBeInTheDocument();
 
@@ -108,7 +108,12 @@ describe("KpiDashboardPage", () => {
     expect(screen.getAllByText(/มีนาคม 2569/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Smooth 3 ครั้ง 999/i)).toBeInTheDocument();
     expect(screen.getAllByText(/37.5%/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/ยังคำนวณไม่ได้อย่างโปร่งใส/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/ไม่มีข้อมูล scan/i)).toBeInTheDocument();
+    expect(screen.getByText(/ไม่มีข้อมูล upsell/i)).toBeInTheDocument();
+    expect(screen.getByText(/ไม่มี itemized split/i)).toBeInTheDocument();
+    expect(container.querySelectorAll(".kpi-summary-grid .kpi-summary-card")).toHaveLength(1);
+    expect(container.querySelector(".kpi-dashboard-footer .kpi-assumptions-panel")).not.toBeNull();
+    expect(screen.getAllByText(/แปลงจากสแกนผิวฟรี/i)).toHaveLength(1);
   });
 
   it("shows API error message when load fails", async () => {
