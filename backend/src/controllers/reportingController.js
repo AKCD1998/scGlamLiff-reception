@@ -9,7 +9,9 @@ function normalizeText(value) {
 export async function getMonthlyKpiDashboard(req, res) {
   try {
     const report = await getMonthlyKpiDashboardReport({
+      scope: req.query?.scope,
       month: req.query?.month,
+      year: req.query?.year,
       queryFn: query,
     });
     return res.json({ ok: true, report });

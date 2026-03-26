@@ -1,4 +1,6 @@
 const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
+const YEAR_PATTERN = /^\d{4}$/;
+const DASHBOARD_SCOPE_VALUES = new Set(['month', 'year', 'all']);
 const REPORT_ERROR_CODE_MAP = {
   '42P01': 'missing_relation',
   '42703': 'missing_column',
@@ -17,6 +19,20 @@ const THAI_MONTHS = [
   'ตุลาคม',
   'พฤศจิกายน',
   'ธันวาคม',
+];
+const THAI_MONTHS_SHORT = [
+  'ม.ค.',
+  'ก.พ.',
+  'มี.ค.',
+  'เม.ย.',
+  'พ.ค.',
+  'มิ.ย.',
+  'ก.ค.',
+  'ส.ค.',
+  'ก.ย.',
+  'ต.ค.',
+  'พ.ย.',
+  'ธ.ค.',
 ];
 const TEST_RECORD_REGEX_SQL = '^(e2e_|e2e_workflow_|verify-)';
 const FREE_SCAN_SIGNAL_REGEX_SQL =
@@ -84,6 +100,56 @@ function toThaiMonthLabel(month) {
   const [year, monthNumber] = String(month).split('-').map((part) => Number.parseInt(part, 10));
   const monthIndex = monthNumber - 1;
   return `${THAI_MONTHS[monthIndex] || month} ${year + 543}`;
+}
+
+function toThaiYearLabel(year) {
+  const parsed = Number.parseInt(String(year), 10);
+  if (!Number.isFinite(parsed)) return String(year || '');
+  return `ปี ${parsed + 543}`;
+}
+
+function toThaiShortMonthLabel(month) {
+  const [yearText, monthText] = String(month).split('-');
+  const monthNumber = Number.parseInt(monthText, 10);
+  const year = Number.parseInt(yearText, 10);
+  const monthIndex = monthNumber - 1;
+  if (!Number.isFinite(monthIndex) || monthIndex < 0 || monthIndex >= THAI_MONTHS_SHORT.length) {
+    return String(month || '');
+  }
+  if (!Number.isFinite(year)) {
+    return THAI_MONTHS_SHORT[monthIndex];
+  }
+  return `${THAI_MONTHS_SHORT[monthIndex]} ${String(year + 543).slice(-2)}`;
+}
+
+function toBangkokDateKey(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Bangkok',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = formatter.formatToParts(date);
+  const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${lookup.year}-${lookup.month}-${lookup.day}`;
+}
+
+function toDateKey(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return toBangkokDateKey(value);
+  }
+
+  const text = normalizeText(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text;
+  }
+
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) {
+    return toBangkokDateKey(parsed);
+  }
+
+  return text;
 }
 
 function uniqueTextList(values = []) {
@@ -230,9 +296,120 @@ export function resolveDashboardMonthRange(rawMonth, now = new Date()) {
   return {
     month,
     month_label_th: toThaiMonthLabel(month),
+    label_th: toThaiMonthLabel(month),
+    note_th: 'ข้อมูลอิงเดือนจากเวลา Asia/Bangkok',
+    scope: 'month',
+    timeline_granularity: 'day',
     start_date: startDate,
     end_date: endDate,
   };
+}
+
+export function resolveDashboardYearRange(rawYear, now = new Date()) {
+  const fallbackYear = String(now.getFullYear());
+  const year = normalizeText(rawYear) || fallbackYear;
+
+  if (!YEAR_PATTERN.test(year)) {
+    throw badRequest('year must use YYYY format', {
+      param: 'year',
+      provided: year,
+      expected: 'YYYY',
+    });
+  }
+
+  return {
+    year,
+    year_label_th: toThaiYearLabel(year),
+    label_th: toThaiYearLabel(year),
+    note_th: 'ข้อมูลรวมทั้งปีจากเวลา Asia/Bangkok',
+    scope: 'year',
+    timeline_granularity: 'month',
+    start_date: `${year}-01-01`,
+    end_date: `${year}-12-31`,
+  };
+}
+
+async function resolveDashboardAllTimeRange(queryFn, now = new Date()) {
+  if (typeof queryFn !== 'function') {
+    throw new Error('queryFn is required to resolve all-time KPI scope');
+  }
+
+  const result = await queryFn(
+    `
+      SELECT MIN(source_date)::date AS start_date
+      FROM (
+        SELECT MIN(DATE(a.scheduled_at AT TIME ZONE 'Asia/Bangkok')) AS source_date
+        FROM appointments a
+        LEFT JOIN customers c ON c.id = a.customer_id
+        WHERE NOT (
+          COALESCE(c.full_name, '') ~* $1
+          OR COALESCE(a.line_user_id, '') ~* $1
+        )
+
+        UNION ALL
+
+        SELECT MIN(DATE(cp.purchased_at AT TIME ZONE 'Asia/Bangkok')) AS source_date
+        FROM customer_packages cp
+        LEFT JOIN customers c ON c.id = cp.customer_id
+        WHERE NOT (COALESCE(c.full_name, '') ~* $1)
+
+        UNION ALL
+
+        SELECT MIN(DATE(pu.used_at AT TIME ZONE 'Asia/Bangkok')) AS source_date
+        FROM package_usages pu
+        JOIN customer_packages cp ON cp.id = pu.customer_package_id
+        LEFT JOIN customers c ON c.id = cp.customer_id
+        WHERE NOT (COALESCE(c.full_name, '') ~* $1)
+      ) source_dates
+      WHERE source_date IS NOT NULL
+    `,
+    [TEST_RECORD_REGEX_SQL]
+  );
+
+  const todayBangkok = toBangkokDateKey(now);
+  const startDate = toDateKey(result.rows?.[0]?.start_date) || todayBangkok;
+
+  return {
+    label_th: 'ภาพรวมทั้งหมด',
+    note_th: `ข้อมูลสะสมตั้งแต่ ${startDate} ถึง ${todayBangkok} ตามเวลา Asia/Bangkok`,
+    scope: 'all',
+    timeline_granularity: 'month',
+    start_date: startDate,
+    end_date: todayBangkok,
+  };
+}
+
+export async function resolveDashboardPeriod({ scope, month, year, now = new Date(), queryFn } = {}) {
+  const normalizedScope = normalizeText(scope).toLowerCase() || 'month';
+
+  if (!DASHBOARD_SCOPE_VALUES.has(normalizedScope)) {
+    throw badRequest('scope must be one of month, year, all', {
+      param: 'scope',
+      provided: scope,
+      expected: 'month | year | all',
+    });
+  }
+
+  if (normalizedScope === 'year') {
+    return resolveDashboardYearRange(year, now);
+  }
+
+  if (normalizedScope === 'all') {
+    return resolveDashboardAllTimeRange(queryFn, now);
+  }
+
+  return resolveDashboardMonthRange(month, now);
+}
+
+function resolvePeriodBounds(period = {}) {
+  const startDate = normalizeText(period?.start_date || period?.startDate);
+  const endDate = normalizeText(period?.end_date || period?.endDate);
+
+  if (!startDate || !endDate) {
+    throw new Error('report period is missing start_date/end_date');
+  }
+
+  return { startDate, endDate };
 }
 
 function buildCard({
@@ -426,7 +603,8 @@ const STAFF_NAME_LATERAL_SQL = `
   ) staff_evt ON true
 `;
 
-async function fetchAppointmentOverview(queryFn, { startDate, endDate }) {
+async function fetchAppointmentOverview(queryFn, period) {
+  const { startDate, endDate } = resolvePeriodBounds(period);
   const result = await queryFn(
     `
       SELECT
@@ -472,11 +650,26 @@ async function fetchAppointmentOverview(queryFn, { startDate, endDate }) {
   };
 }
 
-async function fetchDailyOutcomeRows(queryFn, { startDate, endDate }) {
+function buildTimelineBucketLabel(bucketKey, { granularity = 'day', scope = 'month' } = {}) {
+  if (granularity === 'month') {
+    return scope === 'all' ? toThaiShortMonthLabel(bucketKey) : toThaiShortMonthLabel(bucketKey).replace(/ \d+$/, '');
+  }
+
+  return normalizeText(bucketKey).slice(-2) || bucketKey;
+}
+
+async function fetchDailyOutcomeRows(queryFn, period) {
+  const { startDate, endDate } = resolvePeriodBounds(period);
+  const granularity = normalizeText(period?.timeline_granularity).toLowerCase() === 'month' ? 'month' : 'day';
+  const bucketExpression =
+    granularity === 'month'
+      ? "DATE_TRUNC('month', a.scheduled_at AT TIME ZONE 'Asia/Bangkok')::date"
+      : "DATE(a.scheduled_at AT TIME ZONE 'Asia/Bangkok')";
+  const bucketFormat = granularity === 'month' ? 'YYYY-MM' : 'YYYY-MM-DD';
   const result = await queryFn(
     `
       SELECT
-        TO_CHAR(DATE(a.scheduled_at AT TIME ZONE 'Asia/Bangkok'), 'YYYY-MM-DD') AS report_date,
+        TO_CHAR(${bucketExpression}, '${bucketFormat}') AS report_date,
         COUNT(*)::int AS total_appointments,
         SUM(CASE WHEN LOWER(COALESCE(a.status, '')) = 'completed' THEN 1 ELSE 0 END)::int AS completed_count,
         SUM(
@@ -498,14 +691,18 @@ async function fetchDailyOutcomeRows(queryFn, { startDate, endDate }) {
           COALESCE(c.full_name, '') ~* $3
           OR COALESCE(a.line_user_id, '') ~* $3
         )
-      GROUP BY DATE(a.scheduled_at AT TIME ZONE 'Asia/Bangkok')
-      ORDER BY DATE(a.scheduled_at AT TIME ZONE 'Asia/Bangkok') ASC
+      GROUP BY ${bucketExpression}
+      ORDER BY ${bucketExpression} ASC
     `,
     [startDate, endDate, TEST_RECORD_REGEX_SQL]
   );
 
   return (result.rows || []).map((row) => ({
     date: normalizeText(row.report_date),
+    label: buildTimelineBucketLabel(normalizeText(row.report_date), {
+      granularity,
+      scope: normalizeText(period?.scope).toLowerCase() || 'month',
+    }),
     total_appointments: toInt(row.total_appointments),
     completed_count: toInt(row.completed_count),
     cancelled_count: toInt(row.cancelled_count),
@@ -513,7 +710,8 @@ async function fetchDailyOutcomeRows(queryFn, { startDate, endDate }) {
   }));
 }
 
-async function fetchCourseSalesRows(queryFn, { startDate, endDate }) {
+async function fetchCourseSalesRows(queryFn, period) {
+  const { startDate, endDate } = resolvePeriodBounds(period);
   const result = await queryFn(
     `
       SELECT
@@ -585,7 +783,8 @@ async function fetchCourseSalesRows(queryFn, { startDate, endDate }) {
   };
 }
 
-async function fetchStaffPerformanceRows(queryFn, { startDate, endDate }) {
+async function fetchStaffPerformanceRows(queryFn, period) {
+  const { startDate, endDate } = resolvePeriodBounds(period);
   const result = await queryFn(
     `
       SELECT
@@ -637,7 +836,8 @@ async function fetchStaffPerformanceRows(queryFn, { startDate, endDate }) {
   });
 }
 
-async function fetchCourseRedemptionSummary(queryFn, { startDate, endDate }) {
+async function fetchCourseRedemptionSummary(queryFn, period) {
+  const { startDate, endDate } = resolvePeriodBounds(period);
   const summaryResult = await queryFn(
     `
       SELECT
@@ -714,7 +914,8 @@ async function fetchCourseRedemptionSummary(queryFn, { startDate, endDate }) {
   };
 }
 
-async function fetchRepurchaseSummary(queryFn, { startDate, endDate }) {
+async function fetchRepurchaseSummary(queryFn, period) {
+  const { startDate, endDate } = resolvePeriodBounds(period);
   const result = await queryFn(
     `
       WITH monthly_buyers AS (
@@ -753,7 +954,8 @@ async function fetchRepurchaseSummary(queryFn, { startDate, endDate }) {
   };
 }
 
-async function fetchReceiptFallbackSummary(queryFn, { startDate, endDate }) {
+async function fetchReceiptFallbackSummary(queryFn, period) {
+  const { startDate, endDate } = resolvePeriodBounds(period);
   const result = await queryFn(
     `
       SELECT
@@ -780,9 +982,10 @@ async function fetchReceiptFallbackSummary(queryFn, { startDate, endDate }) {
 
 async function fetchAppointmentAddonRows(
   queryFn,
-  { startDate, endDate },
+  period,
   { requireReceipts = false, completedOnly = false } = {}
 ) {
+  const { startDate, endDate } = resolvePeriodBounds(period);
   const receiptSelect = requireReceipts
     ? ', ar.total_amount_thb AS receipt_total_amount_thb'
     : ', NULL::numeric(12, 2) AS receipt_total_amount_thb';
@@ -1324,7 +1527,9 @@ function formatMoneyForSummary(value) {
 }
 
 export async function getMonthlyKpiDashboardReport({
+  scope,
   month,
+  year,
   now = new Date(),
   queryFn,
 } = {}) {
@@ -1332,7 +1537,7 @@ export async function getMonthlyKpiDashboardReport({
     throw new Error('queryFn is required');
   }
 
-  const period = resolveDashboardMonthRange(month, now);
+  const period = await resolveDashboardPeriod({ scope, month, year, now, queryFn });
   const reportingCapabilitiesPromise = fetchReportingSchemaCapabilities(queryFn);
   const appointmentOutcomePromise = readSectionSafely({
     sectionKey: 'appointment_outcomes',

@@ -23,10 +23,12 @@ function buildApiError(res, data, fallbackMessage = "Server returned error") {
   return error;
 }
 
-export async function getMonthlyKpiDashboard({ month } = {}, signal) {
+export async function getMonthlyKpiDashboard({ scope, month, year } = {}, signal) {
   ensureConfig();
   const params = new URLSearchParams();
+  if (scope) params.set("scope", scope);
   if (month) params.set("month", month);
+  if (year) params.set("year", year);
   const suffix = params.toString();
   const url = `${apiBase}/api/reporting/kpi-dashboard${suffix ? `?${suffix}` : ""}`;
   const res = await fetch(url, {

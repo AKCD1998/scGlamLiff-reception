@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 
 import {
   getMonthlyKpiDashboardReport,
+  resolveDashboardPeriod,
   resolveDashboardMonthRange,
+  resolveDashboardYearRange,
 } from './monthlyKpiDashboardService.js';
 
 function capabilityRow(tableName, columnName, { dataType = 'text', udtName = 'text' } = {}) {
@@ -88,17 +90,26 @@ function createDashboardQueryFn({
     receipt_count: 2,
     receipt_total_amount_thb: 1500,
   },
+  allTimeStartRow = {
+    start_date: '2025-01-01',
+  },
   receiptFallbackError = null,
 } = {}) {
   const seenQueries = [];
+  const seenCalls = [];
 
-  const queryFn = async (sql) => {
+  const queryFn = async (sql, params = []) => {
     const text = String(sql || '');
     const normalized = text.toLowerCase();
     seenQueries.push(text);
+    seenCalls.push({ text, params });
 
     if (normalized.includes('from information_schema.columns')) {
       return { rows: capabilities };
+    }
+
+    if (normalized.includes('select min(source_date)::date as start_date')) {
+      return { rows: [allTimeStartRow] };
     }
 
     if (normalized.includes("to_char(date(a.scheduled_at at time zone 'asia/bangkok')")) {
@@ -113,6 +124,27 @@ function createDashboardQueryFn({
           },
           {
             report_date: '2026-03-02',
+            total_appointments: 12,
+            completed_count: 7,
+            cancelled_count: 2,
+            no_show_count: 1,
+          },
+        ],
+      };
+    }
+
+    if (normalized.includes("to_char(date_trunc('month', a.scheduled_at at time zone 'asia/bangkok')::date")) {
+      return {
+        rows: [
+          {
+            report_date: '2026-01',
+            total_appointments: 8,
+            completed_count: 5,
+            cancelled_count: 2,
+            no_show_count: 1,
+          },
+          {
+            report_date: '2026-02',
             total_appointments: 12,
             completed_count: 7,
             cancelled_count: 2,
@@ -245,7 +277,7 @@ function createDashboardQueryFn({
     throw new Error(`Unhandled query in test: ${normalized}`);
   };
 
-  return { queryFn, seenQueries };
+  return { queryFn, seenQueries, seenCalls };
 }
 
 test('resolveDashboardMonthRange validates explicit month', () => {
@@ -263,6 +295,15 @@ test('resolveDashboardMonthRange falls back to current month', () => {
   assert.equal(range.end_date, '2026-11-30');
 });
 
+test('resolveDashboardYearRange validates explicit year', () => {
+  const range = resolveDashboardYearRange('2026', new Date('2026-03-18T00:00:00.000Z'));
+  assert.equal(range.year, '2026');
+  assert.equal(range.start_date, '2026-01-01');
+  assert.equal(range.end_date, '2026-12-31');
+  assert.equal(range.label_th, 'ปี 2569');
+  assert.equal(range.timeline_granularity, 'month');
+});
+
 test('resolveDashboardMonthRange rejects invalid YYYY-MM values', () => {
   assert.throws(
     () => resolveDashboardMonthRange('2026-3', new Date('2026-03-18T00:00:00.000Z')),
@@ -270,8 +311,28 @@ test('resolveDashboardMonthRange rejects invalid YYYY-MM values', () => {
   );
 });
 
+test('resolveDashboardPeriod resolves all scope from earliest source date', async () => {
+  const { queryFn } = createDashboardQueryFn({
+    allTimeStartRow: {
+      start_date: new Date('2025-02-03T00:00:00+07:00'),
+    },
+  });
+
+  const range = await resolveDashboardPeriod({
+    scope: 'all',
+    now: new Date('2026-03-26T12:00:00.000Z'),
+    queryFn,
+  });
+
+  assert.equal(range.scope, 'all');
+  assert.equal(range.start_date, '2025-02-03');
+  assert.equal(range.end_date, '2026-03-26');
+  assert.equal(range.label_th, 'ภาพรวมทั้งหมด');
+  assert.equal(range.timeline_granularity, 'month');
+});
+
 test('getMonthlyKpiDashboardReport assembles read-only KPI payload with capability-driven topic metrics', async () => {
-  const { queryFn, seenQueries } = createDashboardQueryFn({
+  const { queryFn, seenQueries, seenCalls } = createDashboardQueryFn({
     freeScanRow: {
       free_scan_appointments_count: 0,
       source_customer_count: 0,
@@ -302,6 +363,13 @@ test('getMonthlyKpiDashboardReport assembles read-only KPI payload with capabili
   assert.equal(report.meta.partial, false);
   assert.equal(report.assumptions.length >= 4, true);
   assert.equal(seenQueries.some((text) => String(text).toLowerCase().includes('from information_schema.columns')), true);
+  const appointmentOverviewCall = seenCalls.find(
+    ({ text }) =>
+      String(text).toLowerCase().includes('count(*)::int as total_appointments') &&
+      String(text).toLowerCase().includes('from appointments a') &&
+      !String(text).toLowerCase().includes('group by')
+  );
+  assert.deepEqual(appointmentOverviewCall?.params, ['2026-03-01', '2026-03-31', '^(e2e_|e2e_workflow_|verify-)']);
   assert.equal(
     seenQueries.every((text) => {
       const normalized = String(text || '').trim().toLowerCase();
@@ -309,6 +377,31 @@ test('getMonthlyKpiDashboardReport assembles read-only KPI payload with capabili
     }),
     true
   );
+});
+
+test('getMonthlyKpiDashboardReport uses year scope boundaries and monthly timeline grouping', async () => {
+  const { queryFn, seenCalls } = createDashboardQueryFn();
+
+  const report = await getMonthlyKpiDashboardReport({
+    scope: 'year',
+    year: '2026',
+    now: new Date('2026-03-18T00:00:00.000Z'),
+    queryFn,
+  });
+
+  assert.equal(report.period.scope, 'year');
+  assert.equal(report.period.label_th, 'ปี 2569');
+  assert.equal(report.period.timeline_granularity, 'month');
+  assert.equal(report.sections.appointment_outcomes.daily_rows[0].date, '2026-01');
+  assert.equal(report.sections.appointment_outcomes.daily_rows[0].label, 'ม.ค.');
+
+  const appointmentOverviewCall = seenCalls.find(
+    ({ text }) =>
+      String(text).toLowerCase().includes('count(*)::int as total_appointments') &&
+      String(text).toLowerCase().includes('from appointments a') &&
+      !String(text).toLowerCase().includes('group by')
+  );
+  assert.deepEqual(appointmentOverviewCall?.params, ['2026-01-01', '2026-12-31', '^(e2e_|e2e_workflow_|verify-)']);
 });
 
 test('free_scan_conversion returns available metric when explicit scan source rows exist', async () => {

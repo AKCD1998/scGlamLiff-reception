@@ -6,8 +6,18 @@
   display: grid;
   grid-template-columns: 340px minmax(0, 1fr);
   grid-template-rows: none;
+  align-items: start;
   margin-top: 24px;
   gap: 24px;
+}
+
+.homepage-content--appointments-grid > .panel {
+  align-self: start;
+}
+
+.homepage-content--appointments-grid .table-wrap {
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 @media (max-width: 960px) {

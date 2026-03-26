@@ -25,6 +25,9 @@
     "test:all": "npm run test:suite"
   },
   "dependencies": {
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
+    "pptxgenjs": "^4.0.1",
     "react": "^19.2.0",
     "react-day-picker": "^9.13.0",
     "react-dom": "^19.2.0",

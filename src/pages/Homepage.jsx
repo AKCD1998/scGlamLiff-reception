@@ -89,6 +89,7 @@ export default function Homepage(props) {
       />
 
       <AppointmentsTablePanel
+        key={`appointments-table-${activeFilterKey || "all"}-${effectiveShowTestRecords ? "with-test" : "without-test"}`}
         loading={tableLoading}
         hasLoadedOnce={hasLoadedOnce}
         error={error}
