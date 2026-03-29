@@ -352,7 +352,7 @@ export default function CustomerProfileModal({
                       <th className="cpm-col-date">วันที่ใช้</th>
                       <th className="cpm-col-course">คอร์ส</th>
                       <th className="cpm-col-session">ครั้งที่</th>
-                      <th className="cpm-col-mask">มาสก์</th>
+                      <th className="cpm-col-mask">Topping</th>
                       <th className="cpm-col-staff">พนักงาน</th>
                       <th className="cpm-col-appointment">การนัดหมาย</th>
                     </tr>
@@ -383,7 +383,11 @@ export default function CustomerProfileModal({
                           })()}
                         </td>
                         <td>{item.session_no ?? "-"}</td>
-                        <td>{item.used_mask ? "Yes" : "No"}</td>
+                        <td>
+                          {item.appointment_addon_title_th ||
+                            item.appointment_addon_title_en ||
+                            (item.used_mask ? "ใช้สิทธิ์ mask (legacy)" : "-")}
+                        </td>
                         <td>{item.staff_display_name || "-"}</td>
                         <td>
                           <div className="customer-profile-strong">

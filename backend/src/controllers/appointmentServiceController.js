@@ -6,6 +6,13 @@ import {
   shouldShortCircuitCompletedAppointment,
   toNonNegativeInt,
 } from '../services/packageContinuity.js';
+import {
+  clearAppointmentAddonSelection,
+  getAppointmentAddonByAppointmentId,
+  getAppointmentAddonDeductMask,
+  resolveRequestedAppointmentAddonCode,
+  upsertAppointmentAddonSelection,
+} from '../services/appointmentAddonService.js';
 import { resolveAppointmentFields } from '../utils/resolveAppointmentFields.js';
 import {
   isPackageStyleTreatmentText,
@@ -712,7 +719,15 @@ export async function completeAppointment(req, res) {
   const appointmentId = String(req.params?.id || '').trim();
   const customerPackageId =
     typeof req.body?.customer_package_id === 'string' ? req.body.customer_package_id.trim() : '';
-  const usedMask = Boolean(req.body?.used_mask);
+  const legacyUsedMask = Boolean(req.body?.used_mask);
+  const rawAppointmentAddonCode = normalizeText(
+    typeof req.body?.appointment_addon_code === 'string'
+      ? req.body.appointment_addon_code
+      : typeof req.body?.addon_code === 'string'
+        ? req.body.addon_code
+        : ''
+  );
+  let appointmentAddonCode = '';
   let deductSessions = 1;
   let deductMask = 0;
 
@@ -749,6 +764,7 @@ export async function completeAppointment(req, res) {
       const packageSnapshot = usageRow?.customer_package_id
         ? await buildPackageSnapshot(client, usageRow.customer_package_id)
         : null;
+      const appointmentAddon = await getAppointmentAddonByAppointmentId(client, appointment.id);
 
       await client.query('COMMIT');
       return res.json({
@@ -765,6 +781,7 @@ export async function completeAppointment(req, res) {
                 used_mask: Boolean(usageRow.used_mask),
               }
             : null,
+          appointment_addon: appointmentAddon,
           package: packageSnapshot,
           remaining: packageSnapshot
             ? {
@@ -783,7 +800,15 @@ export async function completeAppointment(req, res) {
 
     try {
       deductSessions = parseDeductSessions(req.body?.deduct_sessions);
-      deductMask = parseDeductMask(req.body?.deduct_mask, { usedMask });
+      const explicitDeductMask = parseOptionalInteger(req.body?.deduct_mask, 'deduct_mask');
+      appointmentAddonCode = resolveRequestedAppointmentAddonCode({
+        appointmentAddonCode: rawAppointmentAddonCode,
+        usedMask: legacyUsedMask,
+        deductMask: explicitDeductMask,
+      });
+      deductMask = appointmentAddonCode
+        ? getAppointmentAddonDeductMask(appointmentAddonCode)
+        : parseDeductMask(req.body?.deduct_mask, { usedMask: legacyUsedMask });
     } catch (error) {
       await client.query('ROLLBACK');
       return res.status(error?.status || 400).json({
@@ -826,6 +851,16 @@ export async function completeAppointment(req, res) {
         [appointment.id]
       );
 
+      let appointmentAddon = null;
+      if (appointmentAddonCode) {
+        appointmentAddon = await upsertAppointmentAddonSelection(client, {
+          appointmentId: appointment.id,
+          addonCode: appointmentAddonCode,
+        });
+      } else {
+        await clearAppointmentAddonSelection(client, appointment.id);
+      }
+
       const completeOneOffEventMeta = {
         kind: 'one_off',
         staff_id: staffId,
@@ -833,6 +868,10 @@ export async function completeAppointment(req, res) {
         staff_display_name: safeDisplayName(req.user),
         treatment_id: appointment.treatment_id || null,
         raw_sheet_uuid: appointment.raw_sheet_uuid || null,
+        appointment_addon_code: appointmentAddon?.topping_code || null,
+        appointment_addon_kind: appointmentAddon?.addon_kind || null,
+        appointment_addon_label: appointmentAddon?.label || null,
+        appointment_addon_amount_thb: appointmentAddon?.amount_thb || 0,
       };
       assertEventStaffIdentity(completeOneOffEventMeta, 'completeAppointment/one_off');
 
@@ -854,6 +893,7 @@ export async function completeAppointment(req, res) {
           appointment_id: appointment.id,
           status: 'completed',
           usage: null,
+          appointment_addon: appointmentAddon,
         },
       });
     }
@@ -966,6 +1006,16 @@ export async function completeAppointment(req, res) {
       customerPackageId,
       remainingAfter.sessions_remaining
     );
+    let appointmentAddon = null;
+    if (appointmentAddonCode) {
+      appointmentAddon = await upsertAppointmentAddonSelection(client, {
+        appointmentId: appointment.id,
+        addonCode: appointmentAddonCode,
+        customerPackageId: usedMaskFlag ? customerPackageId : '',
+      });
+    } else {
+      await clearAppointmentAddonSelection(client, appointment.id);
+    }
 
     const completePackageEventMeta = {
       staff_id: staffId,
@@ -981,6 +1031,10 @@ export async function completeAppointment(req, res) {
       package_status_after: packageStatusAfter,
       remaining_sessions_after: remainingAfter.sessions_remaining,
       remaining_mask_after: remainingAfter.mask_remaining,
+      appointment_addon_code: appointmentAddon?.topping_code || null,
+      appointment_addon_kind: appointmentAddon?.addon_kind || null,
+      appointment_addon_label: appointmentAddon?.label || null,
+      appointment_addon_amount_thb: appointmentAddon?.amount_thb || 0,
     };
     assertEventStaffIdentity(completePackageEventMeta, 'completeAppointment/package');
 
@@ -1009,6 +1063,7 @@ export async function completeAppointment(req, res) {
           mask_deducted: usedMaskFlag ? 1 : 0,
           used_mask: usedMaskFlag,
         },
+        appointment_addon: appointmentAddon,
         package: {
           customer_package_id: customerPackageId,
           status: packageStatusAfter || pkg.customer_package_status || 'active',
@@ -1198,6 +1253,7 @@ export async function revertAppointment(req, res) {
     if (hasUsageRows) {
       await client.query('DELETE FROM package_usages WHERE appointment_id = $1', [appointment.id]);
     }
+    const clearedAppointmentAddon = await clearAppointmentAddonSelection(client, appointment.id);
 
     await client.query(
       `
@@ -1240,6 +1296,8 @@ export async function revertAppointment(req, res) {
       reverted_usage_ids: revertedUsageIds,
       reverted_usage_count: revertedUsageIds.length,
       reverted_mask_count: revertedMaskCount,
+      reverted_appointment_addon: clearedAppointmentAddon.addon,
+      reverted_appointment_addon_count: clearedAppointmentAddon.deleted ? 1 : 0,
       customer_package_id: revertedPackageIds.length === 1 ? revertedPackageIds[0] : null,
       customer_package_ids: revertedPackageIds,
       restored_packages: restoredPackages,
@@ -1266,6 +1324,7 @@ export async function revertAppointment(req, res) {
         appointment_id: appointment.id,
         status: REVERT_TARGET_STATUS,
         restored_packages: restoredPackages,
+        reverted_appointment_addon: clearedAppointmentAddon.addon,
       },
     });
   } catch (error) {

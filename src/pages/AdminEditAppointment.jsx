@@ -4,6 +4,12 @@ import {
   getAdminAppointmentById,
   patchAdminAppointment,
 } from "../utils/appointmentsApi";
+import {
+  APPOINTMENT_ADDON_OPTIONS,
+  buildAppointmentAddonLabel,
+  isPackageMaskIncludedAddonCode,
+  normalizeAppointmentAddonCode,
+} from "../../shared/appointmentAddonCatalog";
 import "./AdminEditAppointment.css";
 
 const UUID_PATTERN =
@@ -169,7 +175,7 @@ export default function AdminEditAppointment({ currentUser }) {
 
   const [createPackageUsage, setCreatePackageUsage] = useState(false);
   const [customerPackageId, setCustomerPackageId] = useState("");
-  const [usedMask, setUsedMask] = useState(false);
+  const [appointmentAddonCode, setAppointmentAddonCode] = useState("");
 
   const [enableRawSheetDanger, setEnableRawSheetDanger] = useState(false);
   const [confirmRawSheetChange, setConfirmRawSheetChange] = useState(false);
@@ -196,6 +202,16 @@ export default function AdminEditAppointment({ currentUser }) {
     if (current) unique.add(current);
     return Array.from(unique);
   }, [staffName]);
+  const appointmentAddonOptions = useMemo(
+    () => [
+      { value: "", label: "ไม่เลือก topping เพิ่ม" },
+      ...APPOINTMENT_ADDON_OPTIONS.map((option) => ({
+        value: option.code,
+        label: buildAppointmentAddonLabel(option, { locale: "th" }),
+      })),
+    ],
+    []
+  );
 
   const applyLoadedData = (data) => {
     const appt = data?.appointment || null;
@@ -217,7 +233,9 @@ export default function AdminEditAppointment({ currentUser }) {
     setReason("");
     setCreatePackageUsage(false);
     setCustomerPackageId(String(packages[0]?.customer_package_id || ""));
-    setUsedMask(false);
+    setAppointmentAddonCode(
+      normalizeAppointmentAddonCode(appt?.appointment_addon?.topping_code || "")
+    );
     setEnableRawSheetDanger(false);
     setConfirmRawSheetChange(false);
     setConfirmRawSheetAck(false);
@@ -508,20 +526,28 @@ export default function AdminEditAppointment({ currentUser }) {
         return { error: "สร้าง package usage ได้เฉพาะสถานะ completed" };
       }
       const selectedPackage = String(customerPackageId || "").trim();
+      const selectedAddonCode = normalizeAppointmentAddonCode(appointmentAddonCode);
       if (!isUuid(selectedPackage)) {
         return { error: "กรุณาเลือก customer package ที่ต้องการตัดคอร์ส" };
       }
       payload.create_package_usage = true;
       payload.customer_package_id = selectedPackage;
-      payload.used_mask = Boolean(usedMask);
+      if (selectedAddonCode) {
+        payload.appointment_addon_code = selectedAddonCode;
+      }
+      payload.used_mask = isPackageMaskIncludedAddonCode(selectedAddonCode);
       const selectedPackageTitle =
         activePackages.find((pkg) => pkg.customer_package_id === selectedPackage)?.package_title ||
         selectedPackage;
+      const selectedAddonLabel = selectedAddonCode
+        ? appointmentAddonOptions.find((option) => option.value === selectedAddonCode)?.label ||
+          selectedAddonCode
+        : "ไม่เลือก topping เพิ่ม";
       diffs.push(
         buildDiffRow(
           "package_usage",
           "-",
-          `${selectedPackageTitle} | used_mask=${Boolean(usedMask)}`
+          `${selectedPackageTitle} | addon=${selectedAddonLabel}`
         )
       );
     }
@@ -852,14 +878,20 @@ export default function AdminEditAppointment({ currentUser }) {
                           ))}
                         </select>
                       </div>
-                      <label className="aed-check">
-                        <input
-                          type="checkbox"
-                          checked={usedMask}
-                          onChange={(event) => setUsedMask(event.target.checked)}
-                        />
-                        <span>ใช้สิทธิ์ mask ในครั้งนี้</span>
-                      </label>
+                      <div className="aed-field">
+                        <label htmlFor="aed-appointment-addon">appointment_addon_code</label>
+                        <select
+                          id="aed-appointment-addon"
+                          value={appointmentAddonCode}
+                          onChange={(event) => setAppointmentAddonCode(event.target.value)}
+                        >
+                          {appointmentAddonOptions.map((option) => (
+                            <option key={option.value || "__none__"} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </>
                   )}
                 </>

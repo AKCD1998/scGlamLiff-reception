@@ -16,6 +16,7 @@ function buildUsageRow(index = 1) {
 function createMockDb({
   initialStatus = 'booked',
   usageRows = [],
+  appointmentAddon = null,
   invariantUsageCountOverride = null,
 } = {}) {
   const state = {
@@ -23,8 +24,11 @@ function createMockDb({
       id: APPOINTMENT_ID,
       status: initialStatus,
       updated_at: '2026-03-01T00:00:00.000Z',
+      selected_toppings: appointmentAddon ? [appointmentAddon.topping_code] : [],
+      addons_total_thb: appointmentAddon ? Number(appointmentAddon.amount_thb) || 0 : 0,
     },
     usageRows: usageRows.map((row) => ({ ...row })),
+    appointmentAddon: appointmentAddon ? { ...appointmentAddon } : null,
     txSnapshot: null,
     beginCount: 0,
     commitCount: 0,
@@ -35,11 +39,13 @@ function createMockDb({
   const cloneState = () => ({
     appointment: { ...state.appointment },
     usageRows: state.usageRows.map((row) => ({ ...row })),
+    appointmentAddon: state.appointmentAddon ? { ...state.appointmentAddon } : null,
   });
 
   const restoreState = (snapshot) => {
     state.appointment = { ...snapshot.appointment };
     state.usageRows = snapshot.usageRows.map((row) => ({ ...row }));
+    state.appointmentAddon = snapshot.appointmentAddon ? { ...snapshot.appointmentAddon } : null;
   };
 
   const client = {
@@ -103,6 +109,51 @@ function createMockDb({
         const deletedCount = state.usageRows.length;
         state.usageRows = [];
         return { rowCount: deletedCount, rows: [] };
+      }
+
+      if (
+        queryText.includes('from appointment_addons') &&
+        queryText.includes('limit 1')
+      ) {
+        const id = String(params[0] || '');
+        if (id !== state.appointment.id || !state.appointmentAddon) {
+          return { rowCount: 0, rows: [] };
+        }
+        return {
+          rowCount: 1,
+          rows: [
+            {
+              ...state.appointmentAddon,
+              appointment_id: state.appointment.id,
+              title_th: state.appointmentAddon.title_th || '',
+              title_en: state.appointmentAddon.title_en || '',
+              category: state.appointmentAddon.category || '',
+            },
+          ],
+        };
+      }
+
+      if (queryText.startsWith('delete from appointment_addons')) {
+        const id = String(params[0] || '');
+        if (id !== state.appointment.id || !state.appointmentAddon) {
+          return { rowCount: 0, rows: [] };
+        }
+        state.appointmentAddon = null;
+        return { rowCount: 1, rows: [] };
+      }
+
+      if (
+        queryText.startsWith('update appointments') &&
+        queryText.includes('selected_toppings')
+      ) {
+        const appointmentId = String(params[0] || '');
+        if (appointmentId !== state.appointment.id) {
+          return { rowCount: 0, rows: [] };
+        }
+        state.appointment.selected_toppings = [];
+        state.appointment.addons_total_thb = 0;
+        state.appointment.updated_at = '2026-03-01T00:05:00.000Z';
+        return { rowCount: 1, rows: [] };
       }
 
       if (queryText.startsWith('update appointments')) {
@@ -212,6 +263,32 @@ test('patching completed -> booked deletes usage rows and updates status atomica
   assert.equal(mock.state.usageRows.length, 0);
   assert.equal(mock.state.beginCount, 1);
   assert.equal(mock.state.commitCount, 1);
+});
+
+test('patching completed -> booked also clears appointment addon selection', async () => {
+  const mock = createMockDb({
+    initialStatus: 'completed',
+    usageRows: [buildUsageRow(1)],
+    appointmentAddon: {
+      id: 'addon-1',
+      topping_code: 'FACIAL_MASK_FREE_HAND_200',
+      addon_kind: 'paid_topping',
+      amount_thb: 200,
+      package_mask_deducted: false,
+    },
+  });
+
+  const result = await adminPatchAppointmentStatus({
+    appointmentId: APPOINTMENT_ID,
+    patch: { status: 'booked' },
+    actorUserId: 'admin-user-addon',
+    dbPool: mock.dbPool,
+  });
+
+  assert.equal(result.revertedAddonCount, 1);
+  assert.equal(mock.state.appointmentAddon, null);
+  assert.deepEqual(mock.state.appointment.selected_toppings, []);
+  assert.equal(mock.state.appointment.addons_total_thb, 0);
 });
 
 test('rolls back status/usage changes when post-update invariant fails', async () => {

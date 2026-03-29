@@ -9,6 +9,13 @@ import {
 import { getAppointmentReceiptEvidenceByAppointmentId } from '../services/appointmentReceiptEvidenceService.js';
 import { assertEventStaffIdentity } from '../services/appointmentEventStaffGuard.js';
 import { adminPatchAppointmentStatusInTransaction } from '../services/adminAppointmentStatusService.js';
+import {
+  clearAppointmentAddonSelection,
+  getAppointmentAddonByAppointmentId,
+  getAppointmentAddonDeductMask,
+  resolveRequestedAppointmentAddonCode,
+  upsertAppointmentAddonSelection,
+} from '../services/appointmentAddonService.js';
 import { resolveAppointmentFields } from '../utils/resolveAppointmentFields.js';
 import {
   isPackageStyleTreatmentText,
@@ -453,6 +460,8 @@ async function getAppointmentDetailsById(client, appointmentId, { forUpdate = fa
         a.status,
         a.raw_sheet_uuid,
         a.customer_id,
+        a.selected_toppings,
+        a.addons_total_thb,
         COALESCE(c.full_name, '') AS customer_full_name,
         COALESCE(t.code, '') AS treatment_code,
         COALESCE(NULLIF(t.title_th, ''), NULLIF(t.title_en, ''), '') AS treatment_title,
@@ -601,7 +610,15 @@ async function ensureActiveCustomerPackage(client, { customerId, packageId, note
 
 async function createPackageUsageByAdmin(
   client,
-  { appointmentId, customerId, customerPackageId, usedMask, actorUserId, adminUser }
+  {
+    appointmentId,
+    customerId,
+    customerPackageId,
+    appointmentAddonCode,
+    usedMask,
+    actorUserId,
+    adminUser,
+  }
 ) {
   if (!UUID_PATTERN.test(customerPackageId || '')) {
     const err = new Error('Invalid customer_package_id');
@@ -686,7 +703,17 @@ async function createPackageUsageByAdmin(
     throw err;
   }
 
-  if (usedMask) {
+  const resolvedAddonCode = resolveRequestedAppointmentAddonCode({
+    appointmentAddonCode,
+    usedMask,
+    deductMask: usedMask ? 1 : 0,
+  });
+  const deductMask = resolvedAddonCode
+    ? getAppointmentAddonDeductMask(resolvedAddonCode)
+    : 0;
+  const usedMaskFlag = deductMask === 1;
+
+  if (usedMaskFlag) {
     if (maskTotal <= 0) {
       const err = new Error('This package has no mask allowance');
       err.status = 409;
@@ -710,8 +737,18 @@ async function createPackageUsageByAdmin(
         (gen_random_uuid(), $1, $2, $3, $4, now(), $5, $6)
       RETURNING id
     `,
-    [customerPackageId, appointmentId, nextSessionNo, Boolean(usedMask), staffId, 'admin edit deduction']
+    [customerPackageId, appointmentId, nextSessionNo, usedMaskFlag, staffId, 'admin edit deduction']
   );
+  let appointmentAddon = null;
+  if (resolvedAddonCode) {
+    appointmentAddon = await upsertAppointmentAddonSelection(client, {
+      appointmentId,
+      addonCode: resolvedAddonCode,
+      customerPackageId: usedMaskFlag ? customerPackageId : '',
+    });
+  } else {
+    await clearAppointmentAddonSelection(client, appointmentId);
+  }
 
   const packageUsageEventMeta = {
     source: 'admin_edit',
@@ -724,7 +761,11 @@ async function createPackageUsageByAdmin(
     package_code: pkg.package_code,
     package_title: pkg.package_title,
     session_no: nextSessionNo,
-    used_mask: Boolean(usedMask),
+    used_mask: usedMaskFlag,
+    appointment_addon_code: appointmentAddon?.topping_code || null,
+    appointment_addon_kind: appointmentAddon?.addon_kind || null,
+    appointment_addon_label: appointmentAddon?.label || null,
+    appointment_addon_amount_thb: appointmentAddon?.amount_thb || 0,
     usage_id: insertedUsage.rows[0]?.id || null,
   };
   assertEventStaffIdentity(packageUsageEventMeta, 'createPackageUsageByAdmin');
@@ -746,7 +787,8 @@ async function createPackageUsageByAdmin(
     package_code: pkg.package_code,
     package_title: pkg.package_title,
     session_no: nextSessionNo,
-    used_mask: Boolean(usedMask),
+    used_mask: usedMaskFlag,
+    appointment_addon: appointmentAddon,
   };
 }
 
@@ -776,6 +818,13 @@ export async function getAdminAppointmentById(req, res) {
       if (error?.code !== '42P01') throw error;
       receiptEvidence = null;
     }
+    let appointmentAddon = null;
+    try {
+      appointmentAddon = await getAppointmentAddonByAppointmentId(client, appointmentId);
+    } catch (error) {
+      if (error?.code !== '42P01') throw error;
+      appointmentAddon = null;
+    }
 
     const activePackages = appointment.customer_id
       ? await listActivePackagesForCustomer(client, appointment.customer_id)
@@ -791,6 +840,10 @@ export async function getAdminAppointmentById(req, res) {
         status: appointment.status,
         raw_sheet_uuid: appointment.raw_sheet_uuid,
         customer_id: appointment.customer_id,
+        selected_toppings: Array.isArray(appointment.selected_toppings)
+          ? appointment.selected_toppings
+          : [],
+        addons_total_thb: Number(appointment.addons_total_thb) || 0,
         customer_full_name: appointment.customer_full_name,
         treatment_code: appointment.treatment_code,
         treatment_title: appointment.treatment_title,
@@ -802,6 +855,7 @@ export async function getAdminAppointmentById(req, res) {
         treatment_item_text: treatmentPlan.treatment_item_text || appointment.treatment_title,
         treatment_plan_mode: treatmentPlan.treatment_plan_mode,
         package_id: treatmentPlan.package_id,
+        appointment_addon: appointmentAddon,
       },
       receipt_evidence: receiptEvidence,
       active_packages: activePackages,
@@ -1308,6 +1362,7 @@ export async function patchAdminAppointment(req, res) {
         appointmentId,
         customerId: targetCustomerId,
         customerPackageId,
+        appointmentAddonCode: normalizeText(req.body?.appointment_addon_code),
         usedMask: Boolean(req.body?.used_mask),
         actorUserId,
         adminUser: req.user,

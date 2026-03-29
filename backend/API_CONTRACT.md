@@ -1504,7 +1504,7 @@ Success response when no receipt evidence is supplied:
 
 ### `POST /api/appointments/:id/complete`
 **Purpose**
-- Mark an appointment completed and, if a package is supplied, deduct one session and optional mask.
+- Mark an appointment completed and, if a package is supplied, deduct one session plus an optional single appointment addon/topping choice.
 
 **Auth**
 - Authenticated active staff/admin/owner user.
@@ -1514,9 +1514,10 @@ Success response when no receipt evidence is supplied:
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `customer_package_id` | UUID | No | Required only when deducting from a package |
+| `appointment_addon_code` | string | No | Preferred modern addon selector; only one choice per appointment |
 | `used_mask` | boolean | No | Coerced with `Boolean(...)` |
 | `deduct_sessions` | integer | No | If present, must equal `1` |
-| `deduct_mask` | integer | No | If present, must be `0` or `1`; defaults from `used_mask` |
+| `deduct_mask` | integer | No | If present, must be `0` or `1`; defaults from `used_mask` unless `appointment_addon_code` is supplied |
 
 **Validation / Business Rules**
 - Appointment must exist.
@@ -1528,9 +1529,17 @@ Success response when no receipt evidence is supplied:
 - If already `completed`, endpoint short-circuits and returns idempotent success instead of failing.
 - If appointment has no `customer_id`, returns `422`.
 - If any `package_usages` already exist for this appointment, returns `409`.
+- Current supported `appointment_addon_code` values:
+  - `COURSE_INCLUDED_MASK` = free mask included with the course, extra charge `0`
+  - `FACIAL_MASK_FREE_HAND_200` = paid topping, extra charge `200`
+  - `GLAM_EXCLUSIVE_MASK_250` = paid topping, extra charge `250`
+  - `GOLD_COLLAGEN_SCRUB_250` = paid topping, extra charge `250`
+- Only one addon choice is stored per appointment.
 - One-off completion:
   - allowed when no `customer_package_id` is supplied
   - no session/mask deduction allowed in this case
+  - free included mask addon is not allowed in this case
+  - paid addon is allowed and increases `appointments.addons_total_thb`
   - status becomes `completed`
   - event `redeemed` is written
 - Package completion:
@@ -1538,8 +1547,10 @@ Success response when no receipt evidence is supplied:
   - package must belong to appointment customer
   - package must be active
   - package must have remaining sessions
-  - if deducting mask, package must have remaining mask allowance
+  - if `appointment_addon_code=COURSE_INCLUDED_MASK` (or legacy `used_mask=true` / `deduct_mask=1`), package must have remaining mask allowance
   - inserts one `package_usages` row
+  - upserts one `appointment_addons` row when an addon is selected, otherwise clears any previous addon row
+  - syncs `appointments.selected_toppings` and `appointments.addons_total_thb` from the selected addon row
   - status becomes `completed`
   - package continuity status may flip `active -> completed` when remaining sessions reach 0
 
@@ -1562,6 +1573,12 @@ Idempotent already-completed:
       "session_no": 3,
       "used_mask": false
     },
+    "appointment_addon": {
+      "topping_code": "FACIAL_MASK_FREE_HAND_200",
+      "addon_kind": "paid_topping",
+      "amount_thb": 200,
+      "label": "Facial Mask + Free Hand Massage (200 บาท)"
+    },
     "package": {
       "customer_package_id": "customer-package-uuid",
       "status": "active"
@@ -1582,7 +1599,13 @@ One-off completion:
   "data": {
     "appointment_id": "appointment-uuid",
     "status": "completed",
-    "usage": null
+    "usage": null,
+    "appointment_addon": {
+      "topping_code": "GLAM_EXCLUSIVE_MASK_250",
+      "addon_kind": "paid_topping",
+      "amount_thb": 250,
+      "label": "Glam Exclusive Mask + Free Hand Massage (250 บาท)"
+    }
   }
 }
 ```
@@ -1601,7 +1624,13 @@ Package completion:
       "session_no": 2,
       "sessions_deducted": 1,
       "mask_deducted": 0,
-      "used_mask": false
+      "used_mask": true
+    },
+    "appointment_addon": {
+      "topping_code": "COURSE_INCLUDED_MASK",
+      "addon_kind": "package_mask_included",
+      "amount_thb": 0,
+      "label": "มาสก์แถมฟรีกับคอร์ส (ฟรี)"
     },
     "package": {
       "customer_package_id": "customer-package-uuid",
@@ -1611,13 +1640,13 @@ Package completion:
       "sessions_total": 3,
       "sessions_used": 2,
       "sessions_remaining": 1,
-      "mask_total": 0,
-      "mask_used": 0,
-      "mask_remaining": 0
+      "mask_total": 3,
+      "mask_used": 1,
+      "mask_remaining": 2
     },
     "remaining": {
       "sessions_remaining": 1,
-      "mask_remaining": 0
+      "mask_remaining": 2
     }
   }
 }
@@ -1635,7 +1664,8 @@ Package completion:
 
 **Integration Notes**
 - This is the canonical deduction path. Do not simulate completion with a raw admin status patch unless you intentionally want no deduction.
-- Send real JSON booleans for `used_mask`.
+- Prefer `appointment_addon_code` over legacy `used_mask` / `deduct_mask`.
+- Legacy `used_mask=true` remains supported only as a compatibility shortcut for the free included course mask.
 
 ### `POST /api/appointments/:id/cancel`
 **Purpose**
@@ -2089,6 +2119,7 @@ Mapping found:
 - `staff_name` must be resolvable from SSOT/event history or endpoint returns `500`.
 - `treatment_item_text`, `treatment_plan_mode`, and `package_id` come from event history resolution, not just the appointment row.
 - `receipt_evidence` is read from `appointment_receipts` when that table exists.
+- `appointment_addon` is read from `appointment_addons` when that table exists.
 - If the migration has not been applied yet, current code tolerates missing `appointment_receipts` and returns `receipt_evidence: null` instead of failing this endpoint.
 - `active_packages` only lists packages with active status for the appointment’s customer.
 
@@ -2106,6 +2137,8 @@ Mapping found:
     "status": "booked",
     "raw_sheet_uuid": null,
     "customer_id": "customer-uuid",
+    "selected_toppings": [],
+    "addons_total_thb": 0,
     "customer_full_name": "Customer Name",
     "treatment_code": "smooth",
     "treatment_title": "Smooth",
@@ -2116,7 +2149,8 @@ Mapping found:
     "email_or_lineid": "lineid123",
     "treatment_item_text": "Smooth 3x 3900",
     "treatment_plan_mode": "package",
-    "package_id": "package-uuid"
+    "package_id": "package-uuid",
+    "appointment_addon": null
   },
   "receipt_evidence": {
     "id": "receipt-uuid",
@@ -2208,6 +2242,7 @@ Supported body fields:
 | `email_or_lineid` | string | No | Stored as EMAIL or LINE active identity |
 | `create_package_usage` | boolean-like | No | Optional admin-side deduction helper |
 | `customer_package_id` | UUID | No | Required when `create_package_usage` is used |
+| `appointment_addon_code` | string | No | Optional when `create_package_usage` is used |
 | `used_mask` | boolean-like | No | Optional when `create_package_usage` is used |
 
 **Validation / Business Rules**
@@ -2251,6 +2286,7 @@ Supported body fields:
 - `create_package_usage`:
   - only allowed when resulting status is `completed`
   - creates one usage row
+  - if `appointment_addon_code` is supplied, also upserts one `appointment_addons` row and syncs `appointments.selected_toppings` + `appointments.addons_total_thb`
   - does not replace normal validation of package ownership/remaining balance
 - If no effective changes are detected, returns `400`.
 - Edits are recorded in `appointment_events` as `ADMIN_APPOINTMENT_UPDATE`.
@@ -2530,6 +2566,7 @@ Conflict example when phone belongs to another customer:
 - Returns `404` if customer not found.
 - `packages`, `usage_history`, and `appointment_history` are built from local tables.
 - Plan fields in `appointment_history` are event-resolved, similar to queue/admin detail.
+- `usage_history` may include addon/topping metadata from `appointment_addons`.
 - If package-related tables/columns are missing in the database, code degrades to empty arrays in some cases instead of hard failing.
 
 **Response**
@@ -2577,6 +2614,11 @@ Conflict example when phone belongs to another customer:
       "package_title": "Smooth 3 Sessions",
       "session_no": 1,
       "used_mask": false,
+      "appointment_addon_code": "FACIAL_MASK_FREE_HAND_200",
+      "appointment_addon_kind": "paid_topping",
+      "appointment_addon_amount_thb": 200,
+      "appointment_addon_title_th": "Facial Mask + Free Hand Massage",
+      "appointment_addon_title_en": "Facial Mask + Free Hand Massage",
       "staff_display_name": "Staff One",
       "appointment_id": "appointment-uuid",
       "scheduled_at": "2026-03-17T07:00:00.000Z",

@@ -226,12 +226,19 @@ export async function getCustomerProfile(req, res) {
             s.display_name AS staff_display_name,
             a.id AS appointment_id,
             a.scheduled_at,
-            a.branch_id
+            a.branch_id,
+            aa.topping_code AS appointment_addon_code,
+            aa.addon_kind AS appointment_addon_kind,
+            aa.amount_thb AS appointment_addon_amount_thb,
+            COALESCE(ta.title_th, '') AS appointment_addon_title_th,
+            COALESCE(ta.title_en, '') AS appointment_addon_title_en
           FROM package_usages pu
           JOIN customer_packages cp ON cp.id = pu.customer_package_id
           JOIN packages p ON p.id = cp.package_id
           LEFT JOIN staffs s ON s.id = pu.staff_id
           LEFT JOIN appointments a ON a.id = pu.appointment_id
+          LEFT JOIN appointment_addons aa ON aa.appointment_id = a.id
+          LEFT JOIN toppings ta ON ta.code = aa.topping_code
           WHERE cp.customer_id = $1
           ORDER BY pu.used_at DESC
           LIMIT 50
@@ -380,6 +387,11 @@ export async function getCustomerProfile(req, res) {
         package_title: row.package_title,
         session_no: row.session_no,
         used_mask: row.used_mask,
+        appointment_addon_code: row.appointment_addon_code,
+        appointment_addon_kind: row.appointment_addon_kind,
+        appointment_addon_amount_thb: Number(row.appointment_addon_amount_thb) || 0,
+        appointment_addon_title_th: row.appointment_addon_title_th,
+        appointment_addon_title_en: row.appointment_addon_title_en,
         staff_display_name: row.staff_display_name,
         appointment_id: row.appointment_id,
         scheduled_at: row.scheduled_at,

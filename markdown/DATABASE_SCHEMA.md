@@ -82,8 +82,8 @@ appointments (
   branch_id text,
   scheduled_at timestamptz,
   status text,                -- booked / completed / cancelled / no_show
-  selected_toppings jsonb,
-  addons_total_thb integer,
+  selected_toppings jsonb,    -- summary array of selected addon/topping codes
+  addons_total_thb integer,   -- summary total of paid add-ons for this appointment
   reschedule_count integer,
   max_reschedule integer,
   cancellation_policy text,
@@ -93,6 +93,34 @@ appointments (
 
 INDEX (customer_id, scheduled_at)
 ```
+
+---
+
+### 🎯 appointment_addons
+
+> canonical addon/topping selection ระดับ appointment (ปัจจุบัน 1 appointment = 0..1 row)
+
+```sql
+appointment_addons (
+  id uuid PK,
+  appointment_id uuid UNIQUE FK -> appointments(id),
+  topping_code text FK -> toppings(code),
+  addon_kind text,                -- package_mask_included / paid_topping
+  amount_thb integer,             -- 0 for free included mask, >0 for paid topping
+  customer_package_id uuid FK -> customer_packages(id), -- required when deducting included mask
+  package_mask_deducted boolean,
+  created_at timestamptz,
+  updated_at timestamptz
+)
+
+INDEX (customer_package_id)
+INDEX (topping_code)
+```
+
+📌 ใช้เก็บว่า appointment นี้เลือก topping แบบไหนอย่างเจาะจง
+📌 `appointments.selected_toppings` และ `appointments.addons_total_thb` ยังเก็บอยู่เป็น summary field สำหรับ KPI / queue read model
+📌 กรณี topping ฟรีจากคอร์ส จะเก็บ `addon_kind=package_mask_included`, `amount_thb=0`, `package_mask_deducted=true`
+📌 กรณี topping ซื้อเพิ่ม จะเก็บ `addon_kind=paid_topping`, `amount_thb` ตามราคา และไม่ตัด mask จาก package
 
 ---
 
@@ -239,6 +267,12 @@ toppings (
 )
 ```
 
+📌 current canonical appointment addon catalog (29 Mar 2026):
+- `COURSE_INCLUDED_MASK` = มาสก์แถมฟรีกับคอร์ส, 0 บาท
+- `FACIAL_MASK_FREE_HAND_200` = Facial Mask + Free Hand Massage, 200 บาท
+- `GLAM_EXCLUSIVE_MASK_250` = Glam Exclusive Mask + Free Hand Massage, 250 บาท
+- `GOLD_COLLAGEN_SCRUB_250` = Glam Gold Collagen Scrub, 250 บาท
+
 ---
 
 ## 5️⃣ Course / Package System (หัวใจของระบบ)
@@ -284,7 +318,7 @@ customer_packages (
 
 ### ✅ package_usages
 
-> การใช้คอร์ส “ต่อครั้ง” (เลือกใช้ mask หรือไม่ก็ได้)
+> การใช้คอร์ส “ต่อครั้ง” (มี coarse flag ว่าใช้ mask ฟรีของคอร์สหรือไม่)
 
 ```sql
 package_usages (
@@ -303,6 +337,7 @@ UNIQUE (customer_package_id, session_no)
 
 📌 Mask ไม่จำเป็นต้องใช้ตามลำดับ
 📌 ใช้ครั้งไหนก็ได้ → ระบบนับจาก used_mask = true
+📌 ถ้าต้องรู้ว่า appointment นั้นเลือก topping/free mask แบบไหน ให้ดู `appointment_addons` เพิ่มเติม ไม่ใช่ดู `used_mask` อย่างเดียว
 
 ---
 

@@ -492,6 +492,8 @@ export async function listAppointmentsQueue(req, res) {
           a.treatment_id AS treatment_id,
           a.customer_id AS customer_id,
           a.raw_sheet_uuid AS raw_sheet_uuid,
+          a.selected_toppings AS selected_toppings,
+          a.addons_total_thb AS addons_total_thb,
           COALESCE(NULLIF(t.code, ''), '') AS treatment_code,
           COALESCE(NULLIF(to_jsonb(t)->>'name_en', ''), NULLIF(t.title_en, ''), '') AS treatment_name_en,
           COALESCE(NULLIF(to_jsonb(t)->>'name_th', ''), NULLIF(t.title_th, ''), '') AS treatment_name_th,

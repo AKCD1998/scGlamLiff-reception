@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildActivePackages,
+  buildAppointmentAddonChoices,
   canMutateFromStatus,
   isRevertableStatus,
 } from "./ServiceConfirmationModal";
@@ -111,6 +112,35 @@ describe("isRevertableStatus", () => {
   it("allows booked when appointment already has usage record", () => {
     expect(isRevertableStatus("booked", { hasUsage: true })).toBe(true);
     expect(isRevertableStatus("booked", { hasUsage: false })).toBe(false);
+  });
+});
+
+describe("buildAppointmentAddonChoices", () => {
+  it("shows free included mask when selected package still has mask remaining", () => {
+    const choices = buildAppointmentAddonChoices({
+      selectedPkg: {
+        _computed: {
+          maskRemaining: 1,
+        },
+      },
+      completingWithoutCourse: false,
+    });
+
+    expect(choices.some((choice) => choice.code === "COURSE_INCLUDED_MASK")).toBe(true);
+    expect(
+      choices.find((choice) => choice.code === "COURSE_INCLUDED_MASK")?.disabled
+    ).toBe(false);
+  });
+
+  it("disables free included mask when completing as one-off", () => {
+    const choices = buildAppointmentAddonChoices({
+      selectedPkg: null,
+      completingWithoutCourse: true,
+    });
+
+    expect(
+      choices.find((choice) => choice.code === "COURSE_INCLUDED_MASK")?.disabled
+    ).toBe(true);
   });
 });
 

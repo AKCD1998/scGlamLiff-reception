@@ -1,3 +1,5 @@
+import { clearAppointmentAddonSelection } from './appointmentAddonService.js';
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -148,6 +150,7 @@ export async function adminPatchAppointmentStatusInTransaction({
   const usageCountBefore = usageRowsBefore.length;
 
   let revertedUsageCount = 0;
+  let revertedAddonCount = 0;
   if (shouldRollbackUsageForStatus(nextStatus) && usageCountBefore > 0) {
     const deleteResult = await client.query(
       `
@@ -157,6 +160,10 @@ export async function adminPatchAppointmentStatusInTransaction({
       [cleanAppointmentId]
     );
     revertedUsageCount = Number(deleteResult.rowCount) || 0;
+  }
+  if (shouldRollbackUsageForStatus(nextStatus)) {
+    const clearedAddon = await clearAppointmentAddonSelection(client, cleanAppointmentId);
+    revertedAddonCount = clearedAddon.deleted ? 1 : 0;
   }
 
   const currentStatus = normalizeStatus(appointmentBefore.status);
@@ -190,6 +197,7 @@ export async function adminPatchAppointmentStatusInTransaction({
     usageCountBefore,
     usageCountAfter,
     revertedUsageCount,
+    revertedAddonCount,
     warnings,
   };
 }

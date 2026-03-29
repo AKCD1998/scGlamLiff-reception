@@ -9,9 +9,18 @@ import {
 } from "../utils/appointmentsApi";
 import { formatTreatmentDisplay, parseLegacyTreatmentText } from "../utils/treatmentDisplay";
 import ProgressDots from "./ProgressDots";
+import {
+  APPOINTMENT_ADDON_KIND_PAID_TOPPING,
+  APPOINTMENT_ADDON_OPTIONS,
+  buildAppointmentAddonLabel,
+  getAppointmentAddonOption,
+  isPackageMaskIncludedAddonCode,
+  normalizeAppointmentAddonCode,
+} from "../../shared/appointmentAddonCatalog";
 import "./ServiceConfirmationModal.css";
 
 const NO_COURSE_ID = "__NO_COURSE__";
+const NO_APPOINTMENT_ADDON = "__NO_APPOINTMENT_ADDON__";
 const MUTABLE_APPOINTMENT_STATUSES = new Set([
   "booked",
   "rescheduled",
@@ -117,6 +126,59 @@ export function buildActivePackages(packages = []) {
     });
 }
 
+function resolveInitialAppointmentAddonCode(booking) {
+  const selectedToppings = Array.isArray(booking?.selected_toppings)
+    ? booking.selected_toppings
+    : Array.isArray(booking?.selectedToppings)
+      ? booking.selectedToppings
+      : [];
+  const firstCode = normalizeAppointmentAddonCode(selectedToppings[0]);
+  return getAppointmentAddonOption(firstCode) ? firstCode : NO_APPOINTMENT_ADDON;
+}
+
+export function buildAppointmentAddonChoices({
+  selectedPkg = null,
+  completingWithoutCourse = false,
+} = {}) {
+  const hasMaskRemaining = Boolean(
+    selectedPkg && Number(selectedPkg?._computed?.maskRemaining) > 0
+  );
+  const choices = [
+    {
+      code: NO_APPOINTMENT_ADDON,
+      title: "ไม่เลือก topping เพิ่ม",
+      subtitle: "ไม่บวกยอดขายเพิ่ม และไม่ตัด mask",
+      amountThb: 0,
+      disabled: false,
+    },
+  ];
+
+  for (const option of APPOINTMENT_ADDON_OPTIONS) {
+    const isIncludedMask = isPackageMaskIncludedAddonCode(option.code);
+    const isPaidAddon = option.kind === APPOINTMENT_ADDON_KIND_PAID_TOPPING;
+    choices.push({
+      code: option.code,
+      title: buildAppointmentAddonLabel(option, { locale: "th", includePrice: false }),
+      subtitle: isIncludedMask
+        ? "ใช้ฟรีจากสิทธิ์ mask ของคอร์ส"
+        : `บวกยอดขายเพิ่ม ${option.price_thb} บาท`,
+      amountThb: Number(option.price_thb) || 0,
+      disabled: isIncludedMask ? completingWithoutCourse || !hasMaskRemaining : false,
+      disabledReason: isIncludedMask
+        ? completingWithoutCourse
+          ? "บริการแบบครั้งเดียวไม่มีสิทธิ์ mask ฟรี"
+          : !selectedPkg
+            ? "ต้องเลือกคอร์สก่อน"
+            : "Mask เหลือ 0 ครั้ง"
+        : "",
+      isIncludedMask,
+      isPaidAddon,
+    });
+  }
+
+  return choices;
+}
+
 export default function ServiceConfirmationModal({
   open,
   onClose,
@@ -153,7 +215,9 @@ export default function ServiceConfirmationModal({
 
   const [selectedPackageId, setSelectedPackageId] = useState("");
   const [actionStatus, setActionStatus] = useState("completed");
-  const [useMask, setUseMask] = useState(false);
+  const [selectedAppointmentAddonCode, setSelectedAppointmentAddonCode] = useState(
+    NO_APPOINTMENT_ADDON
+  );
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
@@ -266,7 +330,7 @@ export default function ServiceConfirmationModal({
     setPackagesError("");
     setPackagesLoading(false);
     setSelectedPackageId(effectiveNoCourseCompletion ? NO_COURSE_ID : "");
-    setUseMask(false);
+    setSelectedAppointmentAddonCode(resolveInitialAppointmentAddonCode(booking));
     setSubmitError("");
     setSubmitSuccess("");
     setSubmitting(false);
@@ -397,6 +461,25 @@ export default function ServiceConfirmationModal({
     () => packageChoices.find((pkg) => pkg.customer_package_id === selectedPackageId) || null,
     [packageChoices, selectedPackageId]
   );
+  const completingWithoutCourse =
+    effectiveNoCourseCompletion && selectedPackageId === NO_COURSE_ID;
+  const appointmentAddonChoices = useMemo(
+    () =>
+      buildAppointmentAddonChoices({
+        selectedPkg,
+        completingWithoutCourse,
+      }),
+    [completingWithoutCourse, selectedPkg]
+  );
+  const selectedAppointmentAddon = useMemo(
+    () => getAppointmentAddonOption(selectedAppointmentAddonCode),
+    [selectedAppointmentAddonCode]
+  );
+  const selectedAddonDeductsMask = useMemo(
+    () => isPackageMaskIncludedAddonCode(selectedAppointmentAddonCode),
+    [selectedAppointmentAddonCode]
+  );
+  const selectedAddonAmountThb = Number(selectedAppointmentAddon?.price_thb) || 0;
   const isContinuousCourseSelected = useMemo(() => {
     if (!selectedPkg) return false;
     return (
@@ -404,9 +487,6 @@ export default function ServiceConfirmationModal({
       selectedPkg._computed.sessionsRemaining > 0
     );
   }, [selectedPkg]);
-
-  const completingWithoutCourse =
-    effectiveNoCourseCompletion && selectedPackageId === NO_COURSE_ID;
 
   useEffect(() => {
     if (!open) return;
@@ -469,14 +549,27 @@ export default function ServiceConfirmationModal({
   };
 
   useEffect(() => {
-    if (!open || actionStatus !== "completed" || completingWithoutCourse || !selectedPkg) {
-      setUseMask(false);
+    if (!open || actionStatus !== "completed") {
+      if (selectedAppointmentAddonCode !== NO_APPOINTMENT_ADDON) {
+        setSelectedAppointmentAddonCode(NO_APPOINTMENT_ADDON);
+      }
       return;
     }
-    if (selectedPkg._computed.maskRemaining <= 0 && useMask) {
-      setUseMask(false);
+
+    if (
+      selectedAddonDeductsMask &&
+      (completingWithoutCourse || !selectedPkg || selectedPkg._computed.maskRemaining <= 0)
+    ) {
+      setSelectedAppointmentAddonCode(NO_APPOINTMENT_ADDON);
     }
-  }, [actionStatus, completingWithoutCourse, open, selectedPkg, useMask]);
+  }, [
+    actionStatus,
+    completingWithoutCourse,
+    open,
+    selectedAddonDeductsMask,
+    selectedAppointmentAddonCode,
+    selectedPkg,
+  ]);
 
   const selectedProgress = useMemo(() => {
     if (!selectedPkg) return null;
@@ -500,11 +593,11 @@ export default function ServiceConfirmationModal({
         ? Math.max(sessionsRemaining - 1, 0)
         : Math.max(sessionsRemaining, 0);
     const nextMask =
-      shouldPreviewDeduction && useMask
+      shouldPreviewDeduction && selectedAddonDeductsMask
         ? Math.max(maskRemaining - 1, 0)
         : Math.max(maskRemaining, 0);
     return { nextSessions, nextMask };
-  }, [actionStatus, hasUsageRecordedForAppointment, selectedPkg, useMask]);
+  }, [actionStatus, hasUsageRecordedForAppointment, selectedAddonDeductsMask, selectedPkg]);
 
   const isConfirmDisabled = useMemo(() => {
     if (submitting || !canMutate) return true;
@@ -512,16 +605,16 @@ export default function ServiceConfirmationModal({
     if (completingWithoutCourse) return false;
     if (!selectedPackageId || !selectedPkg) return true;
     if (selectedPkg._computed.sessionsRemaining <= 0) return true;
-    if (useMask && selectedPkg._computed.maskRemaining <= 0) return true;
+    if (selectedAddonDeductsMask && selectedPkg._computed.maskRemaining <= 0) return true;
     return false;
   }, [
     actionStatus,
     canMutate,
     completingWithoutCourse,
     selectedPackageId,
+    selectedAddonDeductsMask,
     selectedPkg,
     submitting,
-    useMask,
   ]);
 
   const handleConfirm = async () => {
@@ -566,7 +659,7 @@ export default function ServiceConfirmationModal({
           setSubmitError("คอร์สนี้เหลือ 0 ครั้งแล้ว");
           return;
         }
-        if (useMask && selectedPkg._computed.maskRemaining <= 0) {
+        if (selectedAddonDeductsMask && selectedPkg._computed.maskRemaining <= 0) {
           setSubmitError("Mask เหลือ 0 ครั้งแล้ว");
           return;
         }
@@ -577,12 +670,16 @@ export default function ServiceConfirmationModal({
     try {
       let actionResult = null;
       if (actionStatus === "completed") {
+        const completionPayload =
+          selectedAppointmentAddon && selectedAppointmentAddonCode !== NO_APPOINTMENT_ADDON
+            ? { appointment_addon_code: selectedAppointmentAddonCode }
+            : {};
         if (completingWithoutCourse) {
-          actionResult = await completeService(appointment.id, {});
+          actionResult = await completeService(appointment.id, completionPayload);
         } else {
           actionResult = await completeService(appointment.id, {
+            ...completionPayload,
             customer_package_id: selectedPackageId,
-            used_mask: useMask,
           });
         }
       } else if (actionStatus === "cancelled") {
@@ -632,7 +729,7 @@ export default function ServiceConfirmationModal({
       await revertService(appointment.id);
       setAppointment((prev) => (prev ? { ...prev, status: "booked" } : prev));
       setActionStatus("completed");
-      setUseMask(false);
+      setSelectedAppointmentAddonCode(NO_APPOINTMENT_ADDON);
       setSubmitSuccess("ย้อนกลับเป็นสถานะจองแล้ว/ยืนยันแล้วสำเร็จ");
       try {
         await onAfterAction?.();
@@ -732,7 +829,6 @@ export default function ServiceConfirmationModal({
                       className={`scm-package${completingWithoutCourse ? " is-selected" : ""}`}
                       onClick={() => {
                         setSelectedPackageId(NO_COURSE_ID);
-                        setUseMask(false);
                       }}
                       disabled={!canMutate || actionStatus !== "completed"}
                       aria-pressed={completingWithoutCourse}
@@ -771,7 +867,6 @@ export default function ServiceConfirmationModal({
                       className={`scm-package${completingWithoutCourse ? " is-selected" : ""}`}
                       onClick={() => {
                         setSelectedPackageId(NO_COURSE_ID);
-                        setUseMask(false);
                       }}
                       disabled={!canMutate || actionStatus !== "completed"}
                       aria-pressed={completingWithoutCourse}
@@ -859,9 +954,7 @@ export default function ServiceConfirmationModal({
             <div className="scm-section__title">3) ตัวเลือกการใช้บริการเสริม</div>
             {actionStatus !== "completed" ? (
               <div className="scm-state">เลือกสถานะ “completed” เพื่อเปิดตัวเลือกการตัดคอร์ส</div>
-            ) : completingWithoutCourse ? (
-              <div className="scm-state">บริการแบบครั้งเดียว: ไม่มีการตัดคอร์ส / Mask</div>
-            ) : !selectedPkg ? (
+            ) : !selectedPkg && !completingWithoutCourse ? (
               <div className="scm-state">เลือกคอร์ส 1 รายการเพื่อดูตัวเลือก</div>
             ) : (
               <>
@@ -907,15 +1000,39 @@ export default function ServiceConfirmationModal({
                     ) : null}
                   </div>
                 ) : null}
-                <label className="scm-check">
-                  <input
-                    type="checkbox"
-                    checked={useMask}
-                    onChange={(event) => setUseMask(event.target.checked)}
-                    disabled={selectedPkg._computed.maskRemaining <= 0}
-                  />
-                  <span>ใช้ Mask สำหรับการให้บริการครั้งนี้?</span>
-                </label>
+                <div className="scm-packages" role="radiogroup" aria-label="Select appointment addon">
+                  {appointmentAddonChoices.map((choice) => {
+                    const checked = selectedAppointmentAddonCode === choice.code;
+                    return (
+                      <button
+                        key={choice.code}
+                        type="button"
+                        className={`scm-package${checked ? " is-selected" : ""}`}
+                        onClick={() => setSelectedAppointmentAddonCode(choice.code)}
+                        disabled={choice.disabled || !canMutate || submitting}
+                        aria-pressed={checked}
+                      >
+                        <div className="scm-package__top">
+                          <div>
+                            <div className="scm-package__title">{choice.title}</div>
+                            <div className="scm-package__code">
+                              {choice.disabledReason || choice.subtitle}
+                            </div>
+                          </div>
+                          <div className="scm-package__meta">
+                            <div>
+                              {choice.amountThb > 0
+                                ? `+${choice.amountThb} บาท`
+                                : choice.isIncludedMask
+                                  ? "ใช้ฟรี"
+                                  : "0 บาท"}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
                 <div className="scm-preview">
                   <div>
                     <div className="scm-label">
@@ -923,14 +1040,27 @@ export default function ServiceConfirmationModal({
                         ? "Preview ปัจจุบัน (นัดนี้ถูกตัดคอร์สแล้ว)"
                         : "Preview หลังยืนยัน (ตัด 1 ครั้งต่อ 1 การให้บริการ)"}
                     </div>
-                    <div className="scm-value">
-                      จำนวนการให้บริการที่เหลือ: {preview?.nextSessions ?? "-"}
-                    </div>
-                    {selectedPkg._computed.maskTotal > 0 ? (
+                    {selectedPkg ? (
+                      <div className="scm-value">
+                        จำนวนการให้บริการที่เหลือ: {preview?.nextSessions ?? "-"}
+                      </div>
+                    ) : (
+                      <div className="scm-value">บริการแบบครั้งเดียว: ไม่ตัดจำนวนครั้ง</div>
+                    )}
+                    {selectedPkg && selectedPkg._computed.maskTotal > 0 ? (
                       <div className="scm-value">
                         จำนวน Mask ที่เหลือ: {preview?.nextMask ?? "-"}
                       </div>
                     ) : null}
+                    <div className="scm-value">ยอดขายเพิ่ม: {selectedAddonAmountThb} บาท</div>
+                    <div className="scm-label">
+                      {selectedAppointmentAddon
+                        ? buildAppointmentAddonLabel(selectedAppointmentAddon, {
+                            locale: "th",
+                            includePrice: true,
+                          })
+                        : "ไม่มี topping เพิ่ม"}
+                    </div>
                   </div>
                 </div>
               </>
