@@ -2,6 +2,24 @@ function normalizeBaseUrl(input) {
   return String(input || "").trim().replace(/\/+$/, "");
 }
 
+function normalizeApiPrefix(input) {
+  const text = String(input || "").trim();
+  if (!text) return "";
+  const withLeadingSlash = text.startsWith("/") ? text : `/${text}`;
+  return withLeadingSlash.replace(/\/+$/, "") || "/api";
+}
+
+function normalizeEndpointPath(input) {
+  const text = String(input || "").trim();
+  if (!text) return "";
+  const withLeadingSlash = text.startsWith("/") ? text : `/${text}`;
+  if (withLeadingSlash === "/api") return "";
+  if (withLeadingSlash.startsWith("/api/")) {
+    return withLeadingSlash.slice(4);
+  }
+  return withLeadingSlash;
+}
+
 function getOriginSafe(url) {
   try {
     return new URL(url).origin;
@@ -29,7 +47,7 @@ function warnIfApiConfigLooksRisky(apiBase) {
   if (!apiBase && !isDev) {
     hasWarnedApiConfig = true;
     console.warn(
-      "[config] API base is empty in non-dev mode. Set VITE_API_BASE_URL to your backend service URL."
+      "[config] API base is empty in non-dev mode. Set VITE_SCGLAMLIFF_API_BASE_URL to your backend service URL."
     );
     return;
   }
@@ -39,7 +57,7 @@ function warnIfApiConfigLooksRisky(apiBase) {
     hasWarnedApiConfig = true;
     console.warn(
       "[config] API base looks misconfigured for Render. " +
-        "Set VITE_API_BASE_URL to your backend web service URL. " +
+        "Set VITE_SCGLAMLIFF_API_BASE_URL to your backend web service URL. " +
         "Use same-origin only if /api rewrite is intentionally configured " +
         "(or set VITE_ALLOW_SAME_ORIGIN_API=true).",
       {
@@ -51,9 +69,22 @@ function warnIfApiConfigLooksRisky(apiBase) {
 }
 
 export function getApiBaseUrl() {
-  const primary = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL);
-  const fallback = normalizeBaseUrl(import.meta.env.VITE_API_BASE);
-  const resolved = primary || fallback;
+  const primary = normalizeBaseUrl(import.meta.env.VITE_SCGLAMLIFF_API_BASE_URL);
+  const fallback = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL);
+  const legacyFallback = normalizeBaseUrl(import.meta.env.VITE_API_BASE);
+  const resolved = primary || fallback || legacyFallback;
   warnIfApiConfigLooksRisky(resolved);
   return resolved;
+}
+
+export function getApiPrefix() {
+  const primary = normalizeApiPrefix(import.meta.env.VITE_SCGLAMLIFF_API_PREFIX);
+  return primary || "/api";
+}
+
+export function getApiUrl(path = "") {
+  const base = getApiBaseUrl();
+  const prefix = getApiPrefix();
+  const endpointPath = normalizeEndpointPath(path);
+  return `${base}${prefix}${endpointPath}`;
 }

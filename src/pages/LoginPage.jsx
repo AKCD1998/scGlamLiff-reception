@@ -1,10 +1,9 @@
 ﻿import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getApiBaseUrl } from "../utils/runtimeEnv";
+import { getApiUrl } from "../utils/runtimeEnv";
 import "./LoginPage.css";
 
 export default function LoginPage() {
-  const apiBase = getApiBaseUrl();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -29,7 +28,7 @@ export default function LoginPage() {
     }
 
     try {
-      const res = await fetch(`${apiBase}/api/auth/login`, {
+      const res = await fetch(getApiUrl("/api/auth/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

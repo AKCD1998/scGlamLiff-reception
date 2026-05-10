@@ -1,11 +1,13 @@
-import { getApiBaseUrl } from "./runtimeEnv";
+import { getApiBaseUrl, getApiUrl } from "./runtimeEnv";
 
 const apiBase = getApiBaseUrl();
 const isDev = Boolean(import.meta.env.DEV);
 
 function ensureConfig() {
   if (!apiBase && !isDev) {
-    throw new Error("Missing VITE_API_BASE_URL (or legacy VITE_API_BASE)");
+    throw new Error(
+      "Missing VITE_SCGLAMLIFF_API_BASE_URL (or legacy VITE_API_BASE_URL/VITE_API_BASE)"
+    );
   }
 }
 
@@ -30,7 +32,7 @@ export async function getMonthlyKpiDashboard({ scope, month, year } = {}, signal
   if (month) params.set("month", month);
   if (year) params.set("year", year);
   const suffix = params.toString();
-  const url = `${apiBase}/api/reporting/kpi-dashboard${suffix ? `?${suffix}` : ""}`;
+  const url = getApiUrl(`/api/reporting/kpi-dashboard${suffix ? `?${suffix}` : ""}`);
   const res = await fetch(url, {
     method: "GET",
     credentials: "include",

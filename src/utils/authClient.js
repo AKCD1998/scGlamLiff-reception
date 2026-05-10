@@ -1,9 +1,7 @@
-import { getApiBaseUrl } from "./runtimeEnv";
-
-const apiBase = getApiBaseUrl();
+import { getApiUrl } from "./runtimeEnv";
 
 export async function getMe() {
-  const res = await fetch(`${apiBase}/api/auth/me`, {
+  const res = await fetch(getApiUrl("/api/auth/me"), {
     method: "GET",
     credentials: "include",
   });
@@ -16,7 +14,7 @@ export async function getMe() {
 }
 
 export async function logout() {
-  const res = await fetch(`${apiBase}/api/auth/logout`, {
+  const res = await fetch(getApiUrl("/api/auth/logout"), {
     method: "POST",
     credentials: "include",
   });

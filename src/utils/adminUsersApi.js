@@ -1,4 +1,4 @@
-import { getApiBaseUrl } from "./runtimeEnv";
+import { getApiBaseUrl, getApiUrl } from "./runtimeEnv";
 
 const base = getApiBaseUrl();
 const isDev = Boolean(import.meta.env.DEV);
@@ -6,13 +6,15 @@ const isDev = Boolean(import.meta.env.DEV);
 function ensureConfig() {
   // Allow relative /api only in local dev (for Vite proxy scenarios).
   if (!base && !isDev) {
-    throw new Error("Missing VITE_API_BASE_URL (or legacy VITE_API_BASE)");
+    throw new Error(
+      "Missing VITE_SCGLAMLIFF_API_BASE_URL (or legacy VITE_API_BASE_URL/VITE_API_BASE)"
+    );
   }
 }
 
 export async function createStaffUser(payload) {
   ensureConfig();
-  const url = `${base}/api/admin/staff-users`;
+  const url = getApiUrl("/api/admin/staff-users");
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -31,7 +33,7 @@ export async function createStaffUser(payload) {
 
 export async function listStaffUsers() {
   ensureConfig();
-  const url = `${base}/api/admin/staff-users`;
+  const url = getApiUrl("/api/admin/staff-users");
   const res = await fetch(url, {
     method: "GET",
     credentials: "include",
@@ -51,7 +53,7 @@ export async function patchStaffUser(id, payload) {
   if (!id) {
     throw new Error("Missing user id");
   }
-  const url = `${base}/api/admin/staff-users/${encodeURIComponent(id)}`;
+  const url = getApiUrl(`/api/admin/staff-users/${encodeURIComponent(id)}`);
   const res = await fetch(url, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },

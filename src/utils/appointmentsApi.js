@@ -1,4 +1,4 @@
-import { getApiBaseUrl } from "./runtimeEnv";
+import { getApiBaseUrl, getApiPrefix, getApiUrl } from "./runtimeEnv";
 
 const base = getApiBaseUrl();
 const isDev = Boolean(import.meta.env.DEV);
@@ -7,13 +7,17 @@ const shouldLogApiBase =
   String(import.meta.env.VITE_LOG_API_BASE || "").trim().toLowerCase() === "true";
 
 if (typeof window !== "undefined" && shouldLogApiBase) {
-  console.info(`[appointmentsApi] VITE_API_BASE_URL=${base || "(missing)"}`);
+  console.info(
+    `[appointmentsApi] apiBase=${base || "(missing)"} apiPrefix=${getApiPrefix()}`
+  );
 }
 
 function ensureConfig() {
   // Allow relative /api only in local dev (for Vite proxy scenarios).
   if (!base && !isDev) {
-    throw new Error("Missing VITE_API_BASE_URL (or legacy VITE_API_BASE)");
+    throw new Error(
+      "Missing VITE_SCGLAMLIFF_API_BASE_URL (or legacy VITE_API_BASE_URL/VITE_API_BASE)"
+    );
   }
 }
 
@@ -37,7 +41,7 @@ export async function appendAppointment(payload, options = {}) {
   if (options?.override !== undefined) {
     bodyPayload.override = options.override;
   }
-  const url = `${base}/api/appointments`;
+  const url = getApiUrl("/api/appointments");
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -63,7 +67,7 @@ export async function getAppointments(limit = 200, signal) {
   const params = new URLSearchParams();
   params.set("source", "appointments");
   params.set("limit", String(limit));
-  const url = `${base}/api/visits?${params.toString()}`;
+  const url = getApiUrl(`/api/visits?${params.toString()}`);
   const res = await fetch(url, { method: "GET", signal });
   const data = await res.json();
   if (!data.ok) {
@@ -80,7 +84,7 @@ export async function getAppointmentsByDate(date, limit = 200, signal) {
   if (date) {
     params.set("date", date);
   }
-  const url = `${base}/api/visits?${params.toString()}`;
+  const url = getApiUrl(`/api/visits?${params.toString()}`);
   const res = await fetch(url, { method: "GET", signal });
   const data = await res.json();
   if (!data.ok) {
@@ -91,7 +95,7 @@ export async function getAppointmentsByDate(date, limit = 200, signal) {
 
 export async function getCustomers(signal) {
   ensureConfig();
-  const url = `${base}/api/customers`;
+  const url = getApiUrl("/api/customers");
   const res = await fetch(url, { method: "GET", signal });
   const data = await res.json();
   if (!data.ok) {
@@ -105,7 +109,7 @@ export async function getCustomerProfile(customerId, signal) {
   if (!customerId) {
     throw new Error("Missing customer id");
   }
-  const url = `${base}/api/customers/${encodeURIComponent(customerId)}/profile`;
+  const url = getApiUrl(`/api/customers/${encodeURIComponent(customerId)}/profile`);
   const res = await fetch(url, { method: "GET", signal });
   const data = await res.json();
   if (!data.ok) {
@@ -119,7 +123,9 @@ export async function ensureAppointmentFromSheet(sheetUuid, signal) {
   if (!sheetUuid) {
     throw new Error("Missing sheet UUID");
   }
-  const url = `${base}/api/appointments/from-sheet/${encodeURIComponent(sheetUuid)}/ensure`;
+  const url = getApiUrl(
+    `/api/appointments/from-sheet/${encodeURIComponent(sheetUuid)}/ensure`
+  );
   const res = await fetch(url, {
     method: "POST",
     credentials: "include",
@@ -134,7 +140,7 @@ export async function ensureAppointmentFromSheet(sheetUuid, signal) {
 
 async function postAppointmentAction(path, payload, signal) {
   ensureConfig();
-  const url = `${base}${path}`;
+  const url = getApiUrl(path);
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -206,7 +212,7 @@ export async function revertService(appointmentId, signal) {
 
 export async function deleteSheetVisit(id, pin, reason = "") {
   ensureConfig();
-  const url = `${base}/api/sheet-visits/${encodeURIComponent(id)}/delete`;
+  const url = getApiUrl(`/api/sheet-visits/${encodeURIComponent(id)}/delete`);
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -222,7 +228,7 @@ export async function deleteSheetVisit(id, pin, reason = "") {
 
 export async function adminBackdate(payload, signal) {
   ensureConfig();
-  const url = `${base}/api/appointments/admin/backdate`;
+  const url = getApiUrl("/api/appointments/admin/backdate");
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -240,7 +246,7 @@ export async function adminBackdate(payload, signal) {
 export async function getAdminAppointmentById(appointmentId, signal) {
   ensureConfig();
   if (!appointmentId) throw new Error("Missing appointment id");
-  const url = `${base}/api/admin/appointments/${encodeURIComponent(appointmentId)}`;
+  const url = getApiUrl(`/api/admin/appointments/${encodeURIComponent(appointmentId)}`);
   const res = await fetch(url, {
     method: "GET",
     credentials: "include",
@@ -256,7 +262,7 @@ export async function getAdminAppointmentById(appointmentId, signal) {
 export async function patchAdminAppointment(appointmentId, payload, signal) {
   ensureConfig();
   if (!appointmentId) throw new Error("Missing appointment id");
-  const url = `${base}/api/admin/appointments/${encodeURIComponent(appointmentId)}`;
+  const url = getApiUrl(`/api/admin/appointments/${encodeURIComponent(appointmentId)}`);
   const res = await fetch(url, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -285,7 +291,7 @@ export async function getAppointmentsQueue({ date, branchId, limit = 200 } = {},
   if (date) params.set("date", date);
   if (branchId) params.set("branch_id", branchId);
   params.set("limit", String(limit));
-  const url = `${base}/api/appointments/queue?${params.toString()}`;
+  const url = getApiUrl(`/api/appointments/queue?${params.toString()}`);
   const res = await fetch(url, {
     method: "GET",
     credentials: "include",
@@ -315,7 +321,7 @@ export async function getAppointmentsQueue({ date, branchId, limit = 200 } = {},
 
 export async function getBookingTreatmentOptions(signal) {
   ensureConfig();
-  const url = `${base}/api/appointments/booking-options`;
+  const url = getApiUrl("/api/appointments/booking-options");
   const res = await fetch(url, {
     method: "GET",
     credentials: "include",
@@ -337,7 +343,7 @@ export async function getCalendarDays({ from, to, branchId } = {}, signal) {
   params.set("from", from);
   params.set("to", to);
   if (branchId) params.set("branch_id", branchId);
-  const url = `${base}/api/appointments/calendar-days?${params.toString()}`;
+  const url = getApiUrl(`/api/appointments/calendar-days?${params.toString()}`);
   const res = await fetch(url, {
     method: "GET",
     credentials: "include",

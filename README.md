@@ -12,8 +12,8 @@ npm ci
 ```
 
 ## Environment
-This project uses `VITE_API_BASE_URL` as the primary frontend API base.
-Legacy `VITE_API_BASE` is still supported as fallback for compatibility.
+This project uses `VITE_SCGLAMLIFF_API_BASE_URL` and `VITE_SCGLAMLIFF_API_PREFIX` as the primary frontend API target.
+Legacy `VITE_API_BASE_URL` and `VITE_API_BASE` are still supported as base URL fallbacks for compatibility.
 In production, the static frontend URL must not be used as API base unless `/api` rewrite is intentionally configured.
 
 ### Env files
@@ -23,7 +23,9 @@ In production, the static frontend URL must not be used as API base unless `/api
 - `.env.production`: production placeholders
 
 ### Frontend env vars
-- `VITE_API_BASE_URL`: backend base URL used by frontend API clients
+- `VITE_SCGLAMLIFF_API_BASE_URL`: backend base URL used by frontend API clients
+- `VITE_SCGLAMLIFF_API_PREFIX`: backend API namespace, usually `/api/scglamliff` on the shared backend
+- `VITE_API_BASE_URL`: legacy backend base URL fallback
 - `VITE_API_BASE`: legacy alias (optional)
 - `VITE_ALLOW_SAME_ORIGIN_API`: set `true` only if static-site `/api/*` rewrite to backend is intentionally configured
 - `VITE_LOG_API_BASE`: optional API base logging in browser console
@@ -32,8 +34,9 @@ In production, the static frontend URL must not be used as API base unless `/api
 
 ### Render production rule
 - Static site URL (example): `https://<frontend>.onrender.com`
-- Backend web service URL (example): `https://<backend>.onrender.com`
-- Set `VITE_API_BASE_URL` to the backend URL, not the static URL.
+- Shared backend web service URL: `https://sc-official-website.onrender.com`
+- Set `VITE_SCGLAMLIFF_API_BASE_URL=https://sc-official-website.onrender.com`.
+- Set `VITE_SCGLAMLIFF_API_PREFIX=/api/scglamliff`.
 - If you intentionally use single-domain `/api` through Render Rewrite, set:
   - Rewrite: `/api/*` -> `https://<backend>.onrender.com/api/:splat`
   - `VITE_ALLOW_SAME_ORIGIN_API=true`
@@ -76,6 +79,7 @@ http://localhost:5173
 Default local FE/BE pairing from `.env.development`:
 - Frontend: `http://localhost:5173`
 - API base: `http://localhost:5050`
+- API prefix: `/api`
 
 Notes:
 - Backend CORS now allows localhost origins with any port in non-production mode (for example `5173`, `5174`, `4173`).
