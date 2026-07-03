@@ -206,6 +206,10 @@ export default function Bookingpage() {
       completed = true;
     } catch (err) {
       if (err?.name === "AbortError") return;
+      if (err?.status === 401) {
+        window.location.replace("/#/login");
+        return;
+      }
       setError(err?.message || "Error loading appointments");
       setRows([]);
       completed = true;
@@ -230,6 +234,8 @@ export default function Bookingpage() {
       if (!alive) return;
       if (result.ok) {
         setMe(result.data);
+      } else {
+        window.location.replace("/#/login");
       }
     };
     run();
@@ -288,6 +294,10 @@ export default function Bookingpage() {
       } catch (err) {
         if (err?.name === "AbortError") return;
         if (!alive) return;
+        if (err?.status === 401) {
+          window.location.replace("/#/login");
+          return;
+        }
         const fallback = buildFallbackTreatmentOptions();
         setTreatmentOptions(fallback);
         setTreatmentItem((prev) =>
@@ -716,6 +726,10 @@ export default function Bookingpage() {
       setStatusMode("success");
       await loadAppointments();
     } catch (err) {
+      if (err?.status === 401) {
+        window.location.replace("/#/login");
+        return;
+      }
       setSubmitError(err?.message || "บันทึกไม่สำเร็จ");
       setStatusMode("error");
     } finally {

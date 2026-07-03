@@ -50,7 +50,9 @@ export async function appendAppointment(payload, options = {}) {
   });
   const data = await res.json();
   if (!data.ok) {
-    throw new Error(data.error || "Server returned error");
+    const error = new Error(data.error || "Server returned error");
+    error.status = res.status;
+    throw error;
   }
   return data;
 }

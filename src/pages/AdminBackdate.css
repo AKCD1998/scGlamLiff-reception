@@ -1,5 +1,15 @@
+.workbench-body.abd-page {
+  grid-template-rows: auto;
+  align-content: start;
+}
+
 .abd-panel {
-  padding: 22px;
+  background: #e8d4b8;
+  padding: 28px 32px;
+}
+
+body[data-theme="dark"] .abd-panel {
+  background: #211c14;
 }
 
 .abd-warning {

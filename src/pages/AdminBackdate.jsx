@@ -244,8 +244,8 @@ export default function AdminBackdate({ currentUser }) {
   };
 
   return (
-    <section className="workbench-body">
-      <div className="panel abd-panel" style={{ gridColumn: "1 / -1" }}>
+    <section className="workbench-body abd-page">
+      <div className="panel abd-panel">
         <div className="panel-title">
           <span>Backdate Appointment</span>
           <strong>Admin only</strong>

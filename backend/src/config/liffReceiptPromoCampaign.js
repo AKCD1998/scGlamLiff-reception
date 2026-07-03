@@ -6,7 +6,7 @@ const LIFF_RECEIPT_PROMO_TREATMENT_TITLE_TH = 'โปรโมชั่นพิ
 const LIFF_RECEIPT_PROMO_TREATMENT_TITLE_EN = 'Special Receipt Promo 900+';
 const LIFF_RECEIPT_PROMO_DURATION_MIN = 60;
 const LIFF_RECEIPT_PROMO_ACTIVE_FROM = '2026-03-23T00:00:00+07:00';
-const LIFF_RECEIPT_PROMO_ACTIVE_UNTIL = '2026-06-30T23:59:59.999+07:00';
+const LIFF_RECEIPT_PROMO_ACTIVE_UNTIL = null;
 
 function normalizeText(value) {
   if (value === null || value === undefined) return '';
@@ -14,6 +14,9 @@ function normalizeText(value) {
 }
 
 function buildPromoDate(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
     throw new Error(`Invalid promo datetime: ${value}`);
@@ -44,7 +47,7 @@ export function isLiffReceiptPromoActive(now = new Date()) {
 
   return (
     currentDate.getTime() >= ACTIVE_FROM_DATE.getTime() &&
-    currentDate.getTime() <= ACTIVE_UNTIL_DATE.getTime()
+    (ACTIVE_UNTIL_DATE === null || currentDate.getTime() <= ACTIVE_UNTIL_DATE.getTime())
   );
 }
 
